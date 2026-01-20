@@ -141,6 +141,9 @@ def query_server(
             if is_openai_reasoning:
                 if reasoning_effort:
                     completion_kwargs["reasoning_effort"] = reasoning_effort
+                    # For NVIDIA NIM, we need to explicitly allow this parameter in LiteLLM if it's supported by the model
+                    if "nvidia_nim/" in model_name.lower():
+                        completion_kwargs["allowed_openai_params"] = ["reasoning_effort"]
             else:
                 # Other reasoning models (DeepSeek R1, Claude 3.7) support/benefit from temperature
                 completion_kwargs["temperature"] = temperature
