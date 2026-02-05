@@ -33,6 +33,7 @@ dependencies = [
     # LLM providers
     "openai",
     "litellm[proxy]",
+    "aideml",
 ]
 
 [project.optional-dependencies]
@@ -56,3 +57,6 @@ include = ["kernelbench*"]
 
 [tool.setuptools.package-data]
 kernelbench = ["prompts/**/*"]
+
+[tool.uv.sources]
+aideml = { path = "./aideml", editable = true }

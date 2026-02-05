@@ -1,0 +1,3 @@
+[submodule "aideml"]
+	path = aideml
+	url = https://github.com/Kelvin0110/aideml.git
