@@ -17,6 +17,8 @@ from kernelbench.utils import (
     set_gpu_arch,
 )
 from kernelbench.kernel_static_checker import validate_kernel_static
+import warnings
+warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
 """
 Batch Generate Samples for Particular Level

@@ -13,3 +13,14 @@ cache/*
 _build_cache/
 uv.lock
 CLAUDE.md
+analysis
+*.log
+*.sh
+TUTORIAL.md
+
+# log files
+logs/
+
+# related files for aideml
+workspaces/
+integration_test_task/

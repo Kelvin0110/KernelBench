@@ -33,6 +33,10 @@ def compile_single_sample(work_args: WorkArgs, config: dict) -> tuple[bool, str]
     verbose = config["verbose"]
     
     utils.set_gpu_arch(config["gpu_arch"])
+    
+    # Limit ninja to use 1 job per worker to avoid cpu over-subscription/throttling
+    # dealing with "os.getcwd(): No such file or directory" error caused by timeout
+    os.environ["MAX_JOBS"] = "1"
 
     build_dir = os.path.join(config["kernel_eval_build_dir"], config["run_name"], str(problem_id), str(sample_id))
 
