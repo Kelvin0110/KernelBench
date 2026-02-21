@@ -3,6 +3,7 @@ import aide
 import logging
 import shutil
 import time
+import argparse
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 
@@ -79,19 +80,24 @@ def run_benchmark(kernel_source_code):
     return task_prompt
 
 def main():
+    parser = argparse.ArgumentParser(description="AIDE + KernelBench Integration")
+    parser.add_argument("-l", "--level", type=int, default=1, help="KernelBench problem level (1-4)")
+    parser.add_argument("-i", "--problem_id", type=int, default=1, help="Problem ID within the level")
+    parser.add_argument("-s", "--steps", type=int, default=500, help="Maximum search nodes/steps")
+    parser.add_argument("-t", "--hours", type=float, default=24.0, help="Maximum execution time in hours")
+    args = parser.parse_args()
+
     # Setup logging as recommended by AIDE
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("aide")
     logger.setLevel(logging.INFO)
 
-    task_dir = "integration_test_task"
-    level = 1
-    problem_id = 1
+    task_dir = f"integration_test_task_L{args.level}_P{args.problem_id}"
     
     # Setup environment and get the official prompt
-    prompt_desc = setup_integration_env(task_dir, level=level, problem_id=problem_id)
+    prompt_desc = setup_integration_env(task_dir, level=args.level, problem_id=args.problem_id)
 
-    print("--- Starting AIDE + KernelBench Integration Test ---")
+    print(f"--- Starting AIDE + KernelBench Integration Test (Level {args.level}, ID {args.problem_id}) ---")
     
     # Define a goal that points to the harness
     # We augment the KernelBench prompt with specific instructions for the Agent
@@ -131,8 +137,8 @@ INSTRUCTIONS FOR AGENT:
     exp.cfg.agent.feedback.model = "openai/gpt-oss-120b"
 
     # Settings for the test run
-    max_steps = 500
-    max_hours = 24
+    max_steps = args.steps
+    max_hours = args.hours
     start_time = time.time()
 
     print(f"Running AIDE (Max {max_steps} nodes/steps, {max_hours} hours)...")
