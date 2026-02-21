@@ -2,6 +2,7 @@ import os
 import aide
 import logging
 import shutil
+import time
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 
@@ -126,18 +127,45 @@ INSTRUCTIONS FOR AGENT:
         eval="KERNEL_BENCH_SPEEDUP" 
     )
 
-    exp.cfg.agent.code.model = "nvdev/openai/gpt-oss-120b"
-    exp.cfg.agent.feedback.model = "nvdev/openai/gpt-oss-120b"
+    exp.cfg.agent.code.model = "openai/gpt-oss-120b"
+    exp.cfg.agent.feedback.model = "openai/gpt-oss-120b"
 
-    # Run for steps
-    print("Running AIDE...")
+    # Settings for the test run
+    max_steps = 500
+    max_hours = 24
+    start_time = time.time()
+
+    print(f"Running AIDE (Max {max_steps} nodes/steps, {max_hours} hours)...")
     try:
-        best_solution = exp.run(steps=3)
+        # Loop iteration to respect both time and node limits
+        for i in range(max_steps):
+            elapsed_hours = (time.time() - start_time) / 3600
+            if elapsed_hours >= max_hours:
+                print(f"Time limit reached ({max_hours} hours). Stopping.")
+                break
+            
+            print(f"\n--- Node {i+1}/{max_steps} (Elapsed: {elapsed_hours:.2f}h) ---")
+            exp.agent.step(exec_callback=exp.interpreter.run)
+            
+            # Save progress after each node
+            from aide.utils.config import save_run
+            save_run(exp.cfg, exp.journal)
+        
+        # Final cleanup and retrieval of findings
+        exp.interpreter.cleanup_session()
+        best_node = exp.journal.get_best_node(only_good=False)
+
         print("\n--- Integration Test Complete ---")
-        print(f"Best Speedup: {best_solution.valid_metric}")
-        print("Best Code Snippet (Head):")
-        print(best_solution.code[:200] + "...")
+        if best_node and best_node.metric:
+            print(f"Best Speedup: {best_node.metric.value}")
+            print("Best Code Snippet (Head):")
+            print(best_node.code[:200] + "...")
+        else:
+            print("No solutions found.")
+
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Experiment failed: {e}")
 
 if __name__ == "__main__":
