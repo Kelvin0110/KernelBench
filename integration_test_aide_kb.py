@@ -4,6 +4,9 @@ import logging
 import shutil
 import time
 import argparse
+import signal
+import sys
+import atexit
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 
@@ -133,6 +136,19 @@ INSTRUCTIONS FOR AGENT:
         eval="KERNEL_BENCH_SPEEDUP" 
     )
 
+    # Ensure all sub-processes (Interpreter) are killed when the main script exits/crashes
+    def cleanup():
+        print("\n--- Cleaning up Interpreter session... ---")
+        try:
+            exp.interpreter.cleanup_session()
+        except:
+            pass
+    
+    atexit.register(cleanup)
+    # Signal handlers to allow graceful exit on Ctrl+C or kill
+    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+
     exp.cfg.agent.code.model = "openai/gpt-oss-120b"
     exp.cfg.agent.feedback.model = "openai/gpt-oss-120b"
 
@@ -143,6 +159,7 @@ INSTRUCTIONS FOR AGENT:
 
     print(f"Running AIDE (Max {max_steps} nodes/steps, {max_hours} hours)...")
     try:
+        from aide.utils.config import save_run
         # Loop iteration to respect both time and node limits
         for i in range(max_steps):
             elapsed_hours = (time.time() - start_time) / 3600
@@ -151,11 +168,20 @@ INSTRUCTIONS FOR AGENT:
                 break
             
             print(f"\n--- Node {i+1}/{max_steps} (Elapsed: {elapsed_hours:.2f}h) ---")
-            exp.agent.step(exec_callback=exp.interpreter.run)
-            
-            # Save progress after each node
-            from aide.utils.config import save_run
-            save_run(exp.cfg, exp.journal)
+            try:
+                exp.agent.step(exec_callback=exp.interpreter.run)
+                # Save progress after EACH successful node
+                save_run(exp.cfg, exp.journal)
+            except Exception as e:
+                print(f"Node execution or save failed: {e}. Skipping code generation for this node..")
+                import traceback
+                traceback.print_exc()
+                # We still try to save if it's an agent error, maybe it was a transient API bug
+                try:
+                    save_run(exp.cfg, exp.journal)
+                except:
+                    pass
+                continue
         
         # Final cleanup and retrieval of findings
         exp.interpreter.cleanup_session()
