@@ -67,7 +67,7 @@ def get_completed_problems(run_name):
         print(f"Error reading {eval_results_file}: {e}")
     return completed
 
-def run_single_problem(problem_id, level, run_name, gpu_id, steps, hours):
+def run_single_problem(problem_id, level, run_name, gpu_id, steps, hours, code_model=None, feedback_model=None):
     print(f"Starting Level {level} Problem {problem_id} on GPU {gpu_id}")
     
     # Create log directory
@@ -87,11 +87,11 @@ def run_single_problem(problem_id, level, run_name, gpu_id, steps, hours):
         "--steps", str(steps),
         "--hours", str(hours)
     ]
-    # Pass model selection through if present in config
-    if hasattr(config, 'code_model') and config.code_model:
-        cmd.extend(["--code_model", str(config.code_model)])
-    if hasattr(config, 'feedback_model') and config.feedback_model:
-        cmd.extend(["--feedback_model", str(config.feedback_model)])
+    # Pass model selection through
+    if code_model:
+        cmd.extend(["--code_model", str(code_model)])
+    if feedback_model:
+        cmd.extend(["--feedback_model", str(feedback_model)])
     
     try:
         with open(log_file, "w") as f:
@@ -164,7 +164,9 @@ def main(config: BatchAideConfig):
                     config.run_name,
                     gpu_id,
                     config.steps,
-                    config.hours
+                    config.hours,
+                    config.code_model,
+                    config.feedback_model
                 )
             )
             
