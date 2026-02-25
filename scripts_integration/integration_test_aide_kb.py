@@ -127,6 +127,9 @@ def main():
     parser.add_argument("-s", "--steps", type=int, default=500, help="Maximum search nodes/steps")
     parser.add_argument("-t", "--hours", type=float, default=24.0, help="Maximum execution time in hours")
     parser.add_argument("-r", "--run_name", type=str, default="default_run", help="Name of the run for saving results")
+    parser.add_argument("-m", "--model", type=str, default=None, help="(shorthand) set both code and feedback models")
+    parser.add_argument("-c", "--code_model", type=str, default=None, help="Model to use for code generation (overrides --model)")
+    parser.add_argument("-f", "--feedback_model", type=str, default=None, help="Model to use for feedback (overrides --model)")
     args = parser.parse_args()
 
     # Setup logging as recommended by AIDE
@@ -206,8 +209,13 @@ INSTRUCTIONS FOR AGENT:
     signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
 
-    exp.cfg.agent.code.model = "openai/gpt-oss-120b"
-    exp.cfg.agent.feedback.model = "openai/gpt-oss-120b"
+    # Resolve model selection: explicit flags take precedence, then --model, then default
+    default_model = "openai/gpt-oss-120b"
+    code_model = args.code_model or args.model or default_model
+    feedback_model = args.feedback_model or args.model or default_model
+
+    exp.cfg.agent.code.model = code_model
+    exp.cfg.agent.feedback.model = feedback_model
 
     # Settings for the test run
     max_steps = args.steps

@@ -47,6 +47,9 @@ class BatchAideConfig(Config):
         self.problem_ids = None # List of specific problem IDs
         self.steps = 500 # Max steps for AIDE
         self.hours = 24.0 # Max hours for AIDE
+        # Model selection to pass through to worker processes
+        self.code_model = "openai/gpt-oss-120b"
+        self.feedback_model = "openai/gpt-oss-120b"
 
 def get_completed_problems(run_name):
     eval_results_file = Path(f"run_integration/{run_name}/eval_results.json")
@@ -84,6 +87,11 @@ def run_single_problem(problem_id, level, run_name, gpu_id, steps, hours):
         "--steps", str(steps),
         "--hours", str(hours)
     ]
+    # Pass model selection through if present in config
+    if hasattr(config, 'code_model') and config.code_model:
+        cmd.extend(["--code_model", str(config.code_model)])
+    if hasattr(config, 'feedback_model') and config.feedback_model:
+        cmd.extend(["--feedback_model", str(config.feedback_model)])
     
     try:
         with open(log_file, "w") as f:
