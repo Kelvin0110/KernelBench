@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import subprocess
 import concurrent.futures
@@ -167,6 +168,10 @@ def main(config: BatchAideConfig):
     with concurrent.futures.ThreadPoolExecutor(max_workers=config.num_workers) as executor:
         futures = []
         for i, problem_id in enumerate(pending_problems):
+            # Optional: stagger worker startup (5s) to avoid simultaneous PyTorch/CUDA/Disk IO spikes
+            if i > 0:
+                time.sleep(5.0)
+            
             gpu_id = gpus[i % len(gpus)]
             futures.append(
                 executor.submit(
