@@ -8,7 +8,6 @@ import signal
 import sys
 import atexit
 import json
-import torch
 from collections import defaultdict
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
@@ -272,6 +271,7 @@ INSTRUCTIONS FOR AGENT:
             problem = dataset.get_problem_by_id(args.problem_id)
             
             try:
+                import torch
                 eval_result = eval_kernel_against_ref(
                     original_model_src=problem.code,
                     custom_model_src=best_node.code,

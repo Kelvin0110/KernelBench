@@ -16,16 +16,27 @@ active_processes = []
 
 def cleanup_subprocesses():
     """Kill all active subprocesses when the main script exits."""
-    for p in active_processes:
+    # Use a local copy to avoid "list changed during iteration" errors
+    to_kill = list(active_processes)
+    for p in to_kill:
         try:
             if p.poll() is None:  # Process is still running
+                print(f"Terminating child PID {p.pid}...")
                 p.terminate()
-                p.wait(timeout=2)
         except Exception:
-            try:
+            pass
+
+    # Give them a short time to exit gracefully
+    if to_kill:
+        time.sleep(0.5)
+
+    for p in to_kill:
+        try:
+            if p.poll() is None:
+                print(f"Killing child PID {p.pid}...")
                 p.kill()
-            except:
-                pass
+        except:
+            pass
 
 atexit.register(cleanup_subprocesses)
 
@@ -36,6 +47,7 @@ def signal_handler(sig, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGHUP, signal_handler)
 
 class BatchAideConfig(Config):
     def __init__(self):
