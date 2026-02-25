@@ -25,3 +25,4 @@ logs/
 # related files for aideml
 workspaces/
 integration_test_task*/
+run_integration/*
