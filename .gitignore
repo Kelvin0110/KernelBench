@@ -17,6 +17,7 @@ analysis
 *.log
 *.sh
 TUTORIAL.md
+.github/
 
 # log files
 logs/

@@ -7,8 +7,46 @@ import argparse
 import signal
 import sys
 import atexit
+import json
+import torch
+from collections import defaultdict
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
+from kernelbench.eval import check_metadata_serializable_all_types, eval_kernel_against_ref, KernelExecResult
+
+def add_to_eval_results_file(
+    problem_id: int, sample_id: int, eval_result: KernelExecResult, eval_file_path: str
+):
+    """
+    Add evaluation result to eval results file
+    """
+    # Load existing results if file exists
+    if os.path.exists(eval_file_path):
+        with open(eval_file_path, "r") as f:
+            eval_results = json.load(f)
+            eval_results = defaultdict(lambda: [], eval_results)
+    else:
+        eval_results = defaultdict(lambda: [])
+
+    # Add new result
+    eval_results[str(problem_id)].append(
+        {
+            "sample_id": sample_id,
+            "compiled": eval_result.compiled,
+            "correctness": eval_result.correctness,
+            "metadata": check_metadata_serializable_all_types(eval_result.metadata),
+            "runtime": eval_result.runtime,
+            "runtime_stats": eval_result.runtime_stats,
+        }
+    )
+
+    # Write updated results back to file (sorted by numeric key)
+    if not os.path.exists(eval_file_path):
+        os.makedirs(os.path.dirname(eval_file_path), exist_ok=True)
+
+    sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
+    with open(eval_file_path, "w") as f:
+        json.dump(sorted_results, f, indent=4)
 
 def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", precision="fp32"):
     """Sets up a directory with a harness that uses kernelbench utilities."""
@@ -88,6 +126,7 @@ def main():
     parser.add_argument("-i", "--problem_id", type=int, default=1, help="Problem ID within the level")
     parser.add_argument("-s", "--steps", type=int, default=500, help="Maximum search nodes/steps")
     parser.add_argument("-t", "--hours", type=float, default=24.0, help="Maximum execution time in hours")
+    parser.add_argument("-r", "--run_name", type=str, default="default_run", help="Name of the run for saving results")
     args = parser.parse_args()
 
     # Setup logging as recommended by AIDE
@@ -95,7 +134,7 @@ def main():
     logger = logging.getLogger("aide")
     logger.setLevel(logging.INFO)
 
-    task_dir = f"integration_test_task_L{args.level}_P{args.problem_id}"
+    task_dir = f"integration_test_tasks/L{args.level}_P{args.problem_id}"
     
     # Setup environment and get the official prompt
     prompt_desc = setup_integration_env(task_dir, level=args.level, problem_id=args.problem_id)
@@ -120,10 +159,10 @@ INSTRUCTIONS FOR AGENT:
    
    # At the very end, read your own source code (or pass it as string) to the validator
    # optimization: pass the current file's content
-   with open(__file__, 'r') as f:
-       my_code = f.read()
-       
-   kb_harness.run_benchmark(my_code)
+   if __name__ == "__main__":
+       with open(__file__, 'r') as f:
+           my_code = f.read()
+       kb_harness.run_benchmark(my_code)
 
 5. Maximise the metric 'KERNEL_BENCH_SPEEDUP'. If it is 0, fix the correctness bugs.
 """
@@ -133,7 +172,9 @@ INSTRUCTIONS FOR AGENT:
     exp = aide.Experiment(
         data_dir=task_dir,
         goal=goal,
-        eval="KERNEL_BENCH_SPEEDUP" 
+        eval="KERNEL_BENCH_SPEEDUP",
+        exp_name=args.run_name,
+        workspace_dir="run_integration"
     )
 
     # Ensure all sub-processes (Interpreter) are killed when the main script exits/crashes
@@ -192,6 +233,43 @@ INSTRUCTIONS FOR AGENT:
             print(f"Best Speedup: {best_node.metric.value}")
             print("Best Code Snippet (Head):")
             print(best_node.code[:200] + "...")
+            
+            # Save the best solution
+            run_dir = os.path.join("run_integration", args.run_name)
+            os.makedirs(run_dir, exist_ok=True)
+            kernel_file_path = os.path.join(run_dir, f"level_{args.level}_problem_{args.problem_id}_sample_0_kernel.py")
+            with open(kernel_file_path, "w") as f:
+                f.write(best_node.code)
+            print(f"Saved best kernel to {kernel_file_path}")
+            
+            # Evaluate the best solution
+            print("Evaluating best kernel against reference...")
+            dataset = construct_kernelbench_dataset(level=args.level, source="local")
+            problem = dataset.get_problem_by_id(args.problem_id)
+            
+            try:
+                eval_result = eval_kernel_against_ref(
+                    original_model_src=problem.code,
+                    custom_model_src=best_node.code,
+                    measure_performance=True,
+                    timing_method="cuda_event",
+                    verbose=False,
+                    num_correct_trials=5,
+                    num_perf_trials=100,
+                    build_dir=os.path.join("cache", args.run_name, str(args.problem_id), "0"),
+                    device=torch.device("cuda:0"),
+                    backend="cuda",
+                    precision=torch.float32
+                )
+                
+                if eval_result:
+                    eval_file_path = os.path.join(run_dir, "eval_results.json")
+                    add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
+                    print(f"Saved evaluation results to {eval_file_path}")
+            except Exception as e:
+                print(f"Final evaluation failed: {e}")
+                import traceback
+                traceback.print_exc()
         else:
             print("No solutions found.")
 
