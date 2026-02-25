@@ -134,7 +134,7 @@ def main():
     logger = logging.getLogger("aide")
     logger.setLevel(logging.INFO)
 
-    task_dir = f"integration_test_tasks/L{args.level}_P{args.problem_id}"
+    task_dir = f"integration_test_tasks/L{args.level}/P{args.problem_id}"
     
     # Setup environment and get the official prompt
     prompt_desc = setup_integration_env(task_dir, level=args.level, problem_id=args.problem_id)
@@ -173,17 +173,33 @@ INSTRUCTIONS FOR AGENT:
         data_dir=task_dir,
         goal=goal,
         eval="KERNEL_BENCH_SPEEDUP",
-        exp_name=args.run_name,
-        workspace_dir="run_integration"
+        exp_name=f"level_{args.level}_problem_{args.problem_id}",
+        workspace_dir=os.path.join("run_integration", args.run_name, "workspaces"),
+        log_dir=os.path.join("run_integration", args.run_name, "logs")
     )
 
     # Ensure all sub-processes (Interpreter) are killed when the main script exits/crashes
     def cleanup():
-        print("\n--- Cleaning up Interpreter session... ---")
+        print("\n--- Cleaning up Interpreter session and workspaces... ---")
         try:
             exp.interpreter.cleanup_session()
         except:
             pass
+        
+        # Clean up the task directory
+        try:
+            if os.path.exists(task_dir):
+                shutil.rmtree(task_dir)
+        except Exception as e:
+            print(f"Failed to clean up task directory {task_dir}: {e}")
+            
+        # Clean up the AIDE workspace directory
+        workspace_path = os.path.join("run_integration", args.run_name, "workspaces", f"level_{args.level}_problem_{args.problem_id}")
+        try:
+            if os.path.exists(workspace_path):
+                shutil.rmtree(workspace_path)
+        except Exception as e:
+            print(f"Failed to clean up workspace directory {workspace_path}: {e}")
     
     atexit.register(cleanup)
     # Signal handlers to allow graceful exit on Ctrl+C or kill

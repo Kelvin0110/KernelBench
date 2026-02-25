@@ -7,6 +7,35 @@ from pydra import Config, REQUIRED
 import pydra
 from kernelbench.dataset import construct_kernelbench_dataset
 from tqdm import tqdm
+import signal
+import sys
+import atexit
+
+# Global list to keep track of active subprocesses
+active_processes = []
+
+def cleanup_subprocesses():
+    """Kill all active subprocesses when the main script exits."""
+    for p in active_processes:
+        try:
+            if p.poll() is None:  # Process is still running
+                p.terminate()
+                p.wait(timeout=2)
+        except Exception:
+            try:
+                p.kill()
+            except:
+                pass
+
+atexit.register(cleanup_subprocesses)
+
+def signal_handler(sig, frame):
+    print("\nReceived termination signal. Cleaning up subprocesses...")
+    cleanup_subprocesses()
+    sys.exit(1)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 class BatchAideConfig(Config):
     def __init__(self):
@@ -39,7 +68,7 @@ def run_single_problem(problem_id, level, run_name, gpu_id, steps, hours):
     print(f"Starting Level {level} Problem {problem_id} on GPU {gpu_id}")
     
     # Create log directory
-    log_dir = Path(f"run_integration/{run_name}/logs")
+    log_dir = Path(f"run_integration/{run_name}/logs/level_{level}_problem_{problem_id}")
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"L{level}_P{problem_id}.log"
     
@@ -58,18 +87,25 @@ def run_single_problem(problem_id, level, run_name, gpu_id, steps, hours):
     
     try:
         with open(log_file, "w") as f:
-            process = subprocess.run(
+            process = subprocess.Popen(
                 cmd,
                 env=env,
                 stdout=f,
                 stderr=subprocess.STDOUT,
                 text=True
             )
+            active_processes.append(process)
+            
+            # Wait for the process to complete
+            returncode = process.wait()
+            
+            if process in active_processes:
+                active_processes.remove(process)
         
-        if process.returncode == 0:
+        if returncode == 0:
             print(f"Successfully completed Level {level} Problem {problem_id}")
         else:
-            print(f"Failed Level {level} Problem {problem_id} with return code {process.returncode}")
+            print(f"Failed Level {level} Problem {problem_id} with return code {returncode}")
             
     except Exception as e:
         print(f"Error running Level {level} Problem {problem_id}: {e}")
