@@ -11,14 +11,12 @@ import json
 from collections import defaultdict
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
-from kernelbench.eval import check_metadata_serializable_all_types, eval_kernel_against_ref, KernelExecResult
 
-def add_to_eval_results_file(
-    problem_id: int, sample_id: int, eval_result: KernelExecResult, eval_file_path: str
-):
+def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path):
     """
     Add evaluation result to eval results file
     """
+    from kernelbench.eval import check_metadata_serializable_all_types
     # Load existing results if file exists
     if os.path.exists(eval_file_path):
         with open(eval_file_path, "r") as f:
@@ -91,7 +89,7 @@ def run_benchmark(kernel_source_code):
             problem.code,
             kernel_source_code,
             backend="{backend}",
-            precision="{precision}",
+            precision=kb_eval.get_torch_dtype_from_string("{precision}"),
             measure_performance=True
         )
 
@@ -272,6 +270,7 @@ INSTRUCTIONS FOR AGENT:
             
             try:
                 import torch
+                from kernelbench.eval import eval_kernel_against_ref
                 eval_result = eval_kernel_against_ref(
                     original_model_src=problem.code,
                     custom_model_src=best_node.code,
