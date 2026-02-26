@@ -3,6 +3,7 @@ import time
 import json
 import subprocess
 import threading
+import queue
 from pathlib import Path
 from pydra import Config, REQUIRED
 import pydra
@@ -168,83 +169,82 @@ def main(config: BatchAideConfig):
     print(f"Found {len(completed_problems)} completed problems: {completed_problems}")
     
     pending_problems = [p for p in problems_to_run if p not in completed_problems]
-    print(f"Pending problems to run: {len(pending_problems)}")
-    
     # temp
     pending_problems = pending_problems[:10]
+    print(f"Pending problems to run: {len(pending_problems)}")
+    
 
     if not pending_problems:
         print("All problems completed!")
         return
-        
+
     gpus = [g.strip() for g in str(config.gpus).split(",")]
     if not gpus:
         gpus = ["0"]
 
-    # Semaphore limits how many workers run concurrently
-    semaphore = threading.Semaphore(config.num_workers)
-    threads = []
+    # Fill the work queue with all pending problems
+    problem_queue = queue.Queue()
+    for pid in pending_problems:
+        problem_queue.put(pid)
+
     pbar = tqdm(total=len(pending_problems), desc=f"Level {config.level} Batch Run ({config.run_name})")
 
-    # Track which slot indices (0..num_workers-1) are currently free
-    # so each new worker gets a slot-local stagger, not a global one.
-    slot_lock = threading.Lock()
-    free_slots = list(range(config.num_workers))  # e.g. [0, 1, 2, 3] for 4 workers
-    stagger_secs = 3  # delay per slot index within a batch
+    # Rate limiter: ensures at least stagger_secs between any two process starts,
+    # regardless of how many workers finish at the same time.
+    stagger_secs = 5
+    start_rate_lock = threading.Lock()
+    last_start_time = [0.0]  # list so the closure can mutate it
 
-    def worker(problem_id, gpu_id):
-        with semaphore:
-            # Grab the lowest available slot index for this batch
-            with slot_lock:
-                slot_index = free_slots.pop(0)
-
+    def worker_loop(worker_id):
+        gpu_id = gpus[worker_id % len(gpus)]
+        while not is_shutting_down:
             try:
-                if is_shutting_down:
-                    if pbar:
-                        pbar.update(1)
-                    return
-                # Stagger within the current batch only.
-                # slot_index resets to a low number each time a slot is freed,
-                # so the 100th problem overall still only waits at most (num_workers-1)*3s.
-                for _ in range(slot_index * stagger_secs * 10):  # check every 0.1s
-                    if is_shutting_down:
-                        if pbar:
-                            pbar.update(1)
-                        return
-                    time.sleep(0.1)
-                run_single_problem(
-                    problem_id,
-                    config.level,
-                    config.run_name,
-                    gpu_id,
-                    config.steps,
-                    config.hours,
-                    config.code_model,
-                    config.feedback_model,
-                    pbar=pbar,
-                )
-            finally:
-                # Return the slot so the next waiting thread can use it
-                with slot_lock:
-                    free_slots.append(slot_index)
-                    free_slots.sort()
+                problem_id = problem_queue.get(block=True, timeout=1.0)
+            except queue.Empty:
+                break  # No more problems; this worker is done
 
-    for i, problem_id in enumerate(pending_problems):
+            # --- Rate limiter: only one process may start at a time,
+            #     and each start must be at least stagger_secs apart. ---
+            with start_rate_lock:
+                gap = time.time() - last_start_time[0]
+                wait = stagger_secs - gap
+                if wait > 0:
+                    # Sleep in small chunks so shutdown is detected quickly
+                    slept = 0.0
+                    while slept < wait:
+                        if is_shutting_down:
+                            break
+                        time.sleep(0.1)
+                        slept += 0.1
+                last_start_time[0] = time.time()
+            # Lock released: the start time slot is now reserved for this
+            # worker. Other workers wait until their own 3s window arrives.
+
+            run_single_problem(
+                problem_id,
+                config.level,
+                config.run_name,
+                gpu_id,
+                config.steps,
+                config.hours,
+                config.code_model,
+                config.feedback_model,
+                pbar=pbar,
+            )
+            problem_queue.task_done()
+
+    # Start exactly num_workers long-lived threads (never more)
+    threads = []
+    for i in range(config.num_workers):
+        t = threading.Thread(target=worker_loop, args=(i,), daemon=True)
+        t.start()
+        threads.append(t)
+
+    # Wait for all threads to finish, checking shutdown flag every second
+    while any(t.is_alive() for t in threads):
         if is_shutting_down:
             break
-        # Stagger startup: wait for a semaphore slot before spawning to avoid
-        # simultaneous CUDA / disk-IO spikes, but remain responsive to shutdown
-        gpu_id = gpus[i % len(gpus)]
-        t = threading.Thread(target=worker, args=(problem_id, gpu_id), daemon=True)
-        threads.append(t)
-        t.start()
-
-    # Wait for all threads to finish (daemon=True ensures they don't block hard-exit)
-    for t in threads:
-        while t.is_alive():
-            if is_shutting_down:
-                break
-            t.join(timeout=1.0)
+        time.sleep(1.0)
 
     pbar.close()
 
