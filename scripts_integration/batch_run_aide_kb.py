@@ -2,7 +2,7 @@ import os
 import time
 import json
 import subprocess
-import concurrent.futures
+import threading
 from pathlib import Path
 from pydra import Config, REQUIRED
 import pydra
@@ -14,6 +14,7 @@ import atexit
 
 # Global list to keep track of active subprocesses
 active_processes = []
+is_shutting_down = False
 
 def cleanup_subprocesses():
     """Kill all active subprocesses when the main script exits."""
@@ -42,13 +43,19 @@ def cleanup_subprocesses():
 atexit.register(cleanup_subprocesses)
 
 def signal_handler(sig, frame):
+    global is_shutting_down
+    if is_shutting_down:
+        return
+    is_shutting_down = True
     print("\nReceived termination signal. Cleaning up subprocesses...")
     cleanup_subprocesses()
     sys.exit(1)
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
-signal.signal(signal.SIGHUP, signal_handler)
+# Only handle SIGHUP if it's not already being ignored (e.g. by nohup)
+if signal.getsignal(signal.SIGHUP) != signal.SIG_IGN:
+    signal.signal(signal.SIGHUP, signal_handler)
 
 class BatchAideConfig(Config):
     def __init__(self):
@@ -80,7 +87,11 @@ def get_completed_problems(run_name):
         print(f"Error reading {eval_results_file}: {e}")
     return completed
 
-def run_single_problem(problem_id, level, run_name, gpu_id, steps, hours, code_model=None, feedback_model=None):
+def run_single_problem(problem_id, level, run_name, gpu_id, steps, hours, code_model=None, feedback_model=None, pbar=None):
+    if is_shutting_down:
+        if pbar:
+            pbar.update(1)
+        return
     print(f"Starting Level {level} Problem {problem_id} on GPU {gpu_id}")
     
     # Create log directory
@@ -130,6 +141,9 @@ def run_single_problem(problem_id, level, run_name, gpu_id, steps, hours, code_m
             
     except Exception as e:
         print(f"Error running Level {level} Problem {problem_id}: {e}")
+    finally:
+        if pbar:
+            pbar.update(1)
 
 @pydra.main(base=BatchAideConfig)
 def main(config: BatchAideConfig):
@@ -156,6 +170,9 @@ def main(config: BatchAideConfig):
     pending_problems = [p for p in problems_to_run if p not in completed_problems]
     print(f"Pending problems to run: {len(pending_problems)}")
     
+    # temp
+    pending_problems = pending_problems[:10]
+
     if not pending_problems:
         print("All problems completed!")
         return
@@ -163,19 +180,39 @@ def main(config: BatchAideConfig):
     gpus = [g.strip() for g in str(config.gpus).split(",")]
     if not gpus:
         gpus = ["0"]
-        
-    # Run in parallel
-    with concurrent.futures.ThreadPoolExecutor(max_workers=config.num_workers) as executor:
-        futures = []
-        for i, problem_id in enumerate(pending_problems):
-            # Optional: stagger worker startup (5s) to avoid simultaneous PyTorch/CUDA/Disk IO spikes
-            if i > 0:
-                time.sleep(5.0)
-            
-            gpu_id = gpus[i % len(gpus)]
-            futures.append(
-                executor.submit(
-                    run_single_problem,
+
+    # Semaphore limits how many workers run concurrently
+    semaphore = threading.Semaphore(config.num_workers)
+    threads = []
+    pbar = tqdm(total=len(pending_problems), desc=f"Level {config.level} Batch Run ({config.run_name})")
+
+    # Track which slot indices (0..num_workers-1) are currently free
+    # so each new worker gets a slot-local stagger, not a global one.
+    slot_lock = threading.Lock()
+    free_slots = list(range(config.num_workers))  # e.g. [0, 1, 2, 3] for 4 workers
+    stagger_secs = 3  # delay per slot index within a batch
+
+    def worker(problem_id, gpu_id):
+        with semaphore:
+            # Grab the lowest available slot index for this batch
+            with slot_lock:
+                slot_index = free_slots.pop(0)
+
+            try:
+                if is_shutting_down:
+                    if pbar:
+                        pbar.update(1)
+                    return
+                # Stagger within the current batch only.
+                # slot_index resets to a low number each time a slot is freed,
+                # so the 100th problem overall still only waits at most (num_workers-1)*3s.
+                for _ in range(slot_index * stagger_secs * 10):  # check every 0.1s
+                    if is_shutting_down:
+                        if pbar:
+                            pbar.update(1)
+                        return
+                    time.sleep(0.1)
+                run_single_problem(
                     problem_id,
                     config.level,
                     config.run_name,
@@ -183,16 +220,33 @@ def main(config: BatchAideConfig):
                     config.steps,
                     config.hours,
                     config.code_model,
-                    config.feedback_model
+                    config.feedback_model,
+                    pbar=pbar,
                 )
-            )
-            
-        # Wait for all to complete
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"Level {config.level} Batch Run ({config.run_name})"):
-            try:
-                future.result()
-            except Exception as e:
-                print(f"Worker failed with exception: {e}")
+            finally:
+                # Return the slot so the next waiting thread can use it
+                with slot_lock:
+                    free_slots.append(slot_index)
+                    free_slots.sort()
+
+    for i, problem_id in enumerate(pending_problems):
+        if is_shutting_down:
+            break
+        # Stagger startup: wait for a semaphore slot before spawning to avoid
+        # simultaneous CUDA / disk-IO spikes, but remain responsive to shutdown
+        gpu_id = gpus[i % len(gpus)]
+        t = threading.Thread(target=worker, args=(problem_id, gpu_id), daemon=True)
+        threads.append(t)
+        t.start()
+
+    # Wait for all threads to finish (daemon=True ensures they don't block hard-exit)
+    for t in threads:
+        while t.is_alive():
+            if is_shutting_down:
+                break
+            t.join(timeout=1.0)
+
+    pbar.close()
 
 if __name__ == "__main__":
     main()
