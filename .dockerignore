@@ -1,0 +1,14 @@
+.git/
+eval_log/
+aide/
+results/
+runs/
+run_integration/
+notebooks/
+analysis/
+*.egg-info/
+__pycache__/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
