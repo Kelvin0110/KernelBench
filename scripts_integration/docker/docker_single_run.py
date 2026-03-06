@@ -95,7 +95,7 @@ def write_problem_status(results_dir, problem_id, status):
         Path(os.path.join(problem_dir, "DONE")).touch()
 
 
-def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", precision="fp32"):
+def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", precision="fp32", mock_eval=False):
     """Sets up a directory with a harness that uses kernelbench utilities."""
     if os.path.exists(task_dir):
         shutil.rmtree(task_dir)
@@ -114,17 +114,19 @@ def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", preci
         precision=precision
     )
 
-    # Create the harness file
-    harness_code = f"""
-import torch
-import sys
-import os
-from kernelbench import eval as kb_eval
-from kernelbench.dataset import construct_kernelbench_dataset
-
-REFERENCE_CODE = r'''{ref_arch_src}'''
-
-def run_benchmark(kernel_source_code):
+    # Build the run_benchmark function body.
+    # In mock mode: return a fake random speedup so AIDE's search loop can iterate
+    # without a real GPU. All file I/O, orchestration, and AIDE logic still runs.
+    if mock_eval:
+        run_benchmark_body = (
+            "    import random\n"
+            "    speedup = random.uniform(0.5, 3.0)\n"
+            '    print(f"KERNEL_BENCH_CORRECT: True")\n'
+            '    print(f"KERNEL_BENCH_SPEEDUP: {speedup:.4f}")\n'
+            "    return speedup\n"
+        )
+    else:
+        run_benchmark_body = f"""\
     try:
         dataset = construct_kernelbench_dataset(level={level}, source="local")
         problem = dataset.get_problem_by_id({problem_id})
@@ -152,8 +154,25 @@ def run_benchmark(kernel_source_code):
         import traceback
         traceback.print_exc()
         print(f"Harness Error: {{str(e)}}")
-        return 0.0
+        return 0.0"""
+
+    # Create the harness file (concatenate so run_benchmark_body is not re-parsed
+    # as an f-string, which would misinterpret its own {var} placeholders)
+    harness_code = (
+        f"""
+import torch
+import sys
+import os
+from kernelbench import eval as kb_eval
+from kernelbench.dataset import construct_kernelbench_dataset
+
+REFERENCE_CODE = r'''{ref_arch_src}'''
+
+def run_benchmark(kernel_source_code):
 """
+        + run_benchmark_body
+        + "\n"
+    )
     with open(os.path.join(task_dir, "kb_harness.py"), "w") as f:
         f.write(harness_code)
 
@@ -171,6 +190,11 @@ def main():
     parser.add_argument("-f", "--feedback_model", type=str, default="openai/gpt-oss-120b", help="Feedback model")
     parser.add_argument("--backend", type=str, default="cuda", help="Backend: cuda, triton, tilelang, cute")
     parser.add_argument("--precision", type=str, default="fp32", help="Precision: fp32, fp16, bf16")
+    parser.add_argument(
+        "--mock-eval", action="store_true",
+        default=os.environ.get("MOCK_EVAL", "0") == "1",
+        help="Skip real CUDA eval; return fake scores (for M1/CPU testing)",
+    )
     # results_dir comes from  RESULTS_DIR env var or /app/run default (set by docker_batch_run.py)
     import os as os_module
     default_results_dir = os_module.environ.get("RESULTS_DIR", "/app/run")
@@ -187,7 +211,8 @@ def main():
     # Setup environment and get prompt
     prompt_desc = setup_integration_env(
         task_dir, level=args.level, problem_id=args.problem_id,
-        backend=args.backend, precision=args.precision
+        backend=args.backend, precision=args.precision,
+        mock_eval=args.mock_eval,
     )
 
     print(f"--- Starting AIDE + KernelBench (Level {args.level}, ID {args.problem_id}) ---")
@@ -292,45 +317,68 @@ INSTRUCTIONS FOR AGENT:
 
             # Final evaluation
             print("Evaluating best kernel against reference...")
-            import torch
-            from kernelbench.eval import eval_kernel_against_ref
 
-            dataset = construct_kernelbench_dataset(level=args.level, source="local")
-            problem = dataset.get_problem_by_id(args.problem_id)
-
-            try:
-                eval_result = eval_kernel_against_ref(
-                    original_model_src=problem.code,
-                    custom_model_src=best_node.code,
-                    measure_performance=True,
-                    timing_method="cuda_event",
-                    verbose=False,
-                    num_correct_trials=5,
-                    num_perf_trials=100,
-                    build_dir=os.path.join("/tmp/cache", str(args.problem_id), "0"),
-                    device=torch.device("cuda:0"),
-                    backend=args.backend,
-                    precision=torch.float32,
+            if args.mock_eval:
+                # M1/CPU testing: return a fake result so the pipeline completes
+                import types
+                eval_result = types.SimpleNamespace(
+                    compiled=True,
+                    correctness=True,
+                    metadata={"mock": True},
+                    runtime=1.0,
+                    runtime_stats={"mean": 1.0, "std": 0.0},
                 )
-
-                if eval_result:
-                    eval_file_path = os.path.join(args.results_dir, "eval_results.json")
-                    add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
-                    print(f"Saved evaluation results to {eval_file_path}")
-                    write_problem_status(args.results_dir, args.problem_id, {
-                        "outcome": "success",
-                        "compiled": eval_result.compiled,
-                        "correctness": eval_result.correctness,
-                        "runtime_ms": eval_result.runtime,
-                        "speedup": best_node.metric.value if best_node.metric else None,
-                    })
-            except Exception as e:
-                print(f"Final evaluation failed: {e}")
-                traceback.print_exc()
+                eval_file_path = os.path.join(args.results_dir, "eval_results.json")
+                add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
+                print(f"Saved mock evaluation results to {eval_file_path}")
                 write_problem_status(args.results_dir, args.problem_id, {
-                    "outcome": "eval_error",
-                    "error": str(e),
+                    "outcome": "success",
+                    "compiled": eval_result.compiled,
+                    "correctness": eval_result.correctness,
+                    "runtime_ms": eval_result.runtime,
+                    "speedup": best_node.metric.value if best_node.metric else None,
+                    "mock": True,
                 })
+            else:
+                import torch
+                from kernelbench.eval import eval_kernel_against_ref
+
+                dataset = construct_kernelbench_dataset(level=args.level, source="local")
+                problem = dataset.get_problem_by_id(args.problem_id)
+
+                try:
+                    eval_result = eval_kernel_against_ref(
+                        original_model_src=problem.code,
+                        custom_model_src=best_node.code,
+                        measure_performance=True,
+                        timing_method="cuda_event",
+                        verbose=False,
+                        num_correct_trials=5,
+                        num_perf_trials=100,
+                        build_dir=os.path.join("/tmp/cache", str(args.problem_id), "0"),
+                        device=torch.device("cuda:0"),
+                        backend=args.backend,
+                        precision=torch.float32,
+                    )
+
+                    if eval_result:
+                        eval_file_path = os.path.join(args.results_dir, "eval_results.json")
+                        add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
+                        print(f"Saved evaluation results to {eval_file_path}")
+                        write_problem_status(args.results_dir, args.problem_id, {
+                            "outcome": "success",
+                            "compiled": eval_result.compiled,
+                            "correctness": eval_result.correctness,
+                            "runtime_ms": eval_result.runtime,
+                            "speedup": best_node.metric.value if best_node.metric else None,
+                        })
+                except Exception as e:
+                    print(f"Final evaluation failed: {e}")
+                    traceback.print_exc()
+                    write_problem_status(args.results_dir, args.problem_id, {
+                        "outcome": "eval_error",
+                        "error": str(e),
+                    })
         else:
             print("No solutions found.")
             write_problem_status(args.results_dir, args.problem_id, {

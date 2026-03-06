@@ -27,9 +27,11 @@ import pydra
 from kernelbench.dataset import construct_kernelbench_dataset
 from tqdm import tqdm
 
-# Docker image name and Dockerfile path (relative to repo root)
+# Docker image names and Dockerfile paths (relative to repo root)
 IMAGE_NAME = "kernelbench-aide"
+IMAGE_NAME_CPU = "kernelbench-aide-cpu"
 DOCKERFILE_PATH = "scripts_integration/docker/Dockerfile.kernelbench"
+DOCKERFILE_CPU_PATH = "scripts_integration/docker/Dockerfile.cpu"
 
 # Globals for cleanup
 active_containers = []
@@ -67,6 +69,7 @@ class DockerBatchConfig(Config):
         # Docker control
         self.build_image = True  # Whether to build image before running
         self.stagger_secs = 10  # Seconds between container starts
+        self.mock = False  # Use CPU image + skip --gpus; for M1/no-GPU testing
 
 
 def cleanup_containers():
@@ -106,16 +109,18 @@ if hasattr(signal, "SIGHUP") and signal.getsignal(signal.SIGHUP) != signal.SIG_I
     signal.signal(signal.SIGHUP, signal_handler)
 
 
-def build_docker_image():
+def build_docker_image(mock=False):
     """Build the Docker image from the repo root."""
-    print(f"Building Docker image '{IMAGE_NAME}'...")
+    dockerfile = DOCKERFILE_CPU_PATH if mock else DOCKERFILE_PATH
+    image = IMAGE_NAME_CPU if mock else IMAGE_NAME
+    print(f"Building Docker image '{image}'...")
     result = subprocess.run(
-        ["docker", "build", "-f", DOCKERFILE_PATH, "-t", IMAGE_NAME, "."],
+        ["docker", "build", "-f", dockerfile, "-t", image, "."],
         timeout=3600,  # 1 hour max for build
     )
     if result.returncode != 0:
         raise RuntimeError(f"Docker build failed with exit code {result.returncode}")
-    print(f"Image '{IMAGE_NAME}' built successfully.")
+    print(f"Image '{image}' built successfully.")
 
 
 def check_docker_gpu_support():
@@ -418,13 +423,18 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
     cmd = [
         "docker", "run", "--rm",
         "--name", container_name,
-        # GPU assignment via NVIDIA Container Toolkit
-        "--gpus", f"device={gpu_id}",
+    ]
+
+    # GPU assignment: skip entirely in mock mode (M1/CPU testing)
+    if not config.mock:
+        cmd.extend(["--gpus", f"device={gpu_id}"])
+
+    cmd.extend([
         # Resource limits
         "--memory", config.memory_limit,
         "--memory-swap", config.memory_limit,  # Same as memory = no swap
         "--pids-limit", str(config.pids_limit),
-    ]
+    ])
 
     # I/O limits (only work on Linux with cgroups v1; silently ignored elsewhere)
     is_linux = platform.system() == "Linux"
@@ -461,6 +471,7 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
         "BACKEND": config.backend,
         "PRECISION": config.precision,
         "RESULTS_DIR": "/app/run",  # Base results directory (mounted volume)
+        "MOCK_EVAL": "1" if config.mock else "0",
     }
     # Pass through API keys from host environment
     for key in [
@@ -473,8 +484,8 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
     for k, v in env_vars.items():
         cmd.extend(["-e", f"{k}={v}"])
 
-    # Image name
-    cmd.append(IMAGE_NAME)
+    # Image name (CPU image skips CUDA, used for M1/no-GPU testing)
+    cmd.append(IMAGE_NAME_CPU if config.mock else IMAGE_NAME)
 
     print(f"[GPU {gpu_id}] Starting L{level} P{problem_id}")
 
@@ -597,7 +608,7 @@ def main(config: DockerBatchConfig):
 
     # Build image if requested
     if config.build_image:
-        build_docker_image()
+        build_docker_image(mock=config.mock)
 
     # Determine which problems to run
     if config.problem_ids is not None:

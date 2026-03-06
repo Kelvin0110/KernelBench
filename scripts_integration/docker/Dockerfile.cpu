@@ -1,0 +1,47 @@
+# Dockerfile for M1 Mac / CPU-only integration testing.
+# Mirrors Dockerfile.kernelbench but uses ARM64-compatible base and CPU PyTorch.
+# Enables testing the full AIDE + KernelBench pipeline (orchestration, file I/O,
+# resume logic) without a CUDA GPU. Kernel eval is mocked via MOCK_EVAL=1.
+#
+# Build:
+#   docker build -f scripts_integration/docker/Dockerfile.cpu -t kernelbench-aide-cpu .
+#
+# Run (single problem, mock eval):
+#   docker run --rm --memory=8g \
+#     -v $(pwd)/test_results:/app/run \
+#     -e OPENAI_API_KEY=$OPENAI_API_KEY \
+#     -e LEVEL=1 -e PROBLEM_ID=1 -e STEPS=3 -e HOURS=0.1 -e MOCK_EVAL=1 \
+#     kernelbench-aide-cpu
+
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# ---- System dependencies ----
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake ninja-build git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# ---- Layer 1: PyTorch CPU-only (has ARM64 wheels, works on M1) ----
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# ---- Layer 2: AIDE library ----
+COPY aideml/ /app/aideml/
+RUN pip install --no-cache-dir -e /app/aideml/
+
+# ---- Layer 3: KernelBench package ----
+COPY pyproject.toml /app/pyproject.toml
+COPY src/ /app/src/
+RUN pip install --no-cache-dir -e /app/
+
+# ---- Layer 4: Problem data (changes rarely) ----
+COPY KernelBench/ /app/KernelBench/
+
+# ---- Layer 5: Integration scripts (changes most often) ----
+COPY scripts_integration/docker/ /app/scripts_integration/docker/
+RUN chmod +x /app/scripts_integration/docker/start_aide_kb.sh
+
+ENTRYPOINT ["/app/scripts_integration/docker/start_aide_kb.sh"]
