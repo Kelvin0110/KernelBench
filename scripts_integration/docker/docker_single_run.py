@@ -76,6 +76,25 @@ def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path)
             pass
 
 
+def write_problem_status(results_dir, problem_id, status):
+    """Write structured status.json and DONE marker to per-problem directory.
+
+    Adopted from Caesar's DONE marker pattern for atomic completion signaling.
+    Each problem gets P{id}/status.json with structured outcome data, and
+    P{id}/DONE (empty file) on success for reliable resume detection.
+    """
+    from pathlib import Path
+    problem_dir = os.path.join(results_dir, f"P{problem_id}")
+    os.makedirs(problem_dir, exist_ok=True)
+
+    status_file = os.path.join(problem_dir, "status.json")
+    with open(status_file, "w") as f:
+        json.dump(status, f, indent=2)
+
+    if status.get("outcome") == "success":
+        Path(os.path.join(problem_dir, "DONE")).touch()
+
+
 def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", precision="fp32"):
     """Sets up a directory with a harness that uses kernelbench utilities."""
     if os.path.exists(task_dir):
@@ -298,21 +317,36 @@ INSTRUCTIONS FOR AGENT:
                     eval_file_path = os.path.join(args.results_dir, "eval_results.json")
                     add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
                     print(f"Saved evaluation results to {eval_file_path}")
+                    write_problem_status(args.results_dir, args.problem_id, {
+                        "outcome": "success",
+                        "compiled": eval_result.compiled,
+                        "correctness": eval_result.correctness,
+                        "runtime_ms": eval_result.runtime,
+                        "speedup": best_node.metric.value if best_node.metric else None,
+                    })
             except Exception as e:
                 print(f"Final evaluation failed: {e}")
                 traceback.print_exc()
+                write_problem_status(args.results_dir, args.problem_id, {
+                    "outcome": "eval_error",
+                    "error": str(e),
+                })
         else:
             print("No solutions found.")
-            marker_path = os.path.join(args.results_dir, "NO_SOLUTION.txt")
-            with open(marker_path, "w") as f:
-                f.write(f"No solution found for L{args.level} P{args.problem_id}\n")
+            write_problem_status(args.results_dir, args.problem_id, {
+                "outcome": "no_solution",
+                "steps_completed": max_steps,
+            })
 
     except Exception as e:
         traceback.print_exc()
         print(f"Experiment failed: {e}")
-        error_path = os.path.join(args.results_dir, "ERROR.txt")
-        with open(error_path, "w") as f:
-            f.write(f"Error: {e}\n\n{traceback.format_exc()}\n")
+        write_problem_status(args.results_dir, args.problem_id, {
+            "outcome": "error",
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc(),
+        })
 
 
 if __name__ == "__main__":

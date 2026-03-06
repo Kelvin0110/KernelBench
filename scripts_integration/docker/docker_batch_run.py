@@ -376,7 +376,11 @@ class IOWaitMonitor:
 
 
 def get_completed_problems(run_dir):
-    """Check which problems already have eval results (for resume support)."""
+    """Check which problems have DONE markers (Caesar pattern: atomic completion signal).
+
+    Each completed problem has a P{id}/DONE empty file created by docker_single_run.py.
+    This is more reliable than checking eval_results.json which can be partially written.
+    """
     completed = set()
     results_base = Path(run_dir)
     if not results_base.exists():
@@ -384,8 +388,7 @@ def get_completed_problems(run_dir):
 
     for d in results_base.iterdir():
         if d.is_dir() and d.name.startswith("P"):
-            eval_file = d / "eval_results.json"
-            if eval_file.exists():
+            if (d / "DONE").exists():
                 try:
                     pid = int(d.name[1:])
                     completed.add(pid)
@@ -506,35 +509,49 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
 
 
 def aggregate_results(run_dir, level):
-    """Merge per-problem eval_results.json into a single aggregated file."""
-    aggregated = defaultdict(list)
+    """Read flat eval_results.json and per-problem status dirs for summary.
+
+    docker_single_run.py writes eval results to a shared flat eval_results.json
+    (with file locking), and per-problem status to P{id}/status.json.
+    """
     results_base = Path(run_dir)
     errors = []
     no_solutions = []
+    timeouts = []
 
+    # Read the flat eval_results.json (where docker_single_run.py writes)
+    aggregated = defaultdict(list)
+    flat_eval = results_base / "eval_results.json"
+    if flat_eval.exists():
+        try:
+            with open(flat_eval) as f:
+                data = json.load(f)
+            for pid_key, results in data.items():
+                aggregated[pid_key].extend(results)
+        except Exception as e:
+            print(f"Warning: Failed to read {flat_eval}: {e}")
+
+    # Scan per-problem P{id}/ directories for status categorization
     for d in sorted(results_base.iterdir()):
         if not d.is_dir() or not d.name.startswith("P"):
             continue
-
         pid_str = d.name[1:]
-
-        # Check for error/no-solution markers
-        if (d / "ERROR.txt").exists():
-            errors.append(pid_str)
-        if (d / "NO_SOLUTION.txt").exists():
-            no_solutions.append(pid_str)
-
-        eval_file = d / "eval_results.json"
-        if eval_file.exists():
+        status_file = d / "status.json"
+        if status_file.exists():
             try:
-                with open(eval_file) as f:
-                    data = json.load(f)
-                for pid_key, results in data.items():
-                    aggregated[pid_key].extend(results)
-            except Exception as e:
-                print(f"Warning: Failed to read {eval_file}: {e}")
+                with open(status_file) as f:
+                    status = json.load(f)
+                outcome = status.get("outcome", "unknown")
+                if outcome == "timeout_error":
+                    timeouts.append(pid_str)
+                elif outcome in ("error", "eval_error", "cuda_error"):
+                    errors.append(pid_str)
+                elif outcome == "no_solution":
+                    no_solutions.append(pid_str)
+            except Exception:
+                pass
 
-    # Write aggregated results
+    # Write aggregated copy
     output_file = results_base / "eval_results_aggregated.json"
     sorted_results = dict(sorted(aggregated.items(), key=lambda x: int(x[0])))
     with open(output_file, "w") as f:
@@ -542,10 +559,11 @@ def aggregate_results(run_dir, level):
 
     # Print summary
     print(f"\n{'='*60}")
-    print(f"Aggregated Results: {output_file}")
-    print(f"  Problems with results: {len(sorted_results)}")
-    print(f"  Problems with errors:  {len(errors)}")
-    print(f"  No solution found:     {len(no_solutions)}")
+    print(f"Results: {output_file}")
+    print(f"  Succeeded:   {len(sorted_results)}")
+    print(f"  Errors:      {len(errors)}")
+    print(f"  Timeouts:    {len(timeouts)}")
+    print(f"  No solution: {len(no_solutions)}")
     print(f"{'='*60}")
 
     correct_count = 0
