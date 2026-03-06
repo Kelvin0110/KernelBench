@@ -20,37 +20,60 @@ import signal
 import atexit
 import json
 import traceback
+import fcntl
 from collections import defaultdict
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 
 
 def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path):
-    """Add evaluation result to eval results file."""
+    """Add evaluation result to eval results file with file locking for concurrent access."""
     from kernelbench.eval import check_metadata_serializable_all_types
 
-    if os.path.exists(eval_file_path):
-        with open(eval_file_path, "r") as f:
-            eval_results = json.load(f)
-            eval_results = defaultdict(lambda: [], eval_results)
-    else:
-        eval_results = defaultdict(lambda: [])
-
-    eval_results[str(problem_id)].append(
-        {
-            "sample_id": sample_id,
-            "compiled": eval_result.compiled,
-            "correctness": eval_result.correctness,
-            "metadata": check_metadata_serializable_all_types(eval_result.metadata),
-            "runtime": eval_result.runtime,
-            "runtime_stats": eval_result.runtime_stats,
-        }
-    )
-
+    # Ensure directory exists
     os.makedirs(os.path.dirname(eval_file_path), exist_ok=True)
-    sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
-    with open(eval_file_path, "w") as f:
-        json.dump(sorted_results, f, indent=4)
+
+    # Use file locking to prevent concurrent write corruption
+    lock_file = eval_file_path + ".lock"
+    try:
+        with open(lock_file, "w") as lock_fh:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)  # Exclusive lock
+
+            # Read existing results
+            if os.path.exists(eval_file_path):
+                with open(eval_file_path, "r") as f:
+                    eval_results = json.load(f)
+                    eval_results = defaultdict(lambda: [], eval_results)
+            else:
+                eval_results = defaultdict(lambda: [])
+
+            # Append new result
+            eval_results[str(problem_id)].append(
+                {
+                    "sample_id": sample_id,
+                    "compiled": eval_result.compiled,
+                    "correctness": eval_result.correctness,
+                    "metadata": check_metadata_serializable_all_types(eval_result.metadata),
+                    "runtime": eval_result.runtime,
+                    "runtime_stats": eval_result.runtime_stats,
+                }
+            )
+
+            # Write updated results (sorted by numeric key)
+            sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
+            with open(eval_file_path, "w") as f:
+                json.dump(sorted_results, f, indent=4)
+
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)  # Release lock
+    except Exception as e:
+        print(f"ERROR: Failed to write eval_results with locking: {e}")
+        raise
+    finally:
+        # Clean up lock file if it exists
+        try:
+            os.remove(lock_file)
+        except OSError:
+            pass
 
 
 def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", precision="fp32"):
@@ -129,7 +152,10 @@ def main():
     parser.add_argument("-f", "--feedback_model", type=str, default="openai/gpt-oss-120b", help="Feedback model")
     parser.add_argument("--backend", type=str, default="cuda", help="Backend: cuda, triton, tilelang, cute")
     parser.add_argument("--precision", type=str, default="fp32", help="Precision: fp32, fp16, bf16")
-    parser.add_argument("--results_dir", type=str, default="/results", help="Directory for results (mounted volume)")
+    # results_dir comes from  RESULTS_DIR env var or /app/run default (set by docker_batch_run.py)
+    import os as os_module
+    default_results_dir = os_module.environ.get("RESULTS_DIR", "/app/run")
+    parser.add_argument("--results_dir", type=str, default=default_results_dir, help="Directory for results (mounted volume)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -171,14 +197,17 @@ INSTRUCTIONS FOR AGENT:
 5. Maximise the metric 'KERNEL_BENCH_SPEEDUP'. If it is 0, fix the correctness bugs.
 """
 
-    # AIDE workspace and logs go into results dir (mounted volume, persists)
+    # AIDE workspace and logs: stored per-problem to avoid naming conflicts
+    workspace_dir = os.path.join(args.results_dir, "workspaces", f"level_{args.level}_problem_{args.problem_id}")
+    log_dir = os.path.join(args.results_dir, "logs", f"level_{args.level}_problem_{args.problem_id}")
+
     exp = aide.Experiment(
         data_dir=task_dir,
         goal=goal,
         eval="KERNEL_BENCH_SPEEDUP",
         exp_name=f"level_{args.level}_problem_{args.problem_id}",
-        workspace_dir=os.path.join(args.results_dir, "workspaces"),
-        log_dir=os.path.join(args.results_dir, "logs"),
+        workspace_dir=workspace_dir,
+        log_dir=log_dir,
     )
 
     # Cleanup handler

@@ -10,6 +10,7 @@ Usage:
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -53,9 +54,16 @@ class DockerBatchConfig(Config):
         # Docker resource limits
         self.memory_limit = "32g"
         self.pids_limit = 256
-        self.io_read_bps = "100mb"  # Per container read throughput cap
-        self.io_write_bps = "100mb"  # Per container write throughput cap
-        self.io_device = "/dev/sda"  # Block device for I/O limits (Linux only)
+        self.io_read_bps = "200mb"   # Per container read throughput cap
+        self.io_write_bps = "200mb"  # Per container write throughput cap
+        self.io_read_iops = "20000"  # Per container read IOPS cap (crucial for small-file compilation)
+        self.io_write_iops = "20000" # Per container write IOPS cap
+        self.io_device = "/dev/sda"  # Fallback block device if auto-detection fails (Linux only)
+        self.tmpfs_size = "16g"      # RAM disk size for /tmp per container; set "" to disable
+        # I/O watchdog thresholds (Linux only, reads /proc/stat)
+        self.iowait_warn_pct = 70.0   # Print warning when host iowait exceeds this %
+        self.iowait_pause_pct = 85.0  # Pause new container starts when iowait exceeds this %
+        self.iowait_resume_pct = 50.0 # Resume spawning when iowait drops below this %
         # Docker control
         self.build_image = True  # Whether to build image before running
         self.stagger_secs = 10  # Seconds between container starts
@@ -129,6 +137,244 @@ def check_docker_gpu_support():
         return False
 
 
+def detect_io_device(fallback: str) -> str:
+    """Auto-detect the block device that backs Docker's storage from /proc/mounts.
+
+    Finds the device whose mountpoint is the longest prefix of /var/lib/docker,
+    strips the partition suffix (e.g. nvme0n1p3 -> nvme0n1, sda1 -> sda),
+    and returns /dev/<device>.  Falls back to `fallback` on any failure.
+    """
+    if platform.system() != "Linux":
+        return fallback
+
+    target = "/var/lib/docker"
+    best_mountpoint = ""
+    best_device = ""
+
+    try:
+        with open("/proc/mounts") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                device, mountpoint = parts[0], parts[1]
+                if not device.startswith("/dev/"):
+                    continue
+                # Pick the mount whose path is the longest prefix of target
+                if target.startswith(mountpoint) and len(mountpoint) > len(best_mountpoint):
+                    best_mountpoint = mountpoint
+                    best_device = device
+    except OSError as e:
+        print(f"WARNING: Could not read /proc/mounts: {e}. Using fallback device '{fallback}'.")
+        return fallback
+
+    if not best_device:
+        print(f"WARNING: Could not find mount for {target} in /proc/mounts. "
+              f"Using fallback device '{fallback}'.")
+        return fallback
+
+    # Strip partition suffix: nvme0n1p3 -> nvme0n1, sda1 -> sda
+    # Pattern: optional 'p' followed by trailing digits
+    base_device = re.sub(r"p?\d+$", "", best_device)
+
+    if not os.path.exists(base_device):
+        print(f"WARNING: Auto-detected device '{base_device}' does not exist. "
+              f"Using fallback '{fallback}'.")
+        return fallback
+
+    print(f"Auto-detected I/O device: {base_device}  (from mount {best_mountpoint} -> {best_device})")
+    return base_device
+
+
+def _parse_size_to_bytes(size_str: str) -> int:
+    """Parse Docker-style size strings like '200mb', '16g', '20000' to bytes/count."""
+    s = size_str.strip().lower()
+    multipliers = {"k": 1024, "kb": 1024, "m": 1024**2, "mb": 1024**2,
+                   "g": 1024**3, "gb": 1024**3, "t": 1024**4, "tb": 1024**4}
+    for suffix, mult in sorted(multipliers.items(), key=lambda x: -len(x[0])):
+        if s.endswith(suffix):
+            return int(float(s[:-len(suffix)]) * mult)
+    return int(s)
+
+
+def print_aggregate_limit_warning(config, num_workers: int):
+    """Print a budget table showing aggregate resource use across all workers.
+
+    Warns if total tmpfs RAM allocation would exceed 75% of available system RAM.
+    """
+    print(f"\n{'='*60}")
+    print(f"Aggregate I/O Budget  (num_workers={num_workers})")
+    print(f"{'='*60}")
+
+    def total_str(per_val, n):
+        try:
+            total_bytes = _parse_size_to_bytes(per_val) * n
+            if total_bytes >= 1024**3:
+                return f"{total_bytes / 1024**3:.1f}g"
+            elif total_bytes >= 1024**2:
+                return f"{total_bytes / 1024**2:.0f}mb"
+            else:
+                return f"{total_bytes / 1024:.0f}kb"
+        except (ValueError, TypeError):
+            return f"{per_val} x {n}"
+
+    print(f"  Per-container write BPS   : {config.io_write_bps:<8}  -> Total: {total_str(config.io_write_bps, num_workers)}/s")
+    print(f"  Per-container read  BPS   : {config.io_read_bps:<8}  -> Total: {total_str(config.io_read_bps, num_workers)}/s")
+    print(f"  Per-container write IOPS  : {config.io_write_iops:<8}  -> Total: {int(config.io_write_iops) * num_workers}")
+    print(f"  Per-container read  IOPS  : {config.io_read_iops:<8}  -> Total: {int(config.io_read_iops) * num_workers}")
+
+    if config.tmpfs_size:
+        total_tmpfs = total_str(config.tmpfs_size, num_workers)
+        print(f"  Per-container tmpfs (/tmp): {config.tmpfs_size:<8}  -> Total RAM for tmpfs: {total_tmpfs}")
+
+        # Check against available system RAM
+        if platform.system() == "Linux":
+            try:
+                with open("/proc/meminfo") as f:
+                    for line in f:
+                        if line.startswith("MemTotal:"):
+                            mem_kb = int(line.split()[1])
+                            mem_bytes = mem_kb * 1024
+                            tmpfs_total = _parse_size_to_bytes(config.tmpfs_size) * num_workers
+                            mem_limit_total = _parse_size_to_bytes(config.memory_limit) * num_workers
+                            pct = tmpfs_total / mem_bytes * 100
+                            print(f"  Per-container memory limit: {config.memory_limit:<8}  -> Total reserved: {total_str(config.memory_limit, num_workers)}")
+                            print(f"  Host total RAM            : {mem_bytes / 1024**3:.0f}g")
+                            print(f"  tmpfs as % of host RAM    : {pct:.1f}%")
+                            if tmpfs_total + mem_limit_total > mem_bytes * 0.90:
+                                print(f"  WARNING: Total tmpfs + memory limits ({total_str(config.tmpfs_size, num_workers)} + "
+                                      f"{total_str(config.memory_limit, num_workers)}) exceeds 90% of "
+                                      f"host RAM ({mem_bytes / 1024**3:.0f}g). "
+                                      f"Consider reducing num_workers or tmpfs_size.")
+                            elif pct > 75:
+                                print(f"  WARNING: tmpfs alone consumes {pct:.0f}% of host RAM. "
+                                      f"Consider reducing tmpfs_size or num_workers.")
+                            break
+            except OSError:
+                pass
+    else:
+        print(f"  tmpfs                     : disabled  (SSD used for /tmp compilation artifacts)")
+        print(f"  NOTE: Enabling tmpfs_size (e.g. tmpfs_size=16g) eliminates SSD I/O for builds.")
+
+    print(f"{'='*60}\n")
+
+
+class IOWaitMonitor:
+    """Background thread that watches host iowait% and pauses container spawning when saturated.
+
+    Reads /proc/stat every `interval` seconds to compute cumulative iowait %.
+    Writes a CSV log to {run_dir}/iowait.log for post-mortem analysis.
+    Sets an internal threading.Event when iowait > pause_pct; workers check this
+    before starting a new container.
+    """
+
+    def __init__(self, run_dir: str, warn_pct: float, pause_pct: float,
+                 resume_pct: float, interval: float = 2.0):
+        self._run_dir = run_dir
+        self._warn_pct = warn_pct
+        self._pause_pct = pause_pct
+        self._resume_pct = resume_pct
+        self._interval = interval
+        self._pause_event = threading.Event()   # set = paused, workers should wait
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="IOWaitMonitor")
+        self._prev_stat: dict | None = None
+        self._last_warn_time = 0.0
+        self._log_file: str = os.path.join(run_dir, "iowait.log")
+
+    def start(self):
+        if platform.system() != "Linux":
+            return  # /proc/stat not available on macOS/Windows
+        os.makedirs(self._run_dir, exist_ok=True)
+        with open(self._log_file, "w") as f:
+            f.write("timestamp,iowait_pct\n")
+        self._thread.start()
+        print(f"IOWaitMonitor started (warn={self._warn_pct}%, pause={self._pause_pct}%, "
+              f"resume={self._resume_pct}%). Log: {self._log_file}")
+
+    def stop(self):
+        self._stop_event.set()
+
+    def is_paused(self) -> bool:
+        """Returns True when host iowait is above the pause threshold."""
+        return self._pause_event.is_set()
+
+    def _read_stat(self) -> dict | None:
+        """Read /proc/stat and return the cpu line fields as a dict."""
+        try:
+            with open("/proc/stat") as f:
+                for line in f:
+                    if line.startswith("cpu "):
+                        fields = line.split()
+                        # cpu user nice system idle iowait irq softirq steal guest guest_nice
+                        return {
+                            "user":    int(fields[1]),
+                            "nice":    int(fields[2]),
+                            "system":  int(fields[3]),
+                            "idle":    int(fields[4]),
+                            "iowait":  int(fields[5]),
+                            "irq":     int(fields[6]),
+                            "softirq": int(fields[7]),
+                            "steal":   int(fields[8]) if len(fields) > 8 else 0,
+                        }
+        except (OSError, IndexError, ValueError):
+            pass
+        return None
+
+    def _compute_iowait_pct(self) -> float:
+        """Return iowait % since last call, or 0.0 on error."""
+        curr = self._read_stat()
+        if curr is None:
+            return 0.0
+
+        if self._prev_stat is None:
+            self._prev_stat = curr
+            return 0.0
+
+        prev = self._prev_stat
+        self._prev_stat = curr
+
+        total_delta = sum(curr[k] - prev[k] for k in curr)
+        if total_delta <= 0:
+            return 0.0
+
+        iowait_delta = curr["iowait"] - prev["iowait"]
+        return max(0.0, iowait_delta / total_delta * 100.0)
+
+    def _loop(self):
+        while not self._stop_event.is_set():
+            iowait = self._compute_iowait_pct()
+            ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+            # Append to CSV log
+            try:
+                with open(self._log_file, "a") as f:
+                    f.write(f"{ts},{iowait:.2f}\n")
+            except OSError:
+                pass
+
+            # Update pause event
+            if iowait >= self._pause_pct:
+                if not self._pause_event.is_set():
+                    print(f"\n[IOWaitMonitor] PAUSING new containers: iowait={iowait:.1f}% "
+                          f">= pause threshold {self._pause_pct}%")
+                self._pause_event.set()
+            elif iowait < self._resume_pct and self._pause_event.is_set():
+                print(f"[IOWaitMonitor] RESUMING container spawning: iowait={iowait:.1f}% "
+                      f"< resume threshold {self._resume_pct}%")
+                self._pause_event.clear()
+
+            # Throttled warning (at most once per 30s)
+            if self._warn_pct <= iowait < self._pause_pct:
+                now = time.time()
+                if now - self._last_warn_time >= 30.0:
+                    print(f"[IOWaitMonitor] WARNING: iowait={iowait:.1f}% "
+                          f"(warn threshold={self._warn_pct}%)")
+                    self._last_warn_time = now
+
+            self._stop_event.wait(timeout=self._interval)
+
+
 def get_completed_problems(run_dir):
     """Check which problems already have eval results (for resume support)."""
     completed = set()
@@ -155,9 +401,10 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
             pbar.update(1)
         return
 
-    problem_dir = os.path.abspath(os.path.join(run_dir, f"P{problem_id}"))
-    os.makedirs(problem_dir, exist_ok=True)
-    log_file = os.path.join(problem_dir, "container.log")
+    # Each container mounts the shared run_dir; logs go to per-problem subdir
+    log_subdir = os.path.join(run_dir, "container_logs")
+    os.makedirs(log_subdir, exist_ok=True)
+    log_file = os.path.join(log_subdir, f"L{level}_P{problem_id}.log")
 
     # Time limit with grace period for cleanup
     time_limit_secs = int(config.hours * 3600) + 300
@@ -180,12 +427,23 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
     is_linux = platform.system() == "Linux"
     if is_linux and config.io_device and config.io_read_bps:
         cmd.extend([
-            "--device-read-bps", f"{config.io_device}:{config.io_read_bps}",
+            "--device-read-bps",  f"{config.io_device}:{config.io_read_bps}",
             "--device-write-bps", f"{config.io_device}:{config.io_write_bps}",
         ])
+    if is_linux and config.io_device and config.io_read_iops:
+        cmd.extend([
+            "--device-read-iops",  f"{config.io_device}:{config.io_read_iops}",
+            "--device-write-iops", f"{config.io_device}:{config.io_write_iops}",
+        ])
 
-    # Mount results volume
-    cmd.extend(["-v", f"{problem_dir}:/results"])
+    # Mount base run directory (shared across all containers of this batch)
+    # Each container receives /app/run pointing to run_integration/<run_name>/
+    cmd.extend(["-v", f"{os.path.abspath(run_dir)}:/app/run:rw"])
+
+    # tmpfs for /tmp: routes all compilation artifacts (nvcc .o/.cubin/.ptx) to RAM
+    # This eliminates SSD I/O for the most write-heavy phase of each container run.
+    if config.tmpfs_size:
+        cmd.extend(["--tmpfs", f"/tmp:rw,exec,size={config.tmpfs_size}"])
 
     # Environment variables
     env_vars = {
@@ -199,6 +457,7 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
         "RUN_NAME": config.run_name,
         "BACKEND": config.backend,
         "PRECISION": config.precision,
+        "RESULTS_DIR": "/app/run",  # Base results directory (mounted volume)
     }
     # Pass through API keys from host environment
     for key in [
@@ -309,9 +568,14 @@ def main(config: DockerBatchConfig):
     print(f"Docker Batch Run Config: {config}")
 
     # Platform check for I/O limits
-    if platform.system() != "Linux":
-        print("WARNING: I/O rate limits (--device-read-bps, --device-write-bps) only "
-              "work on Linux with cgroups v1. Other resource limits still apply.")
+    is_linux = platform.system() == "Linux"
+    if not is_linux:
+        print("WARNING: I/O rate/IOPS limits and iowait monitoring only work on Linux "
+              "with cgroups v1. Other resource limits (memory, pids) still apply.")
+
+    # Auto-detect block device (Linux only; falls back to config.io_device on failure)
+    if is_linux:
+        config.io_device = detect_io_device(config.io_device)
 
     # Build image if requested
     if config.build_image:
@@ -332,8 +596,21 @@ def main(config: DockerBatchConfig):
             end = end_id if end_id is not None else max(all_ids)
             problems_to_run = [p for p in all_ids if start <= p <= end]
 
-    run_dir = os.path.join("run_integration", config.run_name, "results")
+    run_dir = os.path.join("run_integration", config.run_name)
     os.makedirs(run_dir, exist_ok=True)
+
+    # Print aggregate budget table and RAM warnings before starting anything
+    print_aggregate_limit_warning(config, config.num_workers)
+
+    # Start I/O wait monitor (daemon thread, Linux only)
+    io_monitor = IOWaitMonitor(
+        run_dir=run_dir,
+        warn_pct=config.iowait_warn_pct,
+        pause_pct=config.iowait_pause_pct,
+        resume_pct=config.iowait_resume_pct,
+    )
+    io_monitor.start()
+    atexit.register(io_monitor.stop)
 
     completed = get_completed_problems(run_dir)
     print(f"Already completed: {len(completed)} problems: {sorted(completed)}")
@@ -372,7 +649,13 @@ def main(config: DockerBatchConfig):
             except queue.Empty:
                 break  # No more problems
 
-            # Rate limiter
+            # Back-pressure: wait if host iowait is above the pause threshold
+            while io_monitor.is_paused() and not is_shutting_down:
+                print(f"[Worker {worker_id}] I/O saturated — waiting for iowait to drop "
+                      f"below {config.iowait_resume_pct}%...")
+                time.sleep(5.0)
+
+            # Rate limiter: stagger container starts to avoid simultaneous compilation spikes
             with start_rate_lock:
                 gap = time.time() - last_start_time[0]
                 wait = config.stagger_secs - gap
@@ -402,6 +685,7 @@ def main(config: DockerBatchConfig):
         time.sleep(1.0)
 
     pbar.close()
+    io_monitor.stop()
 
     # Aggregate results from all problem directories
     aggregate_results(run_dir, config.level)
