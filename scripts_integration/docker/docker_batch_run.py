@@ -43,12 +43,12 @@ class DockerBatchConfig(Config):
     def __init__(self):
         self.run_name = REQUIRED
         self.level = REQUIRED
-        self.num_workers = 4
+        self.num_workers = 2
         self.gpus = "0"  # Comma-separated GPU IDs
         self.subset = (None, None)  # (start_id, end_id)
         self.problem_ids = None  # List of specific problem IDs
-        self.steps = 500
-        self.hours = 24.0
+        self.steps = 50
+        self.hours = 2.0
         self.code_model = "openai/gpt-oss-120b"
         self.feedback_model = "openai/gpt-oss-120b"
         self.backend = "cuda"
@@ -58,8 +58,8 @@ class DockerBatchConfig(Config):
         self.pids_limit = 256
         self.io_read_bps = "200mb"   # Per container read throughput cap
         self.io_write_bps = "200mb"  # Per container write throughput cap
-        self.io_read_iops = "20000"  # Per container read IOPS cap (crucial for small-file compilation)
-        self.io_write_iops = "20000" # Per container write IOPS cap
+        self.io_read_iops = "10000"  # Per container read IOPS cap (crucial for small-file compilation)
+        self.io_write_iops = "10000" # Per container write IOPS cap
         self.io_device = "/dev/sda"  # Fallback block device if auto-detection fails (Linux only)
         self.tmpfs_size = "16g"      # RAM disk size for /tmp per container; set "" to disable
         # I/O watchdog thresholds (Linux only, reads /proc/stat)
@@ -148,6 +148,9 @@ def detect_io_device(fallback: str) -> str:
     Finds the device whose mountpoint is the longest prefix of /var/lib/docker,
     strips the partition suffix (e.g. nvme0n1p3 -> nvme0n1, sda1 -> sda),
     and returns /dev/<device>.  Falls back to `fallback` on any failure.
+
+    Loop devices (/dev/loop*) are explicitly skipped — they are snap/overlay
+    mounts and never back Docker storage.
     """
     if platform.system() != "Linux":
         return fallback
@@ -164,6 +167,9 @@ def detect_io_device(fallback: str) -> str:
                     continue
                 device, mountpoint = parts[0], parts[1]
                 if not device.startswith("/dev/"):
+                    continue
+                # Skip loop devices (snap mounts, overlayfs — never back Docker storage)
+                if re.match(r"^/dev/loop\d", device):
                     continue
                 # Pick the mount whose path is the longest prefix of target
                 if target.startswith(mountpoint) and len(mountpoint) > len(best_mountpoint):
