@@ -387,24 +387,21 @@ class IOWaitMonitor:
 
 
 def get_completed_problems(run_dir):
-    """Check which problems have DONE markers (Caesar pattern: atomic completion signal).
-
-    Each completed problem has a P{id}/DONE empty file created by docker_single_run.py.
-    This is more reliable than checking eval_results.json which can be partially written.
-    """
+    """Check which problems have entries in eval_results.json."""
     completed = set()
-    results_base = Path(run_dir)
-    if not results_base.exists():
+    eval_file = Path(run_dir) / "eval_results.json"
+    if not eval_file.exists():
         return completed
-
-    for d in results_base.iterdir():
-        if d.is_dir() and d.name.startswith("P"):
-            if (d / "DONE").exists():
-                try:
-                    pid = int(d.name[1:])
-                    completed.add(pid)
-                except ValueError:
-                    pass
+    try:
+        with open(eval_file) as f:
+            data = json.load(f)
+        for pid_str in data.keys():
+            try:
+                completed.add(int(pid_str))
+            except ValueError:
+                pass
+    except Exception as e:
+        print(f"Warning: Failed to read {eval_file}: {e}")
     return completed
 
 
@@ -526,17 +523,10 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
 
 
 def aggregate_results(run_dir, level):
-    """Read flat eval_results.json and per-problem status dirs for summary.
-
-    docker_single_run.py writes eval results to a shared flat eval_results.json
-    (with file locking), and per-problem status to P{id}/status.json.
-    """
+    """Read flat eval_results.json for results summary."""
     results_base = Path(run_dir)
-    errors = []
-    no_solutions = []
-    timeouts = []
 
-    # Read the flat eval_results.json (where docker_single_run.py writes)
+    # Read the flat eval_results.json
     aggregated = defaultdict(list)
     flat_eval = results_base / "eval_results.json"
     if flat_eval.exists():
@@ -548,26 +538,6 @@ def aggregate_results(run_dir, level):
         except Exception as e:
             print(f"Warning: Failed to read {flat_eval}: {e}")
 
-    # Scan per-problem P{id}/ directories for status categorization
-    for d in sorted(results_base.iterdir()):
-        if not d.is_dir() or not d.name.startswith("P"):
-            continue
-        pid_str = d.name[1:]
-        status_file = d / "status.json"
-        if status_file.exists():
-            try:
-                with open(status_file) as f:
-                    status = json.load(f)
-                outcome = status.get("outcome", "unknown")
-                if outcome == "timeout_error":
-                    timeouts.append(pid_str)
-                elif outcome in ("error", "eval_error", "cuda_error"):
-                    errors.append(pid_str)
-                elif outcome == "no_solution":
-                    no_solutions.append(pid_str)
-            except Exception:
-                pass
-
     # Write aggregated copy
     output_file = results_base / "eval_results_aggregated.json"
     sorted_results = dict(sorted(aggregated.items(), key=lambda x: int(x[0])))
@@ -577,10 +547,7 @@ def aggregate_results(run_dir, level):
     # Print summary
     print(f"\n{'='*60}")
     print(f"Results: {output_file}")
-    print(f"  Succeeded:   {len(sorted_results)}")
-    print(f"  Errors:      {len(errors)}")
-    print(f"  Timeouts:    {len(timeouts)}")
-    print(f"  No solution: {len(no_solutions)}")
+    print(f"  Total problems evaluated: {len(sorted_results)}")
     print(f"{'='*60}")
 
     correct_count = 0
@@ -589,7 +556,7 @@ def aggregate_results(run_dir, level):
             status = "PASS" if r.get("correctness") else "FAIL"
             compiled = "compiled" if r.get("compiled") else "compile_fail"
             runtime = r.get("runtime", -1)
-            runtime_str = f"{runtime:.1f}us" if runtime > 0 else "N/A"
+            runtime_str = f"{runtime:.1f}ms" if runtime > 0 else "N/A"
             print(f"  P{pid_str}: {status} ({compiled}, {runtime_str})")
             if r.get("correctness"):
                 correct_count += 1

@@ -110,11 +110,6 @@ while kill -0 $PYTHON_PID 2>/dev/null; do
             sleep 2
         fi
 
-        # Write timeout status (process couldn't write it itself)
-        mkdir -p "/app/run/P${PROBLEM_ID}"
-        printf '{"outcome":"timeout_error","elapsed_secs":%d,"limit_secs":%d}\n' \
-            $((NOW - START_TIME)) ${TIME_LIMIT_SECS} \
-            > "/app/run/P${PROBLEM_ID}/status.json"
         echo "Container exiting with timeout (code 124)"
         exit 124
     fi
