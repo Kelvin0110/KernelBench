@@ -70,6 +70,7 @@ class DockerBatchConfig(Config):
         self.build_image = True  # Whether to build image before running
         self.stagger_secs = 10  # Seconds between container starts
         self.mock = False  # Use CPU image + skip --gpus; for M1/no-GPU testing
+        self.gpu_memory_fraction = 0.90  # Fraction of GPU memory to reserve per container
 
 
 def cleanup_containers():
@@ -475,6 +476,7 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
         "PRECISION": config.precision,
         "RESULTS_DIR": "/app/run",  # Base results directory (mounted volume)
         "MOCK_EVAL": "1" if config.mock else "0",
+        "GPU_MEMORY_FRACTION": str(config.gpu_memory_fraction),
     }
     # Pass through API keys from host environment
     for key in [

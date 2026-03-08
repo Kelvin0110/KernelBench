@@ -4,7 +4,7 @@
 #
 # Required env vars: LEVEL, PROBLEM_ID
 # Optional env vars: STEPS, HOURS, TIME_LIMIT_SECS, CODE_MODEL, FEEDBACK_MODEL,
-#                    RUN_NAME, BACKEND, PRECISION
+#                    RUN_NAME, BACKEND, PRECISION, MOCK_EVAL, GPU_MEMORY_FRACTION
 set -euo pipefail
 set -x  # Echo commands for debugging
 
@@ -21,6 +21,8 @@ FEEDBACK_MODEL=${FEEDBACK_MODEL:-"openai/gpt-oss-120b"}
 RUN_NAME=${RUN_NAME:-"docker_run"}
 BACKEND=${BACKEND:-"cuda"}
 PRECISION=${PRECISION:-"fp32"}
+MOCK_EVAL=${MOCK_EVAL:-"0"}
+GPU_MEMORY_FRACTION=${GPU_MEMORY_FRACTION:-"0.90"}
 
 # ---- Hardware discovery (from MLEBench pattern) ----
 if command -v nvidia-smi &> /dev/null && \
@@ -65,6 +67,7 @@ echo "Time limit: $(format_time ${TIME_LIMIT_SECS})"
 echo "Steps: ${STEPS}, Hours: ${HOURS}"
 echo "Models: code=${CODE_MODEL}, feedback=${FEEDBACK_MODEL}"
 echo "Backend: ${BACKEND}, Precision: ${PRECISION}"
+echo "GPU memory fraction: ${GPU_MEMORY_FRACTION} (mock_eval=${MOCK_EVAL})"
 echo "================================================================"
 
 # ---- Run with 3-tier timeout (adapted from Caesar pattern) ----
@@ -72,7 +75,6 @@ echo "================================================================"
 # Python process in background and monitors it with escalating kill signals:
 #   Tier 1: SIGTERM (allows Python atexit/cleanup handlers)
 #   Tier 2: SIGKILL (hard kill after 30s grace period)
-# On timeout, writes status.json since the Python process can't do it after being killed.
 cd /app
 python scripts_integration/docker/docker_single_run.py \
     --level "${LEVEL}" \
@@ -84,6 +86,7 @@ python scripts_integration/docker/docker_single_run.py \
     --feedback_model "${FEEDBACK_MODEL}" \
     --backend "${BACKEND}" \
     --precision "${PRECISION}" \
+    --gpu-memory-fraction "${GPU_MEMORY_FRACTION}" \
     --results_dir "/app/run" &
 
 PYTHON_PID=$!

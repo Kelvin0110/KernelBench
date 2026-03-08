@@ -76,6 +76,36 @@ def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path)
             pass
 
 
+def reserve_gpu_memory(device, fraction):
+    """Pre-warm PyTorch's GPU memory cache to defend against other processes.
+
+    How it works:
+      1. Allocate a dummy tensor claiming `fraction` of total GPU memory.
+      2. Delete it — memory goes to PyTorch's caching allocator, NOT back to the OS.
+      3. Subsequent allocations (AIDE kernels, eval) reuse from the cache.
+      4. Other processes on the server cannot claim this cached memory.
+    """
+    import torch
+    props = torch.cuda.get_device_properties(device)
+    total_bytes = props.total_memory
+    already_reserved = torch.cuda.memory_reserved(device)
+    target_bytes = int(total_bytes * fraction) - already_reserved
+
+    if target_bytes <= 0:
+        print(f"GPU memory already reserved: {already_reserved / 1e9:.1f} GB >= target {total_bytes * fraction / 1e9:.1f} GB")
+        return
+
+    print(f"Reserving GPU memory: {target_bytes / 1e9:.1f} GB ({fraction*100:.0f}% of {total_bytes / 1e9:.1f} GB total)")
+    try:
+        dummy = torch.empty(target_bytes, dtype=torch.uint8, device=device)
+        del dummy
+        # Do NOT call torch.cuda.empty_cache() — that would return memory to the OS
+        print(f"GPU memory reserved: {torch.cuda.memory_reserved(device) / 1e9:.1f} GB in PyTorch cache")
+    except RuntimeError as e:
+        print(f"WARNING: GPU memory reservation failed (fraction={fraction}): {e}")
+        print("Continuing without reservation — other processes may steal GPU memory mid-run.")
+
+
 def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", precision="fp32", mock_eval=False):
     """Sets up a directory with a harness that uses kernelbench utilities."""
     if os.path.exists(task_dir):
@@ -176,6 +206,11 @@ def main():
         default=os.environ.get("MOCK_EVAL", "0") == "1",
         help="Skip real CUDA eval; return fake scores (for M1/CPU testing)",
     )
+    parser.add_argument(
+        "--gpu-memory-fraction", type=float,
+        default=float(os.environ.get("GPU_MEMORY_FRACTION", "0.90")),
+        help="Fraction of GPU memory to pre-warm into PyTorch cache (0.0 to disable, 0.90 default)",
+    )
     # results_dir comes from  RESULTS_DIR env var or /app/run default (set by docker_batch_run.py)
     import os as os_module
     default_results_dir = os_module.environ.get("RESULTS_DIR", "/app/run")
@@ -197,6 +232,15 @@ def main():
     )
 
     print(f"--- Starting AIDE + KernelBench (Level {args.level}, ID {args.problem_id}) ---")
+
+    # Pre-warm GPU memory cache to prevent other server processes from taking it mid-run.
+    # Skip in mock mode (no real GPU) or if disabled (fraction=0).
+    if not args.mock_eval and args.gpu_memory_fraction > 0:
+        import torch
+        if torch.cuda.is_available():
+            reserve_gpu_memory(torch.device("cuda:0"), args.gpu_memory_fraction)
+        else:
+            print("WARNING: GPU memory reservation requested but no CUDA GPU found, skipping.")
 
     # Goal for AIDE agent
     goal = f"""
