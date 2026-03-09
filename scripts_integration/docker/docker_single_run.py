@@ -27,53 +27,91 @@ from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 
 
 def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path):
-    """Add evaluation result to eval results file with file locking for concurrent access."""
+    """Add evaluation result to eval results file with timeout-protected file locking.
+
+    Handles stale lock detection and cleanup to prevent permanent deadlock if container
+    crashes while holding fcntl.flock(). Uses non-blocking lock with retry and timeout.
+    """
     from kernelbench.eval import check_metadata_serializable_all_types
 
     # Ensure directory exists
     os.makedirs(os.path.dirname(eval_file_path), exist_ok=True)
 
-    # Use file locking to prevent concurrent write corruption
     lock_file = eval_file_path + ".lock"
-    try:
-        with open(lock_file, "w") as lock_fh:
-            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)  # Exclusive lock
+    max_wait_secs = 30  # Total timeout for acquiring lock
 
-            # Read existing results
-            if os.path.exists(eval_file_path):
-                with open(eval_file_path, "r") as f:
-                    eval_results = json.load(f)
-                    eval_results = defaultdict(lambda: [], eval_results)
-            else:
-                eval_results = defaultdict(lambda: [])
-
-            # Append new result
-            eval_results[str(problem_id)].append(
-                {
-                    "sample_id": sample_id,
-                    "compiled": eval_result.compiled,
-                    "correctness": eval_result.correctness,
-                    "metadata": check_metadata_serializable_all_types(eval_result.metadata),
-                    "runtime": eval_result.runtime,
-                    "runtime_stats": eval_result.runtime_stats,
-                }
-            )
-
-            # Write updated results (sorted by numeric key)
-            sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
-            with open(eval_file_path, "w") as f:
-                json.dump(sorted_results, f, indent=4)
-
-            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)  # Release lock
-    except Exception as e:
-        print(f"ERROR: Failed to write eval_results with locking: {e}")
-        raise
-    finally:
-        # Clean up lock file if it exists
+    # Stale lock detection: if lock file is >10 min old, it's from a crashed container
+    if os.path.exists(lock_file):
         try:
-            os.remove(lock_file)
-        except OSError:
+            lock_age_secs = time.time() - os.path.getmtime(lock_file)
+            if lock_age_secs > 600:  # 10 minutes
+                print(f"WARNING: Stale lock file detected (age: {lock_age_secs}s), removing.")
+                try:
+                    os.remove(lock_file)
+                except OSError:
+                    pass
+        except Exception:
             pass
+
+    # Retry loop with timeout for non-blocking lock acquisition
+    start_time = time.time()
+    while True:
+        try:
+            with open(lock_file, "w") as lock_fh:
+                # Use LOCK_NB (non-blocking) to detect if already locked
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                try:
+                    # Read existing results
+                    if os.path.exists(eval_file_path):
+                        with open(eval_file_path, "r") as f:
+                            eval_results = json.load(f)
+                            eval_results = defaultdict(lambda: [], eval_results)
+                    else:
+                        eval_results = defaultdict(lambda: [])
+
+                    # Append new result
+                    eval_results[str(problem_id)].append(
+                        {
+                            "sample_id": sample_id,
+                            "compiled": eval_result.compiled,
+                            "correctness": eval_result.correctness,
+                            "metadata": check_metadata_serializable_all_types(eval_result.metadata),
+                            "runtime": eval_result.runtime,
+                            "runtime_stats": eval_result.runtime_stats,
+                        }
+                    )
+
+                    # Write updated results (sorted by numeric key)
+                    sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
+                    with open(eval_file_path, "w") as f:
+                        json.dump(sorted_results, f, indent=4)
+
+                    break  # Success
+                finally:
+                    fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)  # Release lock
+
+        except (IOError, BlockingIOError) as e:
+            # Lock already held by another process (expected with LOCK_NB)
+            elapsed = time.time() - start_time
+            if elapsed > max_wait_secs:
+                print(f"ERROR: Lock acquisition timeout after {elapsed:.1f}s")
+                raise RuntimeError(
+                    f"Could not acquire eval_results.json lock after {max_wait_secs}s. "
+                    f"This likely means another container crashed while holding the lock."
+                )
+            time.sleep(0.5)  # Retry after 0.5s
+
+        except Exception as e:
+            print(f"ERROR: Failed to write eval_results: {e}")
+            raise
+
+        finally:
+            # Clean up lock file
+            try:
+                os.remove(lock_file)
+            except OSError:
+                pass
 
 
 def reserve_gpu_memory(device, fraction):
@@ -323,6 +361,15 @@ INSTRUCTIONS FOR AGENT:
 
         # Final cleanup and result extraction
         exp.interpreter.cleanup_session()
+
+        # Clean up ephemeral /tmp/aide_task workspace to prevent unbounded /tmp growth
+        try:
+            if os.path.exists(task_dir):
+                print(f"Cleaning up ephemeral workspace: {task_dir}")
+                shutil.rmtree(task_dir, ignore_errors=True)
+        except Exception as e:
+            print(f"Warning: Could not clean ephemeral workspace: {e}")
+
         best_node = exp.journal.get_best_node(only_good=False)
 
         print("\n--- Run Complete ---")
@@ -333,6 +380,7 @@ INSTRUCTIONS FOR AGENT:
 
             # Save the best kernel
             best_kernel_dir = os.path.join(args.results_dir, "kernels")
+            os.makedirs(best_kernel_dir, exist_ok=True)  # Create directory if it doesn't exist
             kernel_file_path = os.path.join(
                 best_kernel_dir,
                 f"level_{args.level}_problem_{args.problem_id}_sample_0_kernel.py",
@@ -392,6 +440,15 @@ INSTRUCTIONS FOR AGENT:
     except Exception as e:
         traceback.print_exc()
         print(f"Experiment failed: {e}")
+
+    # Final cleanup: remove AIDE workspace directory to free space
+    workspace_dir = os.path.join(args.results_dir, "workspaces", f"level_{args.level}_problem_{args.problem_id}")
+    try:
+        if os.path.exists(workspace_dir):
+            print(f"Cleaning up AIDE workspace: {workspace_dir}")
+            shutil.rmtree(workspace_dir, ignore_errors=True)
+    except Exception as e:
+        print(f"Warning: Could not clean workspace: {e}")
 
 
 if __name__ == "__main__":

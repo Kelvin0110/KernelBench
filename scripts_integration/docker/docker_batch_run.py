@@ -63,6 +63,7 @@ class DockerBatchConfig(Config):
         self.io_device = "/dev/sda"  # Fallback block device if auto-detection fails (Linux only)
         self.tmpfs_size = "16g"      # RAM disk size for /tmp per container; set "" to disable
         # I/O watchdog thresholds (Linux only, reads /proc/stat)
+        self.enable_iowait_monitor = True  # Enable/disable iowait monitoring and logging
         self.iowait_warn_pct = 70.0   # Print warning when host iowait exceeds this %
         self.iowait_pause_pct = 85.0  # Pause new container starts when iowait exceeds this %
         self.iowait_resume_pct = 50.0 # Resume spawning when iowait drops below this %
@@ -297,12 +298,9 @@ class IOWaitMonitor:
     def start(self):
         if platform.system() != "Linux":
             return  # /proc/stat not available on macOS/Windows
-        os.makedirs(self._run_dir, exist_ok=True)
-        with open(self._log_file, "w") as f:
-            f.write("timestamp,iowait_pct\n")
         self._thread.start()
         print(f"IOWaitMonitor started (warn={self._warn_pct}%, pause={self._pause_pct}%, "
-              f"resume={self._resume_pct}%). Log: {self._log_file}")
+              f"resume={self._resume_pct}%). Monitoring active, no log file written.")
 
     def stop(self):
         self._stop_event.set()
@@ -356,16 +354,8 @@ class IOWaitMonitor:
     def _loop(self):
         while not self._stop_event.is_set():
             iowait = self._compute_iowait_pct()
-            ts = time.strftime("%Y-%m-%dT%H:%M:%S")
 
-            # Append to CSV log
-            try:
-                with open(self._log_file, "a") as f:
-                    f.write(f"{ts},{iowait:.2f}\n")
-            except OSError:
-                pass
-
-            # Update pause event
+            # Update pause event (no file logging, only in-memory monitoring)
             if iowait >= self._pause_pct:
                 if not self._pause_event.is_set():
                     print(f"\n[IOWaitMonitor] PAUSING new containers: iowait={iowait:.1f}% "
@@ -567,6 +557,28 @@ def aggregate_results(run_dir, level):
         print(f"\n  Correctness rate: {correct_count}/{len(sorted_results)}")
 
 
+def check_disk_space(run_dir, min_gb=50):
+    """Check available disk space on run_dir partition.
+
+    Prevents expensive batch run from starting if insufficient space,
+    which would result in all containers failing and wasting API tokens.
+    """
+    import shutil
+    try:
+        stat = shutil.disk_usage(run_dir)
+        free_gb = stat.free / (1024**3)
+        if free_gb < min_gb:
+            raise RuntimeError(
+                f"Insufficient disk space: {free_gb:.1f} GB available, "
+                f"require {min_gb} GB minimum. Exiting to prevent cascade failure."
+            )
+        print(f"✓ Disk space OK: {free_gb:.1f} GB available on {run_dir}")
+        return True
+    except Exception as e:
+        print(f"ERROR: {e}")
+        raise
+
+
 @pydra.main(base=DockerBatchConfig)
 def main(config: DockerBatchConfig):
     print(f"Docker Batch Run Config: {config}")
@@ -603,18 +615,31 @@ def main(config: DockerBatchConfig):
     run_dir = os.path.join("run_integration", config.run_name)
     os.makedirs(run_dir, exist_ok=True)
 
+    # Check disk space before starting expensive batch
+    check_disk_space(run_dir, min_gb=50)
+
     # Print aggregate budget table and RAM warnings before starting anything
     print_aggregate_limit_warning(config, config.num_workers)
 
-    # Start I/O wait monitor (daemon thread, Linux only)
-    io_monitor = IOWaitMonitor(
-        run_dir=run_dir,
-        warn_pct=config.iowait_warn_pct,
-        pause_pct=config.iowait_pause_pct,
-        resume_pct=config.iowait_resume_pct,
-    )
-    io_monitor.start()
-    atexit.register(io_monitor.stop)
+    # Start I/O wait monitor (daemon thread, Linux only; can be disabled with enable_iowait_monitor=False)
+    if config.enable_iowait_monitor:
+        io_monitor = IOWaitMonitor(
+            run_dir=run_dir,
+            warn_pct=config.iowait_warn_pct,
+            pause_pct=config.iowait_pause_pct,
+            resume_pct=config.iowait_resume_pct,
+        )
+        io_monitor.start()
+        atexit.register(io_monitor.stop)
+    else:
+        # Dummy monitor that does nothing (provides same interface)
+        class DummyMonitor:
+            def is_paused(self):
+                return False
+            def stop(self):
+                pass
+        io_monitor = DummyMonitor()
+        print("[IOWaitMonitor] Disabled (enable_iowait_monitor=False)")
 
     completed = get_completed_problems(run_dir)
     print(f"Already completed: {len(completed)} problems: {sorted(completed)}")

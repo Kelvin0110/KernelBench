@@ -8,6 +8,11 @@
 set -euo pipefail
 set -x  # Echo commands for debugging
 
+# Trap SIGTERM and SIGINT to gracefully shutdown background process
+# This allows Python atexit/cleanup handlers to execute before terminating
+trap 'echo "SIGTERM received, sending to background process"; kill -TERM $PYTHON_PID 2>/dev/null; wait $PYTHON_PID 2>/dev/null; exit 143' SIGTERM
+trap 'echo "SIGINT received, sending to background process"; kill -TERM $PYTHON_PID 2>/dev/null; wait $PYTHON_PID 2>/dev/null; exit 130' SIGINT
+
 # ---- Validate required env vars ----
 : "${LEVEL:?ERROR: LEVEL env var is required}"
 : "${PROBLEM_ID:?ERROR: PROBLEM_ID env var is required}"
