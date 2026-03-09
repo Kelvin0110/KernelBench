@@ -11,14 +11,14 @@
 #     -e LEVEL=1 -e PROBLEM_ID=1 -e STEPS=3 -e HOURS=0.1 \
 #     kernelbench-aide
 
-FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
 
 # Prevent interactive prompts during apt-get
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 # ---- System dependencies ----
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing \
     python3.10 python3.10-venv python3.10-dev python3-pip \
     build-essential cmake ninja-build git curl \
     && rm -rf /var/lib/apt/lists/*
@@ -31,7 +31,7 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 &
 WORKDIR /app
 
 # ---- Layer 1: PyTorch (largest, cached aggressively) ----
-RUN pip install --no-cache-dir torch==2.9.0 --index-url https://download.pytorch.org
+RUN pip install --no-cache-dir torch==2.9.0 --index-url https://download.pytorch.org/whl/cu128
 
 # ---- Layer 2: AIDE library ----
 COPY aideml/ /app/aideml/
