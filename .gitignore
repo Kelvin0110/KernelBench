@@ -18,6 +18,7 @@ analysis
 # *.sh
 TUTORIAL.md
 .github/
+.claude/
 
 # log files
 logs/

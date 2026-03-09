@@ -389,6 +389,10 @@ INSTRUCTIONS FOR AGENT:
             # Final evaluation
             print("Evaluating best kernel against reference...")
 
+            # Ensure task_dir is in sys.path so generated code can import kb_harness
+            if task_dir not in sys.path:
+                sys.path.insert(0, task_dir)
+
             if args.mock_eval:
                 # M1/CPU testing: return a fake result so the pipeline completes
                 import types
