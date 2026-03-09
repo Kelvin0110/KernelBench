@@ -428,6 +428,8 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
         "--memory", config.memory_limit,
         "--memory-swap", config.memory_limit,  # Same as memory = no swap
         "--pids-limit", str(config.pids_limit),
+        # Run as host user to preserve permission/ownership on mounted volumes
+        "-u", f"{os.getuid()}:{os.getgid()}",
     ])
 
     # I/O limits (only work on Linux with cgroups v1; silently ignored elsewhere)
