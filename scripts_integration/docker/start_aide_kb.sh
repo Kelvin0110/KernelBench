@@ -51,7 +51,7 @@ python -c "
 import torch
 if torch.cuda.is_available():
     print(f'PyTorch CUDA OK: {torch.cuda.get_device_name(0)}')
-    print(f'CUDA memory: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB')
+    print(f'CUDA memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB')
 else:
     print('WARNING: PyTorch cannot see CUDA GPU')
 "
