@@ -280,6 +280,11 @@ def main():
         else:
             print("WARNING: GPU memory reservation requested but no CUDA GPU found, skipping.")
 
+    # Set PyTorch build cache to /tmp (writable in container)
+    # This prevents "Permission denied: /.cache" when load_inline compiles CUDA code
+    os.environ["TORCH_EXTENSIONS_DIR"] = "/tmp/torch_extensions"
+    os.makedirs("/tmp/torch_extensions", exist_ok=True)
+
     # Goal for AIDE agent
     goal = f"""
 {prompt_desc}
