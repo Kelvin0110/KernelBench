@@ -367,14 +367,6 @@ INSTRUCTIONS FOR AGENT:
         # Final cleanup and result extraction
         exp.interpreter.cleanup_session()
 
-        # Clean up ephemeral /tmp/aide_task workspace to prevent unbounded /tmp growth
-        try:
-            if os.path.exists(task_dir):
-                print(f"Cleaning up ephemeral workspace: {task_dir}")
-                shutil.rmtree(task_dir, ignore_errors=True)
-        except Exception as e:
-            print(f"Warning: Could not clean ephemeral workspace: {e}")
-
         best_node = exp.journal.get_best_node(only_good=False)
 
         print("\n--- Run Complete ---")
@@ -441,6 +433,15 @@ INSTRUCTIONS FOR AGENT:
                     traceback.print_exc()
         else:
             print("No solutions found.")
+
+        # Clean up ephemeral /tmp/aide_task workspace AFTER final evaluation
+        # so that kb_harness module is still available during final evaluation
+        try:
+            if os.path.exists(task_dir):
+                print(f"Cleaning up ephemeral workspace: {task_dir}")
+                shutil.rmtree(task_dir, ignore_errors=True)
+        except Exception as e:
+            print(f"Warning: Could not clean ephemeral workspace: {e}")
 
     except Exception as e:
         traceback.print_exc()
