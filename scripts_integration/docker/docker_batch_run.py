@@ -421,7 +421,7 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
 
     # GPU assignment: skip entirely in mock mode (M1/CPU testing)
     if not config.mock:
-        cmd.extend(["--gpus", f"device={gpu_id}"])
+        cmd.extend(["--gpus", "all"])  # Use all GPUs at Docker level; restrict with CUDA_VISIBLE_DEVICES in env_vars
 
     cmd.extend([
         # Resource limits
@@ -477,6 +477,11 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
     ]:
         if key in os.environ:
             env_vars[key] = os.environ[key]
+
+    # Add CUDA_VISIBLE_DEVICES to restrict which GPUs the container can see
+    # This prevents race conditions with multiple containers accessing GPU devices
+    if not config.mock:
+        env_vars["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
     for k, v in env_vars.items():
         cmd.extend(["-e", f"{k}={v}"])
@@ -654,7 +659,7 @@ def main(config: DockerBatchConfig):
         aggregate_results(run_dir, config.level)
         return
 
-    gpus = [g.strip() for g in str(config.gpus).split(",")]
+    gpus = [g.strip().strip("()[]") for g in str(config.gpus).split(",")]
     if not gpus:
         gpus = ["0"]
 
