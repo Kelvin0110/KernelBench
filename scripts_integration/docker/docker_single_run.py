@@ -249,7 +249,6 @@ def run_checkpoint_eval(
         code at this checkpoint, problem_result_dict is the entry to append to
         eval_results.json[str(problem_id)].
     """
-    from kernelbench.eval import eval_kernel_against_ref
     from kernelbench.eval import check_metadata_serializable_all_types
 
     # Node-first path organization
@@ -324,50 +323,142 @@ def run_checkpoint_eval(
     with open(kernel_path, "w") as f:
         f.write(best_node.code)
 
-    # Run eval
+    # Run eval (using safe wrapper that records errors)
+    if task_dir not in sys.path:
+        sys.path.insert(0, task_dir)
+
+    eval_result = safe_eval_kernel_against_ref(
+        original_model_src=problem_code,
+        custom_model_src=best_node.code,
+        build_dir=os.path.join("/tmp/cache", str(args.problem_id),
+                               f"ckpt_{node_count}"),
+        device=torch.device("cuda:0"),
+        backend=args.backend,
+        measure_performance=True,
+        timing_method="cuda_event",
+        verbose=False,
+        num_correct_trials=5,
+        num_perf_trials=100,
+    )
+
+    # Always record the result (even if compilation failed)
+    result_entry.update({
+        "compiled": eval_result.compiled,
+        "correctness": eval_result.correctness,
+        "runtime": eval_result.runtime,
+        "ref_runtime": getattr(eval_result, 'ref_runtime', None),
+        "runtime_stats": eval_result.runtime_stats,
+        "aide_metric": aide_metric,
+        "eval_skipped": False,
+        "skip_reason": None,
+        "metadata": check_metadata_serializable_all_types(eval_result.metadata),
+    })
+
+    if eval_result.compiled and eval_result.correctness:
+        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id}: compiled={eval_result.compiled} correct={eval_result.correctness} metric={aide_metric}")
+    else:
+        # Log errors but don't treat as skip
+        error_info = eval_result.metadata.get("cuda_error") or eval_result.metadata.get("other_error") or "Unknown error"
+        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id}: compilation/runtime failed: {error_info}")
+
+    new_prev_code = best_node.code
+
+    return new_prev_code, result_entry
+
+
+def safe_eval_kernel_against_ref(
+    original_model_src: str,
+    custom_model_src: str,
+    build_dir: str,
+    device,
+    backend: str,
+    measure_performance: bool = True,
+    timing_method: str = "cuda_event",
+    verbose: bool = False,
+    num_correct_trials: int = 5,
+    num_perf_trials: int = 100,
+):
+    """
+    Safely evaluate a kernel against reference with proper error handling.
+
+    Records compilation errors, CUDA errors, and runtime failures as failed
+    evaluations instead of exceptions. Follows the pattern from
+    eval_from_generations.py:evaluate_single_sample().
+
+    Returns:
+        eval_result: Object with compiled, correctness, runtime, metadata fields.
+                    On error, returns failed result with error details in metadata.
+    """
+    from kernelbench.eval import eval_kernel_against_ref
+    import torch
+
     try:
-        import torch
-        if task_dir not in sys.path:
-            sys.path.insert(0, task_dir)
         eval_result = eval_kernel_against_ref(
-            original_model_src=problem_code,
-            custom_model_src=best_node.code,
-            measure_performance=True,
-            timing_method="cuda_event",
-            verbose=False,
-            num_correct_trials=5,
-            num_perf_trials=100,
-            build_dir=os.path.join("/tmp/cache", str(args.problem_id),
-                                   f"ckpt_{node_count}"),
-            device=torch.device("cuda:0"),
-            backend=args.backend,
+            original_model_src=original_model_src,
+            custom_model_src=custom_model_src,
+            measure_performance=measure_performance,
+            timing_method=timing_method,
+            verbose=verbose,
+            num_correct_trials=num_correct_trials,
+            num_perf_trials=num_perf_trials,
+            build_dir=build_dir,
+            device=device,
+            backend=backend,
             precision=torch.float32,
         )
 
-        result_entry.update({
-            "compiled": eval_result.compiled,
-            "correctness": eval_result.correctness,
-            "runtime": eval_result.runtime,
-            "runtime_stats": eval_result.runtime_stats,
-            "aide_metric": aide_metric,
-            "eval_skipped": False,
-            "skip_reason": None,
-            "metadata": check_metadata_serializable_all_types(eval_result.metadata),
-        })
+        if eval_result is None:
+            # Handle case where eval_kernel_against_ref returns None
+            metadata = {
+                "other_error": "eval_kernel_against_ref returned None",
+                "other_error_name": "NoneEvalResult",
+                "hardware": torch.cuda.get_device_name(device=device),
+                "device": str(device),
+            }
+            return type('obj', (object,), {
+                'compiled': False,
+                'correctness': False,
+                'runtime': None,
+                'ref_runtime': None,
+                'speedup': None,
+                'runtime_stats': None,
+                'metadata': metadata,
+            })()
 
-        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id}: compiled={eval_result.compiled} correct={eval_result.correctness} metric={aide_metric}")
-        new_prev_code = best_node.code
+        return eval_result
 
     except Exception as e:
-        traceback.print_exc()
-        result_entry.update({
-            "eval_skipped": True,
-            "skip_reason": "evaluation_exception",
-        })
-        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id} eval failed: {e}")
-        new_prev_code = best_node.code
+        # Handle errors during kernel execution
+        print(f"[WARNING] Evaluation error: {e}")
+        error_str = str(e)
 
-    return new_prev_code, result_entry
+        if "CUDA error" in error_str:
+            # CUDA errors (illegal memory access, kernel launch failures)
+            metadata = {
+                "cuda_error": f"CUDA Error: {error_str}",
+                "cuda_error_name": type(e).__name__,
+                "hardware": torch.cuda.get_device_name(device=device),
+                "device": str(device),
+            }
+        else:
+            # Other errors (compilation, runtime, etc.)
+            metadata = {
+                "other_error": f"Evaluation error: {error_str}",
+                "other_error_name": type(e).__name__,
+                "hardware": torch.cuda.get_device_name(device=device),
+                "device": str(device),
+            }
+
+        # Return failed result object (not an exception)
+        return type('obj', (object,), {
+            'compiled': False,
+            'correctness': False,
+            'runtime': None,
+            'ref_runtime': None,
+            'speedup': None,
+            'runtime_stats': None,
+            'metadata': metadata,
+        })()
 
 
 def main():
@@ -655,31 +746,29 @@ INSTRUCTIONS FOR AGENT:
                 add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
                 print(f"Saved mock evaluation results to {eval_file_path}")
             else:
-                import torch
-                from kernelbench.eval import eval_kernel_against_ref
+                # Use safe evaluation wrapper (records errors instead of raising)
+                eval_result = safe_eval_kernel_against_ref(
+                    original_model_src=problem.code,
+                    custom_model_src=best_node.code,
+                    build_dir=os.path.join("/tmp/cache", str(args.problem_id), "0"),
+                    device=torch.device("cuda:0"),
+                    backend=args.backend,
+                    measure_performance=True,
+                    timing_method="cuda_event",
+                    verbose=False,
+                    num_correct_trials=5,
+                    num_perf_trials=100,
+                )
 
-                try:
-                    eval_result = eval_kernel_against_ref(
-                        original_model_src=problem.code,
-                        custom_model_src=best_node.code,
-                        measure_performance=True,
-                        timing_method="cuda_event",
-                        verbose=False,
-                        num_correct_trials=5,
-                        num_perf_trials=100,
-                        build_dir=os.path.join("/tmp/cache", str(args.problem_id), "0"),
-                        device=torch.device("cuda:0"),
-                        backend=args.backend,
-                        precision=torch.float32,
-                    )
-
-                    if eval_result:
-                        eval_file_path = os.path.join(args.results_dir, "eval_results.json")
-                        add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
-                        print(f"Saved evaluation results to {eval_file_path}")
-                except Exception as e:
-                    print(f"Final evaluation failed: {e}")
-                    traceback.print_exc()
+                if eval_result:
+                    eval_file_path = os.path.join(args.results_dir, "eval_results.json")
+                    add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
+                    print(f"Saved evaluation results to {eval_file_path}")
+                    if eval_result.compiled and eval_result.correctness:
+                        print(f"✓ Final evaluation: PASSED (speedup={getattr(eval_result, 'speedup', 'N/A')})")
+                    else:
+                        error_info = eval_result.metadata.get("cuda_error") or eval_result.metadata.get("other_error") or "Unknown error"
+                        print(f"✗ Final evaluation: FAILED ({error_info})")
         else:
             print("No solutions found.")
 
