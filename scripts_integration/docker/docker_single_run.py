@@ -250,6 +250,7 @@ def run_checkpoint_eval(
         eval_results.json[str(problem_id)].
     """
     from kernelbench.eval import check_metadata_serializable_all_types
+    import torch
 
     # Node-first path organization
     checkpoint_node_dir = os.path.join(
@@ -757,6 +758,7 @@ INSTRUCTIONS FOR AGENT:
                 add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
                 print(f"Saved mock evaluation results to {eval_file_path}")
             else:
+                import torch
                 # Use safe evaluation wrapper (records errors instead of raising)
                 eval_result = safe_eval_kernel_against_ref(
                     original_model_src=problem.code,
