@@ -581,10 +581,21 @@ INSTRUCTIONS FOR AGENT:
             exp.interpreter.cleanup_session()
         except Exception:
             pass
+        try:
+            if os.path.exists(workspace_dir):
+                print(f"Cleaning up AIDE workspace (signal/exit): {workspace_dir}")
+                shutil.rmtree(workspace_dir, ignore_errors=True)
+        except Exception as e:
+            print(f"Warning during cleanup: {e}")
 
     atexit.register(cleanup)
-    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
-    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+
+    def _signal_handler(sig, frame):
+        cleanup()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
     # Configure models
     exp.cfg.agent.code.model = args.code_model
