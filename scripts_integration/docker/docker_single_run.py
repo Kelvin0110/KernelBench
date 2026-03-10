@@ -228,6 +228,158 @@ def run_benchmark(kernel_source_code):
     return task_prompt
 
 
+def run_checkpoint_eval(
+    node_count: int,
+    best_node,
+    problem_code: str,
+    prev_checkpoint_code,
+    args,
+    task_dir: str,
+    elapsed_hours: float,
+):
+    """Evaluate the current best kernel at a checkpoint.
+
+    Returns:
+        (new_prev_code, summary_entry) — summary_entry is dict added to
+        checkpoint_summary.json["problems_evaluated"].
+    """
+    from kernelbench.eval import eval_kernel_against_ref
+    from kernelbench.eval import check_metadata_serializable_all_types
+
+    # Node-first path organization
+    checkpoint_node_dir = os.path.join(
+        args.results_dir, "checkpoints",
+        f"node_{node_count:04d}",
+    )
+    os.makedirs(checkpoint_node_dir, exist_ok=True)
+
+    # File naming includes level and problem
+    file_prefix = f"level_{args.level}_problem_{args.problem_id}"
+    kernel_path = os.path.join(checkpoint_node_dir, f"{file_prefix}_kernel.py")
+    eval_path = os.path.join(checkpoint_node_dir, f"{file_prefix}_eval_result.json")
+    metadata_path = os.path.join(checkpoint_node_dir, f"{file_prefix}_metadata.json")
+
+    code_changed = (best_node is not None and best_node.code != prev_checkpoint_code)
+    aide_metric  = (best_node.metric.value
+                    if best_node and best_node.metric else None)
+
+    metadata = {
+        "node_count":                         node_count,
+        "level":                              args.level,
+        "problem_id":                         args.problem_id,
+        "timestamp":                          time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "elapsed_hours":                      round(elapsed_hours, 4),
+        "best_node_id":                       best_node.id if best_node else None,
+        "best_metric_from_aide":              aide_metric,
+        "code_changed_since_last_checkpoint": code_changed,
+        "eval_skipped":                       False,
+        "skip_reason":                        None,
+    }
+
+    # Determine skip conditions
+    if best_node is None:
+        metadata.update({"eval_skipped": True, "skip_reason": "no_solution_found"})
+    elif not code_changed and prev_checkpoint_code is not None:
+        metadata.update({"eval_skipped": True,
+                         "skip_reason": "code_unchanged_since_last_checkpoint"})
+
+    if metadata["eval_skipped"]:
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        if best_node:
+            with open(kernel_path, "w") as f:
+                f.write(best_node.code)
+        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id} skipped ({metadata['skip_reason']})")
+        summary_entry = {
+            "level": args.level,
+            "problem_id": args.problem_id,
+            "eval_skipped": True,
+            "skip_reason": metadata["skip_reason"],
+            "code_changed": code_changed,
+            "compiled": None,
+            "correct": None,
+            "aide_metric": aide_metric,
+            "runtime_secs": None,
+        }
+        return prev_checkpoint_code, summary_entry
+
+    # Save kernel
+    with open(kernel_path, "w") as f:
+        f.write(best_node.code)
+
+    # Run eval
+    try:
+        import torch
+        if task_dir not in sys.path:
+            sys.path.insert(0, task_dir)
+        eval_result = eval_kernel_against_ref(
+            original_model_src=problem_code,
+            custom_model_src=best_node.code,
+            measure_performance=True,
+            timing_method="cuda_event",
+            verbose=False,
+            num_correct_trials=5,
+            num_perf_trials=100,
+            build_dir=os.path.join("/tmp/cache", str(args.problem_id),
+                                   f"ckpt_{node_count}"),
+            device=torch.device("cuda:0"),
+            backend=args.backend,
+            precision=torch.float32,
+        )
+        eval_data = {
+            "compiled":      eval_result.compiled,
+            "correctness":   eval_result.correctness,
+            "runtime":       eval_result.runtime,
+            "runtime_stats": eval_result.runtime_stats,
+            "metadata":      check_metadata_serializable_all_types(eval_result.metadata),
+        }
+        with open(eval_path, "w") as f:
+            json.dump(eval_data, f, indent=2)
+
+        metadata.update({
+            "compiled":      eval_result.compiled,
+            "correct":       eval_result.correctness,
+            "runtime_secs":  eval_result.runtime,
+            "runtime_stats": eval_result.runtime_stats,
+        })
+        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id}: compiled={eval_result.compiled} correct={eval_result.correctness} metric={aide_metric}")
+        summary_entry = {
+            "level": args.level,
+            "problem_id": args.problem_id,
+            "eval_skipped": False,
+            "skip_reason": None,
+            "code_changed": code_changed,
+            "compiled": eval_result.compiled,
+            "correct": eval_result.correctness,
+            "aide_metric": aide_metric,
+            "runtime_secs": eval_result.runtime,
+        }
+        new_prev_code = best_node.code
+
+    except Exception as e:
+        traceback.print_exc()
+        metadata.update({"eval_skipped": True,
+                         "skip_reason": "evaluation_exception"})
+        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id} eval failed: {e}")
+        summary_entry = {
+            "level": args.level,
+            "problem_id": args.problem_id,
+            "eval_skipped": True,
+            "skip_reason": "evaluation_exception",
+            "code_changed": code_changed,
+            "compiled": None,
+            "correct": None,
+            "aide_metric": aide_metric,
+            "runtime_secs": None,
+        }
+        new_prev_code = best_node.code
+
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+
+    return new_prev_code, summary_entry
+
+
 def main():
     parser = argparse.ArgumentParser(description="AIDE + KernelBench Docker Runner")
     parser.add_argument("-l", "--level", type=int, required=True, help="KernelBench problem level (1-4)")
@@ -248,6 +400,26 @@ def main():
         "--gpu-memory-fraction", type=float,
         default=float(os.environ.get("GPU_MEMORY_FRACTION", "0.90")),
         help="Fraction of GPU memory to pre-warm into PyTorch cache (0.0 to disable, 0.90 default)",
+    )
+    parser.add_argument(
+        "--max-debug-depth", type=int,
+        default=int(os.environ.get("MAX_DEBUG_DEPTH", "5")),
+        help="Max debug chain depth for AIDE search (AIDE default: 3)",
+    )
+    parser.add_argument(
+        "--debug-prob", type=float,
+        default=float(os.environ.get("DEBUG_PROB", "0.5")),
+        help="Probability of debugging vs new draft in AIDE search (AIDE default: 0.5)",
+    )
+    parser.add_argument(
+        "--num-drafts", type=int,
+        default=int(os.environ.get("NUM_DRAFTS", "3")),
+        help="Number of initial draft solutions in AIDE search tree (AIDE default: 5)",
+    )
+    parser.add_argument(
+        "--checkpoint-distance", type=int,
+        default=int(os.environ.get("CHECKPOINT_DISTANCE", "0")),
+        help="Evaluate best kernel every N nodes; 0 = disabled",
     )
     # results_dir comes from  RESULTS_DIR env var or /app/run default (set by docker_batch_run.py)
     import os as os_module
@@ -337,9 +509,22 @@ INSTRUCTIONS FOR AGENT:
     exp.cfg.agent.code.model = args.code_model
     exp.cfg.agent.feedback.model = args.feedback_model
 
+    # AIDE search hyperparameters
+    exp.cfg.agent.search.max_debug_depth = args.max_debug_depth
+    exp.cfg.agent.search.debug_prob      = args.debug_prob
+    exp.cfg.agent.search.num_drafts      = args.num_drafts
+
     max_steps = args.steps
     max_hours = args.hours
     start_time = time.time()
+
+    # Fetch problem data once (used for checkpoint eval and final eval)
+    dataset = construct_kernelbench_dataset(level=args.level, source="local")
+    problem = dataset.get_problem_by_id(args.problem_id)
+
+    # Checkpoint state
+    prev_checkpoint_code = None
+    checkpoint_node_data = {}  # {node_count: {problem_key: entry, ...}, ...}
 
     print(f"Running AIDE (Max {max_steps} nodes/steps, {max_hours} hours)...")
     try:
@@ -363,6 +548,59 @@ INSTRUCTIONS FOR AGENT:
                 except Exception:
                     pass
                 continue
+
+            # Checkpoint evaluation
+            if args.checkpoint_distance > 0 and (i + 1) % args.checkpoint_distance == 0:
+                ckpt_best = exp.journal.get_best_node(only_good=False)
+                elapsed_h  = (time.time() - start_time) / 3600
+                prev_checkpoint_code, entry = run_checkpoint_eval(
+                    node_count=i + 1,
+                    best_node=ckpt_best,
+                    problem_code=problem.code,
+                    prev_checkpoint_code=prev_checkpoint_code,
+                    args=args,
+                    task_dir=task_dir,
+                    elapsed_hours=elapsed_h,
+                )
+
+                # Build aggregated checkpoint_summary.json for this node
+                checkpoint_node_dir = os.path.join(
+                    args.results_dir, "checkpoints",
+                    f"node_{i+1:04d}",
+                )
+                problems_list = []
+                # Collect all *_metadata.json files in this node to build summary
+                for fname in os.listdir(checkpoint_node_dir) or []:
+                    if fname.endswith("_metadata.json"):
+                        with open(os.path.join(checkpoint_node_dir, fname)) as f:
+                            meta = json.load(f)
+                            problems_list.append({
+                                "level": meta["level"],
+                                "problem_id": meta["problem_id"],
+                                "eval_skipped": meta["eval_skipped"],
+                                "skip_reason": meta.get("skip_reason"),
+                                "code_changed": meta["code_changed_since_last_checkpoint"],
+                                "compiled": meta.get("compiled"),
+                                "correct": meta.get("correct"),
+                                "aide_metric": meta.get("best_metric_from_aide"),
+                                "runtime_secs": meta.get("runtime_secs"),
+                            })
+
+                summary_doc = {
+                    "checkpoint_node": i + 1,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "elapsed_hours": round(elapsed_h, 4),
+                    "problems_evaluated": problems_list,
+                    "summary": {
+                        "total_problems": len(problems_list),
+                        "problems_evaluated": sum(1 for p in problems_list if not p.get("eval_skipped", False)),
+                        "problems_skipped": sum(1 for p in problems_list if p.get("eval_skipped", False)),
+                        "avg_aide_metric": sum(p.get("aide_metric") or 0 for p in problems_list) / len(problems_list) if problems_list else None,
+                    },
+                }
+
+                with open(os.path.join(checkpoint_node_dir, "checkpoint_summary.json"), "w") as f:
+                    json.dump(summary_doc, f, indent=2)
 
         # Final cleanup and result extraction
         exp.interpreter.cleanup_session()
@@ -409,9 +647,6 @@ INSTRUCTIONS FOR AGENT:
             else:
                 import torch
                 from kernelbench.eval import eval_kernel_against_ref
-
-                dataset = construct_kernelbench_dataset(level=args.level, source="local")
-                problem = dataset.get_problem_by_id(args.problem_id)
 
                 try:
                     eval_result = eval_kernel_against_ref(

@@ -72,6 +72,12 @@ class DockerBatchConfig(Config):
         self.stagger_secs = 10  # Seconds between container starts
         self.mock = False  # Use CPU image + skip --gpus; for M1/no-GPU testing
         self.gpu_memory_fraction = 0.0  # Fraction of GPU memory to reserve per container
+        # AIDE search hyperparameters (see aideml/aide/utils/config.yaml)
+        self.max_debug_depth = 5    # Max chain of debug iterations before new draft
+        self.debug_prob = 0.5       # Probability of debugging a buggy node (vs drafting fresh)
+        self.num_drafts = 3         # Number of initial draft solutions in the search tree
+        # Checkpoint evaluation
+        self.checkpoint_distance = 0  # Evaluate best kernel every N nodes; 0 = disabled
 
 
 def cleanup_containers():
@@ -469,6 +475,10 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
         "RESULTS_DIR": "/app/run",  # Base results directory (mounted volume)
         "MOCK_EVAL": "1" if config.mock else "0",
         "GPU_MEMORY_FRACTION": str(config.gpu_memory_fraction),
+        "MAX_DEBUG_DEPTH":     str(config.max_debug_depth),
+        "DEBUG_PROB":          str(config.debug_prob),
+        "NUM_DRAFTS":          str(config.num_drafts),
+        "CHECKPOINT_DISTANCE": str(config.checkpoint_distance),
     }
     # Pass through API keys from host environment
     for key in [
