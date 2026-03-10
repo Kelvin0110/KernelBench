@@ -236,12 +236,18 @@ def run_checkpoint_eval(
     args,
     task_dir: str,
     elapsed_hours: float,
+    prev_checkpoint_eval_path: str = None,
 ):
     """Evaluate the current best kernel at a checkpoint.
 
+    Stores kernel in kernels/ subdirectory and appends result to aggregated
+    eval_results.json (keyed by problem_id). Supports forward-copying skipped
+    results from previous checkpoints.
+
     Returns:
-        (new_prev_code, summary_entry) — summary_entry is dict added to
-        checkpoint_summary.json["problems_evaluated"].
+        (new_prev_code, problem_result_dict) — new_prev_code is the best kernel
+        code at this checkpoint, problem_result_dict is the entry to append to
+        eval_results.json[str(problem_id)].
     """
     from kernelbench.eval import eval_kernel_against_ref
     from kernelbench.eval import check_metadata_serializable_all_types
@@ -251,57 +257,68 @@ def run_checkpoint_eval(
         args.results_dir, "checkpoints",
         f"node_{node_count:04d}",
     )
-    os.makedirs(checkpoint_node_dir, exist_ok=True)
+    kernels_dir = os.path.join(checkpoint_node_dir, "kernels")
+    os.makedirs(kernels_dir, exist_ok=True)
 
-    # File naming includes level and problem
-    file_prefix = f"level_{args.level}_problem_{args.problem_id}"
-    kernel_path = os.path.join(checkpoint_node_dir, f"{file_prefix}_kernel.py")
-    eval_path = os.path.join(checkpoint_node_dir, f"{file_prefix}_eval_result.json")
-    metadata_path = os.path.join(checkpoint_node_dir, f"{file_prefix}_metadata.json")
+    # Kernel path in kernels/ subdirectory
+    kernel_filename = f"level_{args.level}_problem_{args.problem_id}_kernel.py"
+    kernel_path = os.path.join(kernels_dir, kernel_filename)
 
     code_changed = (best_node is not None and best_node.code != prev_checkpoint_code)
-    aide_metric  = (best_node.metric.value
-                    if best_node and best_node.metric else None)
-
-    metadata = {
-        "node_count":                         node_count,
-        "level":                              args.level,
-        "problem_id":                         args.problem_id,
-        "timestamp":                          time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "elapsed_hours":                      round(elapsed_hours, 4),
-        "best_node_id":                       best_node.id if best_node else None,
-        "best_metric_from_aide":              aide_metric,
-        "code_changed_since_last_checkpoint": code_changed,
-        "eval_skipped":                       False,
-        "skip_reason":                        None,
-    }
+    aide_metric = (best_node.metric.value
+                   if best_node and best_node.metric else None)
 
     # Determine skip conditions
-    if best_node is None:
-        metadata.update({"eval_skipped": True, "skip_reason": "no_solution_found"})
-    elif not code_changed and prev_checkpoint_code is not None:
-        metadata.update({"eval_skipped": True,
-                         "skip_reason": "code_unchanged_since_last_checkpoint"})
+    skip_eval = False
+    skip_reason = None
 
-    if metadata["eval_skipped"]:
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2)
+    if best_node is None:
+        skip_eval = True
+        skip_reason = "no_solution_found"
+    elif not code_changed and prev_checkpoint_code is not None:
+        skip_eval = True
+        skip_reason = "code_unchanged_since_last_checkpoint"
+
+    # Build result entry (schema matches final eval_results.json)
+    result_entry = {
+        "sample_id": 0,
+        "compiled": None,
+        "correctness": None,
+        "runtime": None,
+        "runtime_stats": None,
+        "aide_metric": aide_metric,
+        "code_changed_since_last_checkpoint": code_changed,
+        "eval_skipped": skip_eval,
+        "skip_reason": skip_reason,
+        "metadata": None,
+    }
+
+    # Handle skipped evaluation: try to forward-copy from previous checkpoint
+    if skip_eval:
         if best_node:
             with open(kernel_path, "w") as f:
                 f.write(best_node.code)
-        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id} skipped ({metadata['skip_reason']})")
-        summary_entry = {
-            "level": args.level,
-            "problem_id": args.problem_id,
-            "eval_skipped": True,
-            "skip_reason": metadata["skip_reason"],
-            "code_changed": code_changed,
-            "compiled": None,
-            "correct": None,
-            "aide_metric": aide_metric,
-            "runtime_secs": None,
-        }
-        return prev_checkpoint_code, summary_entry
+
+        # Try to copy result from previous checkpoint
+        if prev_checkpoint_eval_path and os.path.exists(prev_checkpoint_eval_path):
+            try:
+                with open(prev_checkpoint_eval_path) as f:
+                    prev_eval_results = json.load(f)
+                    problem_id_str = str(args.problem_id)
+                    if problem_id_str in prev_eval_results and prev_eval_results[problem_id_str]:
+                        prev_result = prev_eval_results[problem_id_str][0]
+                        result_entry.update({
+                            "compiled": prev_result.get("compiled"),
+                            "correctness": prev_result.get("correctness"),
+                            "runtime": prev_result.get("runtime"),
+                            "runtime_stats": prev_result.get("runtime_stats"),
+                            "metadata": prev_result.get("metadata"),
+                        })
+            except Exception as e:
+                print(f"[Checkpoint node {node_count}] Failed to forward-copy result: {e}")
+
+        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id} skipped ({skip_reason})")
+        return prev_checkpoint_code, result_entry
 
     # Save kernel
     with open(kernel_path, "w") as f:
@@ -326,58 +343,31 @@ def run_checkpoint_eval(
             backend=args.backend,
             precision=torch.float32,
         )
-        eval_data = {
-            "compiled":      eval_result.compiled,
-            "correctness":   eval_result.correctness,
-            "runtime":       eval_result.runtime,
-            "runtime_stats": eval_result.runtime_stats,
-            "metadata":      check_metadata_serializable_all_types(eval_result.metadata),
-        }
-        with open(eval_path, "w") as f:
-            json.dump(eval_data, f, indent=2)
 
-        metadata.update({
-            "compiled":      eval_result.compiled,
-            "correct":       eval_result.correctness,
-            "runtime_secs":  eval_result.runtime,
+        result_entry.update({
+            "compiled": eval_result.compiled,
+            "correctness": eval_result.correctness,
+            "runtime": eval_result.runtime,
             "runtime_stats": eval_result.runtime_stats,
-        })
-        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id}: compiled={eval_result.compiled} correct={eval_result.correctness} metric={aide_metric}")
-        summary_entry = {
-            "level": args.level,
-            "problem_id": args.problem_id,
+            "aide_metric": aide_metric,
             "eval_skipped": False,
             "skip_reason": None,
-            "code_changed": code_changed,
-            "compiled": eval_result.compiled,
-            "correct": eval_result.correctness,
-            "aide_metric": aide_metric,
-            "runtime_secs": eval_result.runtime,
-        }
+            "metadata": check_metadata_serializable_all_types(eval_result.metadata),
+        })
+
+        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id}: compiled={eval_result.compiled} correct={eval_result.correctness} metric={aide_metric}")
         new_prev_code = best_node.code
 
     except Exception as e:
         traceback.print_exc()
-        metadata.update({"eval_skipped": True,
-                         "skip_reason": "evaluation_exception"})
-        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id} eval failed: {e}")
-        summary_entry = {
-            "level": args.level,
-            "problem_id": args.problem_id,
+        result_entry.update({
             "eval_skipped": True,
             "skip_reason": "evaluation_exception",
-            "code_changed": code_changed,
-            "compiled": None,
-            "correct": None,
-            "aide_metric": aide_metric,
-            "runtime_secs": None,
-        }
+        })
+        print(f"[Checkpoint node {node_count}] L{args.level}P{args.problem_id} eval failed: {e}")
         new_prev_code = best_node.code
 
-    with open(metadata_path, "w") as f:
-        json.dump(metadata, f, indent=2)
-
-    return new_prev_code, summary_entry
+    return new_prev_code, result_entry
 
 
 def main():
@@ -522,9 +512,9 @@ INSTRUCTIONS FOR AGENT:
     dataset = construct_kernelbench_dataset(level=args.level, source="local")
     problem = dataset.get_problem_by_id(args.problem_id)
 
-    # Checkpoint state
+    # Checkpoint state (tracks best code and previous eval results for forward-copying)
     prev_checkpoint_code = None
-    checkpoint_node_data = {}  # {node_count: {problem_key: entry, ...}, ...}
+    prev_checkpoint_eval_path = None  # Path to previous checkpoint's eval_results.json
 
     print(f"Running AIDE (Max {max_steps} nodes/steps, {max_hours} hours)...")
     try:
@@ -549,11 +539,18 @@ INSTRUCTIONS FOR AGENT:
                     pass
                 continue
 
-            # Checkpoint evaluation
+            # Checkpoint evaluation (triggered every N nodes)
             if args.checkpoint_distance > 0 and (i + 1) % args.checkpoint_distance == 0:
+                checkpoint_node_dir = os.path.join(
+                    args.results_dir, "checkpoints",
+                    f"node_{i+1:04d}",
+                )
+                eval_results_path = os.path.join(checkpoint_node_dir, "eval_results.json")
+
+                # Run checkpoint eval (handles forward-copying of skipped results)
                 ckpt_best = exp.journal.get_best_node(only_good=False)
-                elapsed_h  = (time.time() - start_time) / 3600
-                prev_checkpoint_code, entry = run_checkpoint_eval(
+                elapsed_h = (time.time() - start_time) / 3600
+                prev_checkpoint_code, result_entry = run_checkpoint_eval(
                     node_count=i + 1,
                     best_node=ckpt_best,
                     problem_code=problem.code,
@@ -561,30 +558,40 @@ INSTRUCTIONS FOR AGENT:
                     args=args,
                     task_dir=task_dir,
                     elapsed_hours=elapsed_h,
+                    prev_checkpoint_eval_path=prev_checkpoint_eval_path,
                 )
 
-                # Build aggregated checkpoint_summary.json for this node
-                checkpoint_node_dir = os.path.join(
-                    args.results_dir, "checkpoints",
-                    f"node_{i+1:04d}",
-                )
+                # Append result to aggregated eval_results.json (keyed by problem_id)
+                if not os.path.exists(eval_results_path):
+                    eval_results = {}
+                else:
+                    with open(eval_results_path) as f:
+                        eval_results = json.load(f)
+
+                problem_id_str = str(args.problem_id)
+                if problem_id_str not in eval_results:
+                    eval_results[problem_id_str] = []
+                eval_results[problem_id_str].append(result_entry)
+
+                with open(eval_results_path, "w") as f:
+                    json.dump(eval_results, f, indent=2)
+
+                # Build checkpoint_summary.json from all problem entries in eval_results.json
                 problems_list = []
-                # Collect all *_metadata.json files in this node to build summary
-                for fname in os.listdir(checkpoint_node_dir) or []:
-                    if fname.endswith("_metadata.json"):
-                        with open(os.path.join(checkpoint_node_dir, fname)) as f:
-                            meta = json.load(f)
-                            problems_list.append({
-                                "level": meta["level"],
-                                "problem_id": meta["problem_id"],
-                                "eval_skipped": meta["eval_skipped"],
-                                "skip_reason": meta.get("skip_reason"),
-                                "code_changed": meta["code_changed_since_last_checkpoint"],
-                                "compiled": meta.get("compiled"),
-                                "correct": meta.get("correct"),
-                                "aide_metric": meta.get("best_metric_from_aide"),
-                                "runtime_secs": meta.get("runtime_secs"),
-                            })
+                for pid_str, results in eval_results.items():
+                    if results:
+                        r = results[-1]  # Latest entry for this problem_id
+                        problems_list.append({
+                            "level": args.level,
+                            "problem_id": int(pid_str),
+                            "eval_skipped": r.get("eval_skipped", False),
+                            "skip_reason": r.get("skip_reason"),
+                            "code_changed": r.get("code_changed_since_last_checkpoint", False),
+                            "compiled": r.get("compiled"),
+                            "correct": r.get("correctness"),
+                            "aide_metric": r.get("aide_metric"),
+                            "runtime_secs": r.get("runtime"),
+                        })
 
                 summary_doc = {
                     "checkpoint_node": i + 1,
@@ -601,6 +608,9 @@ INSTRUCTIONS FOR AGENT:
 
                 with open(os.path.join(checkpoint_node_dir, "checkpoint_summary.json"), "w") as f:
                     json.dump(summary_doc, f, indent=2)
+
+                # Update path for forward-copying in next checkpoint
+                prev_checkpoint_eval_path = eval_results_path
 
         # Final cleanup and result extraction
         exp.interpreter.cleanup_session()
