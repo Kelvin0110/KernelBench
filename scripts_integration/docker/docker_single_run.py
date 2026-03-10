@@ -282,15 +282,15 @@ def run_checkpoint_eval(
     # Build result entry (schema matches final eval_results.json)
     result_entry = {
         "sample_id": 0,
-        "compiled": None,
-        "correctness": None,
-        "runtime": None,
-        "runtime_stats": None,
+        "compiled": False,
+        "correctness": False,
+        "runtime": -1.0,
+        "runtime_stats": {},
         "aide_metric": aide_metric,
         "code_changed_since_last_checkpoint": code_changed,
         "eval_skipped": skip_eval,
         "skip_reason": skip_reason,
-        "metadata": None,
+        "metadata": {},
     }
 
     # Handle skipped evaluation: try to forward-copy from previous checkpoint
@@ -347,7 +347,7 @@ def run_checkpoint_eval(
         "compiled": eval_result.compiled,
         "correctness": eval_result.correctness,
         "runtime": eval_result.runtime,
-        "ref_runtime": getattr(eval_result, 'ref_runtime', None),
+        "ref_runtime": getattr(eval_result, 'ref_runtime', -1.0),
         "runtime_stats": eval_result.runtime_stats,
         "aide_metric": aide_metric,
         "eval_skipped": False,
@@ -419,10 +419,10 @@ def safe_eval_kernel_against_ref(
             return type('obj', (object,), {
                 'compiled': False,
                 'correctness': False,
-                'runtime': None,
-                'ref_runtime': None,
-                'speedup': None,
-                'runtime_stats': None,
+                'runtime': -1.0,
+                'ref_runtime': -1.0,
+                'speedup': -1.0,
+                'runtime_stats': {},
                 'metadata': metadata,
             })()
 
@@ -454,10 +454,10 @@ def safe_eval_kernel_against_ref(
         return type('obj', (object,), {
             'compiled': False,
             'correctness': False,
-            'runtime': None,
-            'ref_runtime': None,
-            'speedup': None,
-            'runtime_stats': None,
+            'runtime': -1.0,
+            'ref_runtime': -1.0,
+            'speedup': -1.0,
+            'runtime_stats': {},
             'metadata': metadata,
         })()
 
