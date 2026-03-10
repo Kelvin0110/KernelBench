@@ -71,7 +71,7 @@ class DockerBatchConfig(Config):
         self.build_image = True  # Whether to build image before running
         self.stagger_secs = 10  # Seconds between container starts
         self.mock = False  # Use CPU image + skip --gpus; for M1/no-GPU testing
-        self.gpu_memory_fraction = 0.90  # Fraction of GPU memory to reserve per container
+        self.gpu_memory_fraction = 0.0  # Fraction of GPU memory to reserve per container
 
 
 def cleanup_containers():
@@ -537,11 +537,11 @@ def aggregate_results(run_dir, level):
         except Exception as e:
             print(f"Warning: Failed to read {flat_eval}: {e}")
 
-    # Write aggregated copy
-    output_file = results_base / "eval_results_aggregated.json"
+    # Overwrite the original flat eval_results.json with aggregated/sorted results
     sorted_results = dict(sorted(aggregated.items(), key=lambda x: int(x[0])))
-    with open(output_file, "w") as f:
+    with open(flat_eval, "w") as f:
         json.dump(sorted_results, f, indent=4)
+    output_file = flat_eval
 
     # Print summary
     print(f"\n{'='*60}")
@@ -652,7 +652,7 @@ def main(config: DockerBatchConfig):
     print(f"Already completed: {len(completed)} problems: {sorted(completed)}")
 
     pending = [p for p in problems_to_run if p not in completed]
-    print(f"Pending: {len(pending)} problems")
+    print(f"Pending: {len(pending)} problems, including: {sorted(pending)}")
 
     if not pending:
         print("All problems completed!")
