@@ -609,6 +609,14 @@ INSTRUCTIONS FOR AGENT:
 
     max_steps = args.steps
     max_hours = args.hours
+    per_node_timeout = max(
+        300,  # Minimum: 5 minutes per node (safety floor)
+        min(
+            3600,  # Maximum: 1 hour per node (safety ceiling)
+            int((max_hours * 3600) / 2)  # Dynamic: half of total budget
+        )
+    )
+    exp.cfg.exec.timeout = per_node_timeout
     start_time = time.time()
 
     # Fetch problem data once (used for checkpoint eval and final eval)
