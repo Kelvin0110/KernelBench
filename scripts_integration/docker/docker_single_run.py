@@ -26,6 +26,92 @@ from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 
 
+class CheckpointFileLock:
+    """Context manager for fcntl-based file locking of checkpoint files.
+
+    Provides reliable cross-container synchronization for checkpoint-level file updates
+    on local filesystems. Handles stale lock detection and cleanup to prevent deadlock
+    from crashed containers.
+
+    Usage:
+        with CheckpointFileLock(lock_file_path):
+            # Protected file operations (read-modify-write)
+            ...
+    """
+
+    def __init__(self, lock_file_path, timeout_secs=30):
+        """Initialize the checkpoint lock.
+
+        Args:
+            lock_file_path: Path to the lock file (e.g., checkpoint_dir/.checkpoint.lock)
+            timeout_secs: Maximum seconds to wait for lock acquisition (default 30)
+        """
+        self.lock_file_path = lock_file_path
+        self.timeout_secs = timeout_secs
+        self.lock_fh = None
+
+    def __enter__(self):
+        """Acquire exclusive lock with timeout and stale lock detection."""
+        # Ensure parent directory exists
+        os.makedirs(os.path.dirname(self.lock_file_path), exist_ok=True)
+
+        # Stale lock detection: if lock file is >10 min old, it's from a crashed container
+        if os.path.exists(self.lock_file_path):
+            try:
+                lock_age_secs = time.time() - os.path.getmtime(self.lock_file_path)
+                if lock_age_secs > 600:  # 10 minutes
+                    print(f"WARNING: Stale lock file {self.lock_file_path} (age: {lock_age_secs}s), removing.")
+                    try:
+                        os.remove(self.lock_file_path)
+                    except OSError:
+                        pass
+            except Exception:
+                pass
+
+        # Retry loop with timeout for non-blocking lock acquisition
+        start_time = time.time()
+        while True:
+            try:
+                self.lock_fh = open(self.lock_file_path, "w")
+                # Use LOCK_NB (non-blocking) to detect if already locked
+                fcntl.flock(self.lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return self  # Successfully acquired lock
+
+            except (IOError, BlockingIOError):
+                # Lock already held by another process (expected with LOCK_NB)
+                if self.lock_fh:
+                    self.lock_fh.close()
+                    self.lock_fh = None
+
+                elapsed = time.time() - start_time
+                if elapsed > self.timeout_secs:
+                    print(f"ERROR: Lock acquisition timeout after {elapsed:.1f}s on {self.lock_file_path}")
+                    raise RuntimeError(
+                        f"Could not acquire lock {self.lock_file_path} after {self.timeout_secs}s. "
+                        f"This likely means another container crashed while holding the lock."
+                    )
+                time.sleep(0.5)  # Retry after 0.5s
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Release lock and cleanup."""
+        if self.lock_fh:
+            try:
+                fcntl.flock(self.lock_fh.fileno(), fcntl.LOCK_UN)  # Release lock
+            except Exception:
+                pass
+            finally:
+                try:
+                    self.lock_fh.close()
+                except Exception:
+                    pass
+
+        # Clean up lock file
+        try:
+            os.remove(self.lock_file_path)
+        except OSError:
+            pass
+
+
 def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path):
     """Add evaluation result to eval results file with timeout-protected file locking.
 
@@ -38,80 +124,33 @@ def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path)
     os.makedirs(os.path.dirname(eval_file_path), exist_ok=True)
 
     lock_file = eval_file_path + ".lock"
-    max_wait_secs = 30  # Total timeout for acquiring lock
 
-    # Stale lock detection: if lock file is >10 min old, it's from a crashed container
-    if os.path.exists(lock_file):
-        try:
-            lock_age_secs = time.time() - os.path.getmtime(lock_file)
-            if lock_age_secs > 600:  # 10 minutes
-                print(f"WARNING: Stale lock file detected (age: {lock_age_secs}s), removing.")
-                try:
-                    os.remove(lock_file)
-                except OSError:
-                    pass
-        except Exception:
-            pass
+    # Use the reusable CheckpointFileLock context manager
+    with CheckpointFileLock(lock_file, timeout_secs=30):
+        # Read existing results
+        if os.path.exists(eval_file_path):
+            with open(eval_file_path, "r") as f:
+                eval_results = json.load(f)
+                eval_results = defaultdict(lambda: [], eval_results)
+        else:
+            eval_results = defaultdict(lambda: [])
 
-    # Retry loop with timeout for non-blocking lock acquisition
-    start_time = time.time()
-    while True:
-        try:
-            with open(lock_file, "w") as lock_fh:
-                # Use LOCK_NB (non-blocking) to detect if already locked
-                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Append new result
+        eval_results[str(problem_id)].append(
+            {
+                "sample_id": sample_id,
+                "compiled": eval_result.compiled,
+                "correctness": eval_result.correctness,
+                "metadata": check_metadata_serializable_all_types(eval_result.metadata),
+                "runtime": eval_result.runtime,
+                "runtime_stats": eval_result.runtime_stats,
+            }
+        )
 
-                try:
-                    # Read existing results
-                    if os.path.exists(eval_file_path):
-                        with open(eval_file_path, "r") as f:
-                            eval_results = json.load(f)
-                            eval_results = defaultdict(lambda: [], eval_results)
-                    else:
-                        eval_results = defaultdict(lambda: [])
-
-                    # Append new result
-                    eval_results[str(problem_id)].append(
-                        {
-                            "sample_id": sample_id,
-                            "compiled": eval_result.compiled,
-                            "correctness": eval_result.correctness,
-                            "metadata": check_metadata_serializable_all_types(eval_result.metadata),
-                            "runtime": eval_result.runtime,
-                            "runtime_stats": eval_result.runtime_stats,
-                        }
-                    )
-
-                    # Write updated results (sorted by numeric key)
-                    sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
-                    with open(eval_file_path, "w") as f:
-                        json.dump(sorted_results, f, indent=4)
-
-                    break  # Success
-                finally:
-                    fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)  # Release lock
-
-        except (IOError, BlockingIOError) as e:
-            # Lock already held by another process (expected with LOCK_NB)
-            elapsed = time.time() - start_time
-            if elapsed > max_wait_secs:
-                print(f"ERROR: Lock acquisition timeout after {elapsed:.1f}s")
-                raise RuntimeError(
-                    f"Could not acquire eval_results.json lock after {max_wait_secs}s. "
-                    f"This likely means another container crashed while holding the lock."
-                )
-            time.sleep(0.5)  # Retry after 0.5s
-
-        except Exception as e:
-            print(f"ERROR: Failed to write eval_results: {e}")
-            raise
-
-        finally:
-            # Clean up lock file
-            try:
-                os.remove(lock_file)
-            except OSError:
-                pass
+        # Write updated results (sorted by numeric key)
+        sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
+        with open(eval_file_path, "w") as f:
+            json.dump(sorted_results, f, indent=4)
 
 
 def reserve_gpu_memory(device, fraction):
@@ -697,52 +736,56 @@ INSTRUCTIONS FOR AGENT:
                 )
 
                 # Append result to aggregated eval_results.json (keyed by problem_id)
-                if not os.path.exists(eval_results_path):
-                    eval_results = {}
-                else:
-                    with open(eval_results_path) as f:
-                        eval_results = json.load(f)
+                # Apply checkpoint-level lock to synchronize multi-container access
+                checkpoint_lock_file = os.path.join(checkpoint_node_dir, ".checkpoint.lock")
 
-                problem_id_str = str(args.problem_id)
-                if problem_id_str not in eval_results:
-                    eval_results[problem_id_str] = []
-                eval_results[problem_id_str].append(result_entry)
+                with CheckpointFileLock(checkpoint_lock_file, timeout_secs=30):
+                    if not os.path.exists(eval_results_path):
+                        eval_results = {}
+                    else:
+                        with open(eval_results_path) as f:
+                            eval_results = json.load(f)
 
-                with open(eval_results_path, "w") as f:
-                    json.dump(eval_results, f, indent=2)
+                    problem_id_str = str(args.problem_id)
+                    if problem_id_str not in eval_results:
+                        eval_results[problem_id_str] = []
+                    eval_results[problem_id_str].append(result_entry)
 
-                # Build checkpoint_summary.json from all problem entries in eval_results.json
-                problems_list = []
-                for pid_str, results in eval_results.items():
-                    if results:
-                        r = results[-1]  # Latest entry for this problem_id
-                        problems_list.append({
-                            "level": args.level,
-                            "problem_id": int(pid_str),
-                            "eval_skipped": r.get("eval_skipped", False),
-                            "skip_reason": r.get("skip_reason"),
-                            "code_changed": r.get("code_changed_since_last_checkpoint", False),
-                            "compiled": r.get("compiled"),
-                            "correct": r.get("correctness"),
-                            "aide_metric": r.get("aide_metric"),
-                            "runtime_secs": r.get("runtime"),
-                        })
+                    with open(eval_results_path, "w") as f:
+                        json.dump(eval_results, f, indent=2)
 
-                summary_doc = {
-                    "checkpoint_node": i + 1,
-                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    "elapsed_hours": round(elapsed_h, 4),
-                    "problems_evaluated": problems_list,
-                    "summary": {
-                        "total_problems": len(problems_list),
-                        "problems_evaluated": sum(1 for p in problems_list if not p.get("eval_skipped", False)),
-                        "problems_skipped": sum(1 for p in problems_list if p.get("eval_skipped", False)),
-                        "avg_aide_metric": sum(p.get("aide_metric") or 0 for p in problems_list) / len(problems_list) if problems_list else None,
-                    },
-                }
+                    # Build checkpoint_summary.json from all problem entries in eval_results.json
+                    problems_list = []
+                    for pid_str, results in eval_results.items():
+                        if results:
+                            r = results[-1]  # Latest entry for this problem_id
+                            problems_list.append({
+                                "level": args.level,
+                                "problem_id": int(pid_str),
+                                "eval_skipped": r.get("eval_skipped", False),
+                                "skip_reason": r.get("skip_reason"),
+                                "code_changed": r.get("code_changed_since_last_checkpoint", False),
+                                "compiled": r.get("compiled"),
+                                "correct": r.get("correctness"),
+                                "aide_metric": r.get("aide_metric"),
+                                "runtime_secs": r.get("runtime"),
+                            })
 
-                with open(os.path.join(checkpoint_node_dir, "checkpoint_summary.json"), "w") as f:
-                    json.dump(summary_doc, f, indent=2)
+                    summary_doc = {
+                        "checkpoint_node": i + 1,
+                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "elapsed_hours": round(elapsed_h, 4),
+                        "problems_evaluated": problems_list,
+                        "summary": {
+                            "total_problems": len(problems_list),
+                            "problems_evaluated": sum(1 for p in problems_list if not p.get("eval_skipped", False)),
+                            "problems_skipped": sum(1 for p in problems_list if p.get("eval_skipped", False)),
+                            "avg_aide_metric": sum(p.get("aide_metric") or 0 for p in problems_list) / len(problems_list) if problems_list else None,
+                        },
+                    }
+
+                    with open(os.path.join(checkpoint_node_dir, "checkpoint_summary.json"), "w") as f:
+                        json.dump(summary_doc, f, indent=2)
 
                 # Update path for forward-copying in next checkpoint
                 prev_checkpoint_eval_path = eval_results_path
