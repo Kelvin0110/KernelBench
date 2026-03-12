@@ -20,7 +20,11 @@ trap 'echo "SIGINT received, sending to background process"; kill -TERM $PYTHON_
 # ---- Set defaults for optional vars ----
 STEPS=${STEPS:-50}
 HOURS=${HOURS:-2.0}
-TIME_LIMIT_SECS=${TIME_LIMIT_SECS:-7500} 
+FINAL_EVAL_GRACE_SECS=${FINAL_EVAL_GRACE_SECS:-3600}  # 1 hour for final eval after AIDE stops
+
+# Shell timeout: user can override; Python will validate and report adequacy
+TIME_LIMIT_SECS=${TIME_LIMIT_SECS:-21600}  # Safe default: 6 hours (for up to 2h AIDE + 1h eval + buffer)
+
 CODE_MODEL=${CODE_MODEL:-"openai/gpt-oss-120b"}
 FEEDBACK_MODEL=${FEEDBACK_MODEL:-"openai/gpt-oss-120b"}
 RUN_NAME=${RUN_NAME:-"docker_run"}
@@ -73,13 +77,14 @@ echo "Steps: ${STEPS}, Hours: ${HOURS}"
 echo "Models: code=${CODE_MODEL}, feedback=${FEEDBACK_MODEL}"
 echo "Backend: ${BACKEND}, Precision: ${PRECISION}"
 echo "GPU memory fraction: ${GPU_MEMORY_FRACTION} (mock_eval=${MOCK_EVAL})"
+echo "Final eval grace period: ${FINAL_EVAL_GRACE_SECS}s after AIDE time limit"
 echo "================================================================"
 
 # ---- Run with 3-tier timeout (adapted from Caesar pattern) ----
 # Instead of a single `timeout` command that sends one signal, this runs the
 # Python process in background and monitors it with escalating kill signals:
-#   Tier 1: SIGTERM (allows Python atexit/cleanup handlers)
-#   Tier 2: SIGKILL (hard kill after 30s grace period)
+#   Tier 1: SIGTERM (Python sets stop_flag, finishes current node, runs final eval)
+#   Tier 2: SIGKILL (hard kill after FINAL_EVAL_GRACE_SECS grace period)
 cd /app
 python scripts_integration/docker/docker_single_run.py \
     --level "${LEVEL}" \
@@ -102,18 +107,21 @@ DEADLINE=$((START_TIME + TIME_LIMIT_SECS))
 while kill -0 $PYTHON_PID 2>/dev/null; do
     NOW=$(date +%s)
     if [ $NOW -ge $DEADLINE ]; then
-        echo "TIMEOUT: 3-tier shutdown..."
+        echo "TIME LIMIT REACHED: sending stop signal to Python (AIDE search will finish, final eval will run)..."
 
-        # Tier 1: SIGTERM (allows Python cleanup/atexit)
+        # Tier 1: SIGTERM — Python handler sets stop_flag, aborts current node, then
+        # runs final evaluation. Do NOT kill yet — wait for graceful completion.
         kill -TERM $PYTHON_PID 2>/dev/null
-        for i in $(seq 1 30); do
-            kill -0 $PYTHON_PID 2>/dev/null || break
+
+        echo "Waiting up to ${FINAL_EVAL_GRACE_SECS}s for final evaluation to complete..."
+        for i in $(seq 1 $FINAL_EVAL_GRACE_SECS); do
+            kill -0 $PYTHON_PID 2>/dev/null || { echo "Python exited cleanly after ${i}s"; break; }
             sleep 1
         done
 
-        # Tier 2: SIGKILL if still alive
+        # Tier 2: SIGKILL only if still alive after full grace period
         if kill -0 $PYTHON_PID 2>/dev/null; then
-            echo "Escalating to SIGKILL..."
+            echo "Final eval grace period expired (${FINAL_EVAL_GRACE_SECS}s). Escalating to SIGKILL..."
             kill -9 $PYTHON_PID 2>/dev/null
             sleep 2
         fi

@@ -591,9 +591,28 @@ INSTRUCTIONS FOR AGENT:
 
     atexit.register(cleanup)
 
+    # Mutable dict used as a flag so the closure in _signal_handler can set it.
+    # When True, the AIDE search loop will break after the current node and
+    # proceed to final evaluation instead of exiting immediately.
+    stop_flag = {"stop": False}
+
     def _signal_handler(sig, frame):
-        cleanup()
-        sys.exit(0)
+        if not stop_flag["stop"]:
+            stop_flag["stop"] = True
+            print(
+                f"Signal {sig} received: stopping AIDE search after current node, "
+                "final evaluation will still run..."
+            )
+            # Abort the current AIDE node immediately by setting a 1-second exec
+            # timeout. AIDE's interpreter will send SIGINT→SIGKILL to the child
+            # subprocess within ~2 seconds, unblocking the main thread so the
+            # loop can break at the next iteration.
+            try:
+                exp.cfg.exec.timeout = 1
+            except Exception:
+                pass
+        # Do NOT call sys.exit() — let the loop detect stop_flag and break
+        # naturally, then final evaluation and workspace cleanup proceed normally.
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
@@ -626,13 +645,17 @@ INSTRUCTIONS FOR AGENT:
     # Checkpoint state (tracks best code and previous eval results for forward-copying)
     prev_checkpoint_code = None
     prev_checkpoint_eval_path = None  # Path to previous checkpoint's eval_results.json
+    checkpoint_elapsed_secs = 0.0   # total seconds spent doing checkpoint evaluations
 
     print(f"Running AIDE (Max {max_steps} nodes/steps, {max_hours} hours)...")
     try:
         from aide.utils.config import save_run
 
         for i in range(max_steps):
-            elapsed_hours = (time.time() - start_time) / 3600
+            if stop_flag["stop"]:
+                print("Stop flag set: exiting AIDE loop, proceeding to final evaluation...")
+                break
+            elapsed_hours = (time.time() - start_time - checkpoint_elapsed_secs) / 3600
             if elapsed_hours >= max_hours:
                 print(f"Time limit reached ({max_hours} hours). Stopping.")
                 break
@@ -652,6 +675,7 @@ INSTRUCTIONS FOR AGENT:
 
             # Checkpoint evaluation (triggered every N nodes)
             if args.checkpoint_distance > 0 and (i + 1) % args.checkpoint_distance == 0:
+                _ckpt_start = time.time()
                 checkpoint_node_dir = os.path.join(
                     args.results_dir, "checkpoints",
                     f"node_{i+1:04d}",
@@ -722,6 +746,7 @@ INSTRUCTIONS FOR AGENT:
 
                 # Update path for forward-copying in next checkpoint
                 prev_checkpoint_eval_path = eval_results_path
+                checkpoint_elapsed_secs += time.time() - _ckpt_start
 
         # Final cleanup and result extraction
         exp.interpreter.cleanup_session()

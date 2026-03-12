@@ -32,6 +32,8 @@ IMAGE_NAME = "kernelbench-aide"
 IMAGE_NAME_CPU = "kernelbench-aide-cpu"
 DOCKERFILE_PATH = "scripts_integration/docker/Dockerfile.kernelbench"
 DOCKERFILE_CPU_PATH = "scripts_integration/docker/Dockerfile.cpu"
+# Final evaluation grace period (seconds) used when computing container shell timeout
+FINAL_EVAL_GRACE_SECS = 3600
 
 # Globals for cleanup
 active_containers = []
@@ -414,8 +416,8 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
     os.makedirs(log_subdir, exist_ok=True)
     log_file = os.path.join(log_subdir, f"L{level}_P{problem_id}.log")
 
-    # Time limit with grace period for cleanup
-    time_limit_secs = int(config.hours * 3600) + 300
+    # Time limit with grace period for cleanup (provided by batch runner)
+    time_limit_secs = int(getattr(config, "time_limit_secs", int(config.hours * 3600 * 2) + FINAL_EVAL_GRACE_SECS))
 
     container_name = f"kb-L{level}-P{problem_id}-{config.run_name}"
 
@@ -609,6 +611,11 @@ def main(config: DockerBatchConfig):
     # Auto-detect block device (Linux only; falls back to config.io_device on failure)
     if is_linux:
         config.io_device = detect_io_device(config.io_device)
+
+    # Compute expected total shell timeout and expose to containers via TIME_LIMIT_SECS
+    # Formula matches the single-run logic: (hours * 3600 * 2) + FINAL_EVAL_GRACE_SECS
+    expected_total_secs = int((config.hours * 3600 * 2) + FINAL_EVAL_GRACE_SECS)
+    config.time_limit_secs = expected_total_secs
 
     # Build image if requested
     if config.build_image:
