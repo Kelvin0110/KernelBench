@@ -751,12 +751,14 @@ INSTRUCTIONS FOR AGENT:
                         eval_results[problem_id_str] = []
                     eval_results[problem_id_str].append(result_entry)
 
+                    # Sort results by numeric problem id (matches add_to_eval_results_file behavior)
+                    sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
                     with open(eval_results_path, "w") as f:
-                        json.dump(eval_results, f, indent=2)
+                        json.dump(sorted_results, f, indent=2)
 
-                    # Build checkpoint_summary.json from all problem entries in eval_results.json
+                    # Build checkpoint_summary.json from all problem entries in sorted_results
                     problems_list = []
-                    for pid_str, results in eval_results.items():
+                    for pid_str, results in sorted_results.items():
                         if results:
                             r = results[-1]  # Latest entry for this problem_id
                             problems_list.append({
