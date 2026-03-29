@@ -172,12 +172,21 @@ def query_server(
         if is_reasoning_model:
             # Note: o1/o3 models don't support temperature, top_p, top_k
             # LiteLLM will pass through reasoning_effort for OpenAI o1/o3 models
-            if reasoning_effort:
-                completion_kwargs["reasoning_effort"] = reasoning_effort
-            # Claude extended thinking uses "thinking" parameter with dict structure
-            # Format: {"type": "enabled", "budget_tokens": <int>}
-            if budget_tokens > 0 and "anthropic" in model_name.lower():
-                completion_kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
+            is_openai_reasoning = "openai/" in model_name.lower() or model_name.startswith("o1") or model_name.startswith("o3")
+            
+            if is_openai_reasoning:
+                if reasoning_effort:
+                    completion_kwargs["reasoning_effort"] = reasoning_effort
+                    # For NVIDIA NIM, we need to explicitly allow this parameter in LiteLLM if it's supported by the model
+                    if "nvidia_nim/" in model_name.lower():
+                        completion_kwargs["allowed_openai_params"] = ["reasoning_effort"]
+            else:
+                # Other reasoning models (DeepSeek R1, Claude 3.7) support/benefit from temperature
+                completion_kwargs["temperature"] = temperature
+                completion_kwargs["top_p"] = top_p
+                # Claude extended thinking uses "thinking" parameter with dict structure
+                if budget_tokens > 0 and "anthropic" in model_name.lower():
+                    completion_kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
         else:
             # Standard models support temperature and top_p
             completion_kwargs["temperature"] = temperature
@@ -191,7 +200,14 @@ def query_server(
         
         # output processing
         if num_completions == 1:
-            content = response.choices[0].message.content
+            message = response.choices[0].message
+            content = message.content
+            
+            # Capture reasoning process if available
+            reasoning = getattr(message, 'reasoning_content', None) or getattr(message, 'reasoning', None)
+            if reasoning and os.environ.get("VERBOSE_REASONING", "0") == "1":
+                print(f"\n--- Reasoning Process ---\n{reasoning}\n-------------------------\n")
+
             if content is None:
                 raise ValueError(f"LLM returned None content for model {model_name}. finish_reason: {response.choices[0].finish_reason}")
             return content
@@ -244,6 +260,11 @@ SERVER_PRESETS = {
         "model_name": "fireworks_ai/llama-v3p1-70b-instruct",
         "temperature": 0.7,
         "max_tokens": 4096,
+    },
+    "nvidia": {
+        "model_name": "nvidia_nim/deepseek-ai/deepseek-r1-0528",
+        "temperature": 0.7,
+        "max_tokens": 8192,
     },
 }
 

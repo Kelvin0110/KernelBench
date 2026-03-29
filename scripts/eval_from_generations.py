@@ -325,6 +325,19 @@ def evaluate_single_sample(
             backend=configs.backend,
             precision=eval.get_torch_dtype_from_string(configs.precision),
         )
+        
+        if eval_result is None:
+            # Handle the case where eval_kernel_against_ref returns None
+            metadata = {
+                "other_error": "eval_kernel_against_ref returned None",
+                "other_error_name": "NoneEvalResult",
+                "hardware": torch.cuda.get_device_name(device=device),
+                "device": str(device),
+            }
+            eval_result = KernelExecResult(
+                compiled=False, correctness=False, metadata=metadata
+            )
+            
         return eval_result
     except Exception as e:
         # INNER CATCH: Handles errors during kernel execution
@@ -837,7 +850,7 @@ def main(config: EvalConfig):
 
     print(
         f"Start evaluation on {len(total_work)} unevaluated samples"
-        f" in range: {problem_ids_to_run}"
+        f" in range: {total_work}"
     )
     # Build Cache on CPU as that is faster (only for local mode)
     if config.build_cache and config.eval_mode == "local":

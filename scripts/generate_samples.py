@@ -17,6 +17,8 @@ from kernelbench.utils import (
     set_gpu_arch,
 )
 from kernelbench.kernel_static_checker import validate_kernel_static
+import warnings
+warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
 """
 Batch Generate Samples for Particular Level
@@ -153,13 +155,13 @@ def generate_sample_single(
             # uses the default set of forbidden and warning patterns, 
             # you could adapt the patterns to your own setting (degree of banning cuda stream, allowing some torch ops)
         )
-        assert static_check_status, f"Static check failed for sample {work.sample_id} for problem {problem_number}: {problem_name}. Error: {error}. Warnings: {warnings}"
+        assert static_check_status, f"Static check failed for sample {work.sample_id} for problem {work.problem_id}: {problem_name}. Error: {error}. Warnings: {warnings}"
         if warnings:
-            print(f"Static check warnings for sample {work.sample_id} for problem {problem_number}: {problem_name}. Warnings: {warnings}")
+            print(f"Static check warnings for sample {work.sample_id} for problem {work.problem_id}: {problem_name}. Warnings: {warnings}")
 
     if config.verbose:
         print(
-            f"Generated sample {work.sample_id} for problem {problem_number}: {problem_name}"
+            f"Generated sample {work.sample_id} for problem {work.problem_id}: {problem_name}"
         )
 
     # Store to local file

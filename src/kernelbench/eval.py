@@ -401,9 +401,7 @@ def eval_kernel_against_ref(
     timing_method: str = "cuda_event", # see timing.py
     verbose: bool = False,
     build_dir: os.PathLike = None,
-    device: Union[torch.device, int] = (
-        torch.cuda.current_device() if torch.cuda.is_available() else None
-    ),  # have to run on GPU
+    device: Union[torch.device, int] = None,  # resolved below; avoids CUDA init at import time
     backend: str = "cuda",  # can be 'cuda', 'triton', 'tilelang', or 'cute'
     precision: torch.dtype = torch.float32,
 
@@ -428,6 +426,9 @@ def eval_kernel_against_ref(
     """
     # TODO: check device is busy
     assert torch.cuda.is_available(), "CUDA is not available, cannot run Eval"
+
+    if device is None:
+        device = torch.cuda.current_device()
     
     # Backend-GPU vendor validation
     from .utils import get_gpu_vendor

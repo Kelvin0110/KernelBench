@@ -1,0 +1,55 @@
+# Dockerfile for AIDE + KernelBench Docker-based integration.
+# Provides process/resource isolation for each problem run.
+#
+# Build:
+#   docker build -f scripts_integration/docker/Dockerfile.kernelbench -t kernelbench-aide .
+#
+# Run (single problem):
+#   docker run --rm --gpus device=0 --memory=32g \
+#     -v $(pwd)/test_results:/results \
+#     -e OPENAI_API_KEY=$OPENAI_API_KEY \
+#     -e LEVEL=1 -e PROBLEM_ID=1 -e STEPS=3 -e HOURS=0.1 \
+#     kernelbench-aide
+
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
+
+# Prevent interactive prompts during apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# ---- System dependencies ----
+RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing \
+    python3.10 python3.10-venv python3.10-dev python3-pip \
+    build-essential cmake ninja-build git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python3.10 the default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
+    python -m pip install --upgrade pip setuptools wheel
+
+WORKDIR /app
+
+# ---- Layer 1: PyTorch (largest, cached aggressively) ----
+RUN pip install --no-cache-dir torch==2.9.0 --index-url https://download.pytorch.org/whl/cu128
+
+# ---- Layer 2: AIDE library ----
+COPY aideml/ /app/aideml/
+RUN pip install --no-cache-dir -e /app/aideml/
+
+# ---- Layer 3: KernelBench package ----
+COPY pyproject.toml /app/pyproject.toml
+COPY src/ /app/src/
+RUN pip install --no-cache-dir -e /app/
+
+# ---- Layer 4: Problem data (changes rarely) ----
+COPY KernelBench/ /app/KernelBench/
+
+# ---- Layer 5: Integration scripts (changes most often) ----
+COPY scripts_integration/docker/ /app/scripts_integration/docker/
+RUN chmod +x /app/scripts_integration/docker/start_aide_kb.sh
+
+# Create results directory (will be overridden by mount)
+RUN mkdir -p /results
+
+ENTRYPOINT ["/app/scripts_integration/docker/start_aide_kb.sh"]

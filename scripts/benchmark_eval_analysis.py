@@ -274,8 +274,16 @@ def main(config: AnalysisConfig):
         baseline_file=config.baseline_file,
         eval_results_dir=config.eval_results_dir
     )
+    
+    # Always write JSON output to analysis/{hardware}/{baseline}/{run_name}.json
+    analysis_dir = os.path.join("analysis", config.hardware, config.baseline)
+    os.makedirs(analysis_dir, exist_ok=True)
+    analysis_path = os.path.join(analysis_dir, f"{config.run_name}.json")
+    with open(analysis_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"\nResults written to: {analysis_path}")
 
-    # Write JSON output if requested
+    # Also write to override file if requested
     if config.output_file:
         with open(config.output_file, 'w') as f:
             json.dump(results, f, indent=2)
