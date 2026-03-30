@@ -9,7 +9,6 @@ name = "kernelbench"
 version = "0.2.0.dev0"
 requires-python = "==3.10.*"
 dependencies = [
-    # Frameworks
     "torch>=2.9.0",
 
     "transformers",
@@ -33,10 +32,12 @@ dependencies = [
     # LLM providers
     "openai",
     "litellm[proxy]",
-    "aideml",
 ]
 
 [project.optional-dependencies]
+aideml = [
+    "aideml",
+]
 gpu = [
     # GPU-specific dependencies (requires CUDA)
     "triton",
