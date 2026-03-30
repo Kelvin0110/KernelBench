@@ -34,3 +34,5 @@ eval_log/
 subset_selection/*.csv
 subset_selection/*.md
 subset_selection/*.json
+
+.DS_Store
