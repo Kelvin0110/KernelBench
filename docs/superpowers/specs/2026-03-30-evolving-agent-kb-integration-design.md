@@ -12,7 +12,11 @@ Integrate the `Self-Evolving-Agent` memory loop into `KernelBench` to run a smal
 All new files will be located in `d:\HKUST_program\PG\LLM4Sci\KernelBench\scripts_integration\evolving_agent\`:
 - `evolve_kb_batch.py`: Orchestrator that reads the subset CSV and manages the batch loop.
 - `kb_evolving_governor.py`: Specialized governor logic adapted from `Self-Evolving-Agent/governor.py`.
-- `kb_harness_template.py`: Template for the evaluation bridge.
+- `kb_harness_template.py`: Template helper for a harness-style evaluation bridge.
+
+Prototype note: v1 executes KernelBench evaluation directly inside `kb_evolving_governor.py`
+using `kernelbench.eval.eval_kernel_against_ref` to reduce moving parts. The harness
+template is kept for future parity with docker-style harness flows.
 
 ### 2.2 Shared Memory Strategy
 - **L1 Journal:** A single `shared_l1.txt` file stored in `results/evolving_logs/<run_name>/`.
@@ -28,7 +32,7 @@ All new files will be located in `d:\HKUST_program\PG\LLM4Sci\KernelBench\script
     - Run the `Governor` loop (up to `max_iterations`, default 20).
     - **Execution:**
         - Coder generates a kernel (CUDA/Triton).
-        - Harness evaluates via `kernelbench.eval.eval_kernel_against_ref`.
+        - Governor evaluates directly via `kernelbench.eval.eval_kernel_against_ref`.
         - Results (speedup/correctness/errors) are captured in L0.
     - **Promotion:** Update shared L1 if criteria met.
 4. **Aggregation:** Write final metrics (best speedup per problem) to `eval_results.json`.
@@ -42,4 +46,4 @@ All new files will be located in `d:\HKUST_program\PG\LLM4Sci\KernelBench\script
 ## 5. Success Criteria
 - [ ] Successfully iterate through a subset of 10 problems.
 - [ ] L1 file contains cross-problem optimization insights (e.g., "Use syncwarp").
-- [ ] Final results match the `KernelBench` evaluation schema.
+- [ ] Final results match the `KernelBench` evaluation schema (`eval_results.json` keyed by problem_id).

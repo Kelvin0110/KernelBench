@@ -55,6 +55,32 @@ def _write_json(path: Path, payload: dict | list) -> None:
         json.dump(payload, f, indent=2)
 
 
+def _to_kernelbench_eval_entry(run_entry: dict, *, level: int, problem_id: int) -> dict:
+    """Convert evolving run output into KernelBench-style eval entry shape."""
+    return {
+        "sample_id": 0,
+        "compiled": bool(run_entry.get("best_compiled", False)),
+        "correctness": bool(run_entry.get("best_correct", False)),
+        "metadata": {
+            "source": "evolving_agent_prototype",
+            "level": int(level),
+            "problem_id": int(problem_id),
+            "best_speedup": float(run_entry.get("best_speedup", 0.0) or 0.0),
+            "backend": run_entry.get("backend"),
+            "precision": run_entry.get("precision"),
+            "iterations_run": int(run_entry.get("iterations_run", 0) or 0),
+            "error": run_entry.get("error"),
+        },
+        # Runtime values are not persisted by this prototype yet.
+        "runtime": -1.0,
+        "runtime_stats": {},
+    }
+
+
+def _level_eval_path(run_dir: Path, level: int) -> Path:
+    return run_dir / f"eval_results_level_{level}.json"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run evolving-agent KernelBench batch.")
     parser.add_argument(
@@ -107,15 +133,25 @@ def main() -> int:
         )
 
     eval_path = run_dir / "eval_results.json"
+    evolving_runs_path = run_dir / "evolving_runs.json"
     summary_path = run_dir / "run_summary.json"
 
-    eval_doc = _read_json(eval_path, default={"runs": []})
-    runs = eval_doc.get("runs", [])
+    evolving_doc_raw = _read_json(evolving_runs_path, default={"runs": []})
+    if isinstance(evolving_doc_raw, list):
+        evolving_doc = {"runs": evolving_doc_raw}
+    elif isinstance(evolving_doc_raw, dict):
+        evolving_doc = evolving_doc_raw
+    else:
+        evolving_doc = {"runs": []}
+    runs_raw = evolving_doc.get("runs", [])
+    runs = runs_raw if isinstance(runs_raw, list) else []
     completed_keys = {
         f"L{entry['level']}P{entry['problem_id']}"
         for entry in runs
         if isinstance(entry, dict) and "level" in entry and "problem_id" in entry
     }
+    eval_doc = _read_json(eval_path, default={})
+    level_eval_docs: dict[int, dict] = {}
 
     for idx, row in enumerate(rows, start=1):
         level = int(row["level"])
@@ -162,8 +198,21 @@ def main() -> int:
             }
             runs.append(entry)
             completed_keys.add(key)
-            eval_doc["runs"] = runs
+            pid_key = str(problem_id)
+            eval_doc.setdefault(pid_key, [])
+            eval_doc[pid_key].append(
+                _to_kernelbench_eval_entry(entry, level=level, problem_id=problem_id)
+            )
+            if level not in level_eval_docs:
+                level_eval_docs[level] = _read_json(_level_eval_path(run_dir, level), default={})
+            level_eval_docs[level].setdefault(pid_key, [])
+            level_eval_docs[level][pid_key].append(
+                _to_kernelbench_eval_entry(entry, level=level, problem_id=problem_id)
+            )
+            evolving_doc["runs"] = runs
+            _write_json(evolving_runs_path, evolving_doc)
             _write_json(eval_path, eval_doc)
+            _write_json(_level_eval_path(run_dir, level), level_eval_docs[level])
             continue
 
         result = safe_run_kb_governor(cfg)
@@ -171,8 +220,21 @@ def main() -> int:
         entry["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
         runs.append(entry)
         completed_keys.add(key)
-        eval_doc["runs"] = runs
+        pid_key = str(problem_id)
+        eval_doc.setdefault(pid_key, [])
+        eval_doc[pid_key].append(
+            _to_kernelbench_eval_entry(entry, level=level, problem_id=problem_id)
+        )
+        if level not in level_eval_docs:
+            level_eval_docs[level] = _read_json(_level_eval_path(run_dir, level), default={})
+        level_eval_docs[level].setdefault(pid_key, [])
+        level_eval_docs[level][pid_key].append(
+            _to_kernelbench_eval_entry(entry, level=level, problem_id=problem_id)
+        )
+        evolving_doc["runs"] = runs
+        _write_json(evolving_runs_path, evolving_doc)
         _write_json(eval_path, eval_doc)
+        _write_json(_level_eval_path(run_dir, level), level_eval_docs[level])
 
     successful = [e for e in runs if e.get("best_correct")]
     best_overall = 0.0
@@ -189,6 +251,11 @@ def main() -> int:
         "total_correct": len(successful),
         "best_speedup_overall": best_overall,
         "results_path": str(eval_path),
+        "evolving_runs_path": str(evolving_runs_path),
+        "per_level_results": {
+            str(level): str(_level_eval_path(run_dir, level))
+            for level in sorted(level_eval_docs.keys())
+        },
         "shared_l1_path": str(shared_l1_path),
     }
     _write_json(summary_path, summary)
