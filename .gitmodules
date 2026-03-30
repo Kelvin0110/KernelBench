@@ -4,3 +4,7 @@
 [submodule "caesar"]
 	path = caesar
 	url = https://github.com/ScalingIntelligence/caesar.git
+[submodule "Self-Evolving-Agent"]
+	path = Self-Evolving-Agent
+	url = https://github.com/Kelvin0110/Self-Evolving-Agent.git
+	branch = features/initial_prototype
