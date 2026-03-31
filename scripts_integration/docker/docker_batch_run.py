@@ -76,8 +76,8 @@ class DockerBatchConfig(Config):
         self.gpu_memory_fraction = 0.0  # Fraction of GPU memory to reserve per container
         # AIDE search hyperparameters (see aideml/aide/utils/config.yaml)
         self.max_debug_depth = 5    # Max chain of debug iterations before new draft
-        self.debug_prob = 0.5       # Probability of debugging a buggy node (vs drafting fresh)
-        self.num_drafts = 3         # Number of initial draft solutions in the search tree
+        self.debug_prob = 1.0       # Probability of debugging a buggy node (vs drafting fresh)
+        self.num_drafts = 5         # Number of initial draft solutions in the search tree
         # Checkpoint evaluation
         self.checkpoint_distance = 0  # Evaluate best kernel every N nodes; 0 = disabled
 
