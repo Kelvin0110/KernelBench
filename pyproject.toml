@@ -38,6 +38,11 @@ dependencies = [
 aideml = [
     "aideml",
 ]
+evolving-agent = [
+    "self-evolving-agent",
+    "pandas",
+    "scikit-learn",
+]
 gpu = [
     # GPU-specific dependencies (requires CUDA)
     "triton",
@@ -61,3 +66,4 @@ kernelbench = ["prompts/**/*"]
 
 [tool.uv.sources]
 aideml = { path = "./aideml", editable = true }
+self-evolving-agent = { path = "./Self-Evolving-Agent", editable = true }
