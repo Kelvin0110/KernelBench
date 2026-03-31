@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import multiprocessing as mp
 import sys
 import traceback
 from dataclasses import dataclass
@@ -50,6 +51,12 @@ Output concise bullet points only:
 - Generalizable kernel optimization lessons for future problems.
 """
 
+_FATAL_CUDA_ERROR_MARKERS = (
+    "illegal memory access",
+    "device-side assert",
+    "cuda error",
+)
+
 
 @dataclass
 class KBGovernorConfig:
@@ -65,6 +72,10 @@ class KBGovernorConfig:
     promote_token_budget: int = DEFAULT_L0_TOKEN_BUDGET
     coder_max_tokens: int = 8192
     summarizer_max_tokens: int = 4096
+    coder_timeout_sec: float = 90.0
+    summarizer_timeout_sec: float = 60.0
+    eval_timeout_sec: float = 300.0
+    eval_start_method: str = "spawn"
     verbose: bool = True
 
 
@@ -91,6 +102,13 @@ class KBGovernorResult:
     iterations_run: int
     records: list[IterationRecord]
     error: str | None = None
+
+
+def _is_fatal_cuda_error(err: str | None) -> bool:
+    if not err:
+        return False
+    lower = err.lower()
+    return any(marker in lower for marker in _FATAL_CUDA_ERROR_MARKERS)
 
 
 def _build_coder_user_prompt(
@@ -159,6 +177,73 @@ def _evaluate_candidate(
         return 0.0, False, False, str(exc)
 
 
+def _evaluate_candidate_worker(
+    reference_code: str,
+    candidate_code: str,
+    backend: str,
+    precision: str,
+    queue: mp.Queue,
+) -> None:
+    payload = _evaluate_candidate(
+        reference_code=reference_code,
+        candidate_code=candidate_code,
+        backend=backend,
+        precision=precision,
+    )
+    queue.put(payload)
+
+
+def _evaluate_candidate_isolated(
+    *,
+    reference_code: str,
+    candidate_code: str,
+    backend: str,
+    precision: str,
+    timeout_sec: float,
+    start_method: str,
+) -> tuple[float, bool, bool, str | None]:
+    ctx = mp.get_context(start_method)
+    queue: mp.Queue = ctx.Queue(maxsize=1)
+    proc = ctx.Process(
+        target=_evaluate_candidate_worker,
+        args=(reference_code, candidate_code, backend, precision, queue),
+    )
+
+    try:
+        proc.start()
+        proc.join(timeout=None if timeout_sec <= 0 else timeout_sec)
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(5)
+            return (
+                0.0,
+                False,
+                False,
+                f"evaluation_timeout: exceeded {timeout_sec:.1f}s for isolated eval",
+            )
+
+        if not queue.empty():
+            payload = queue.get_nowait()
+            if isinstance(payload, tuple) and len(payload) == 4:
+                speedup, correctness, compiled, err = payload
+                return float(speedup), bool(correctness), bool(compiled), err
+
+        return (
+            0.0,
+            False,
+            False,
+            f"evaluation_worker_error: worker exited with code {proc.exitcode}",
+        )
+    except Exception as exc:
+        return 0.0, False, False, f"evaluation_orchestration_error: {type(exc).__name__}: {exc}"
+    finally:
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(5)
+        queue.close()
+
+
 def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
     if not torch.cuda.is_available():
         return KBGovernorResult(
@@ -201,6 +286,8 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
     best_compiled = False
     best_code: str | None = None
     best_code_path: Path | None = None
+    fatal_cuda_error_count = 0
+    run_error: str | None = None
 
     for iteration in range(1, cfg.max_iterations + 1):
         if cfg.verbose:
@@ -227,6 +314,7 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
                 {"role": "user", "content": user_prompt},
             ],
             max_tokens=cfg.coder_max_tokens,
+            timeout_sec=cfg.coder_timeout_sec,
         )
         code, extract_err = extract_python_code(raw)
 
@@ -244,11 +332,13 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
             )
         else:
             append_l0(l0, "code", code)
-            speedup, correctness, compiled, err = _evaluate_candidate(
+            speedup, correctness, compiled, err = _evaluate_candidate_isolated(
                 reference_code=problem.code,
                 candidate_code=code,
                 backend=cfg.backend,
                 precision=cfg.precision,
+                timeout_sec=cfg.eval_timeout_sec,
+                start_method=cfg.eval_start_method,
             )
 
             terminal_log = (
@@ -283,23 +373,41 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
                     f"correct={correctness} compiled={compiled} speedup={speedup:.4f}"
                 )
 
+            if _is_fatal_cuda_error(err):
+                fatal_cuda_error_count += 1
+                if cfg.verbose:
+                    print("[kb-governor] detected fatal CUDA runtime error in candidate; continuing next iteration")
+
         if should_promote_l0(
             l0,
             entry_threshold=cfg.promote_entry_threshold,
             token_budget=cfg.promote_token_budget,
         ):
             l0_snapshot = format_l0_for_prompt(l0)
-            summary, _ = call_summarizer(
-                [
-                    {"role": "system", "content": SUMMARIZER_SYSTEM_PROMPT},
-                    {"role": "user", "content": _build_summarizer_user_prompt(l0_snapshot)},
-                ],
-                max_tokens=cfg.summarizer_max_tokens,
-            )
+            try:
+                summary, _ = call_summarizer(
+                    [
+                        {"role": "system", "content": SUMMARIZER_SYSTEM_PROMPT},
+                        {"role": "user", "content": _build_summarizer_user_prompt(l0_snapshot)},
+                    ],
+                    max_tokens=cfg.summarizer_max_tokens,
+                    timeout_sec=cfg.summarizer_timeout_sec,
+                )
+            except Exception as exc:
+                summary = (
+                    "- Summarizer request failed; promoting fallback note instead.\n"
+                    f"- Error: {type(exc).__name__}: {exc}"
+                )
             summary_text = (summary or "").strip() or "- No summary returned."
             promote_l0_to_l1(l0, summary_text, l1_path=l1_path)
             if cfg.verbose:
                 print("[kb-governor] promoted L0 -> shared L1")
+
+    if fatal_cuda_error_count > 0:
+        run_error = (
+            f"observed_fatal_cuda_error_in_{fatal_cuda_error_count}_iterations; "
+            "continued via isolated per-iteration eval workers"
+        )
 
     return KBGovernorResult(
         level=cfg.level,
@@ -313,7 +421,7 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
         best_code=best_code,
         iterations_run=len(records),
         records=records,
-        error=None,
+        error=run_error,
     )
 
 

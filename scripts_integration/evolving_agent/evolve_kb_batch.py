@@ -92,8 +92,20 @@ def main() -> int:
     parser.add_argument("--run-name", type=str, required=True)
     parser.add_argument("--backend", type=str, default="cuda")
     parser.add_argument("--precision", type=str, default="fp32")
-    parser.add_argument("--max-iterations", type=int, default=20)
-    parser.add_argument("--max-problems", type=int, default=10)
+    parser.add_argument("--max-iterations", type=int, default=10)
+    parser.add_argument("--max-problems", type=int, default=50)
+    parser.add_argument(
+        "--eval-timeout-sec",
+        type=float,
+        default=300.0,
+        help="Per-iteration isolated eval timeout in seconds; <=0 disables timeout.",
+    )
+    parser.add_argument(
+        "--eval-start-method",
+        type=str,
+        default="spawn",
+        help="Multiprocessing start method for isolated eval worker (spawn or fork).",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -174,6 +186,8 @@ def main() -> int:
             max_iterations=args.max_iterations,
             shared_l1_path=shared_l1_path,
             results_root=Path(args.results_root),
+            eval_timeout_sec=args.eval_timeout_sec,
+            eval_start_method=args.eval_start_method,
             verbose=True,
         )
 

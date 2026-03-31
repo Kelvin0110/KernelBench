@@ -46,13 +46,7 @@ python scripts_integration/evolving_agent/evolve_kb_batch.py \
 ## 5) Real CUDA run (small prototype batch)
 
 ```bash
-python scripts_integration/evolving_agent/evolve_kb_batch.py \
-  --run-name evolving_proto_gpu \
-  --subset-csv subset_selection/selected_problems_50.csv \
-  --max-problems 10 \
-  --max-iterations 20 \
-  --backend cuda \
-  --precision fp32
+CUDA_VISIBLE_DEVICES=2 uv run python scripts_integration/evolving_agent/evolve_kb_batch.py --run-name evolving_proto_gpu
 ```
 
 ## 6) Output files
