@@ -22,37 +22,129 @@ if str(_SEA_SRC) not in sys.path:
 if str(_SEA_ROOT) not in sys.path:
     sys.path.insert(0, str(_SEA_ROOT))
 
-# Import modular components from SEA core
-from self_evolving_agent.integrations.kernelbench.reflection import (  # noqa: E402
-    SimpleKernelBenchReflectionEngine,
-)
-from self_evolving_agent.integrations.kernelbench.batch_runner import (  # noqa: E402
-    load_subset_csv,
-    to_level_first_entry,
-    _read_json,
-    _write_json,
-)
-
+# Try to import modular components from SEA core, but provide local fallbacks
 KernelBenchEnvironment = None
 KernelBenchEvolvingAgent = None
+
+try:
+    from self_evolving_agent.integrations.kernelbench.reflection import (  # noqa: E402
+        SimpleKernelBenchReflectionEngine,
+    )
+    from self_evolving_agent.integrations.kernelbench.batch_runner import (  # noqa: E402
+        load_subset_csv,
+        to_level_first_entry,
+        _read_json,
+        _write_json,
+    )
+except Exception:
+    # Fallbacks for environments missing SEA dependencies (e.g., pydantic).
+    def load_subset_csv(path: str | Path) -> list[dict[str, int]]:
+        rows: list[dict[str, int]] = []
+        subset_path = Path(path)
+        with subset_path.open("r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if not row:
+                    continue
+                rows.append({"level": int(row["level"]), "problem_id": int(row["problem_id"])})
+        return rows
+
+
+    def _read_json(path: Path, default: dict | list):
+        if not path.is_file():
+            return default
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+
+    def _write_json(path: Path, payload: dict | list) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+
+    def to_level_first_entry(run_result: dict, *, level: int, problem_id: int) -> dict:
+        runtime_stats = run_result.get("runtime_stats")
+        if not isinstance(runtime_stats, dict):
+            runtime_stats = {}
+
+        metadata = run_result.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        runtime = run_result.get("runtime", -1.0)
+        try:
+            runtime = float(runtime)
+        except Exception:
+            runtime = -1.0
+
+        merged_metadata = {
+            "hardware": metadata.get("hardware") or runtime_stats.get("hardware"),
+            "device": metadata.get("device") or runtime_stats.get("device"),
+            "correctness_trials": metadata.get("correctness_trials"),
+            "source": metadata.get("source") or "self_evolving_agent",
+            "level": int(level),
+            "problem_id": int(problem_id),
+            "best_speedup": float(metadata.get("best_speedup", 0.0) or 0.0),
+            "backend": metadata.get("backend"),
+            "precision": metadata.get("precision"),
+            "iterations_run": int(metadata.get("iterations_run", 0) or 0),
+            "error": metadata.get("error"),
+        }
+
+        return {
+            "sample_id": int(run_result.get("sample_id", 0) or 0),
+            "compiled": bool(run_result.get("compiled", False)),
+            "correctness": bool(run_result.get("correctness", False)),
+            "metadata": merged_metadata,
+            "runtime": runtime,
+            "runtime_stats": runtime_stats,
+        }
+
+
+    class SimpleKernelBenchReflectionEngine:
+        """Very small reflection engine fallback used for dry-run/testing without SEA deps."""
+
+        def __init__(self, *, local_memory, global_memory):
+            self.local_memory = local_memory
+            self.global_memory = global_memory
+
+        def reflect_now(self, task_id: str) -> None:  # no-op
+            _ = task_id
+
+        def trigger_reflection(self, task_id: str) -> None:  # no-op
+            _ = task_id
 
 
 def _ensure_runtime_dependencies() -> None:
     global KernelBenchEnvironment
     global KernelBenchEvolvingAgent
-
+    # Load wrapper modules by file path to avoid requiring `scripts_integration` to be a package
     if KernelBenchEnvironment is None:
-        from scripts_integration.self_evolving_agent.kb_environment import (  # noqa: WPS433,E402
-            KernelBenchEnvironment as _Env,
-        )
+        try:
+            import importlib.util
 
-        KernelBenchEnvironment = _Env
+            env_path = Path(__file__).resolve().parent / "kb_environment.py"
+            spec = importlib.util.spec_from_file_location("kb_environment_wrapper", str(env_path))
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)  # type: ignore[arg-type]
+                KernelBenchEnvironment = getattr(mod, "KernelBenchEnvironment")
+        except Exception:
+            KernelBenchEnvironment = None
+
     if KernelBenchEvolvingAgent is None:
-        from scripts_integration.self_evolving_agent.kb_agent import (  # noqa: WPS433,E402
-            KernelBenchEvolvingAgent as _Agent,
-        )
+        try:
+            import importlib.util
 
-        KernelBenchEvolvingAgent = _Agent
+            agent_path = Path(__file__).resolve().parent / "kb_agent.py"
+            spec = importlib.util.spec_from_file_location("kb_agent_wrapper", str(agent_path))
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)  # type: ignore[arg-type]
+                KernelBenchEvolvingAgent = getattr(mod, "KernelBenchEvolvingAgent")
+        except Exception:
+            KernelBenchEvolvingAgent = None
 
 
 def run_subset(
@@ -332,6 +424,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
 
+    global KernelBenchEnvironment
+    global KernelBenchEvolvingAgent
+
     subset_rows = load_subset_csv(args.subset_csv)
 
     local_memory = InMemoryLocalMemory()
@@ -347,11 +442,39 @@ def main(argv: list[str] | None = None) -> int:
         global_memory=global_memory,
     )
 
-    if KernelBenchEnvironment is None or KernelBenchEvolvingAgent is None:
-        raise RuntimeError(
-            "KernelBench integration dependencies are unavailable. "
-            "Install Self-Evolving-Agent dependencies or run with --dry-run and monkeypatched dependencies."
-        )
+    # Continue even if SEA wrappers are unavailable; fallbacks are applied below for dry-run.
+
+    # Build coder function early so fallback agent can use it in dry-run mode
+    coder_fn = _build_coder_fn(dry_run=args.dry_run, dry_run_template_path=args.dry_run_template_path)
+
+    if KernelBenchEnvironment is None:
+        if not args.dry_run:
+            raise RuntimeError(
+                "KernelBench integration dependencies are unavailable. "
+                "Install Self-Evolving-Agent dependencies or run with --dry-run and monkeypatched dependencies."
+            )
+        # Fallback environment for dry-run/testing
+        class _FallbackEnv:
+            def __init__(self, *, dataset_source: str = "local", backend: str = "cuda", precision: str = "fp32", prompt_option: str = "one_shot") -> None:
+                self.dataset_source = dataset_source
+                self.backend = backend
+                self.precision = precision
+                self.prompt_option = prompt_option
+
+            def build_prompt(self, level: int, problem_id: int) -> str:
+                return f"DRY-RUN prompt for level={level} problem={problem_id}"
+
+            def evaluate_candidate(self, *, level: int, problem_id: int, candidate_code: str, num_correct_trials: int = 5, num_perf_trials: int = 100, measure_performance: bool = False, device=None):
+                return {
+                    "sample_id": 0,
+                    "compiled": True,
+                    "correctness": False,
+                    "runtime": -1.0,
+                    "runtime_stats": {},
+                    "metadata": {"level": level, "problem_id": problem_id, "backend": self.backend, "precision": self.precision, "iterations_run": 0, "best_speedup": 0.0},
+                }
+
+        KernelBenchEnvironment = _FallbackEnv
 
     environment = KernelBenchEnvironment(
         dataset_source=args.dataset_source,
@@ -360,7 +483,53 @@ def main(argv: list[str] | None = None) -> int:
         prompt_option=args.prompt_option,
     )
 
-    coder_fn = _build_coder_fn(dry_run=args.dry_run, dry_run_template_path=args.dry_run_template_path)
+    if KernelBenchEvolvingAgent is None:
+        if not args.dry_run:
+            raise RuntimeError(
+                "KernelBench integration dependencies are unavailable. "
+                "Install Self-Evolving-Agent dependencies or run with --dry-run and monkeypatched dependencies."
+            )
+
+        class _FallbackAgent:
+            def __init__(
+                self,
+                *,
+                local_memory,
+                global_memory,
+                reflection_engine,
+                environment,
+                generate_code,
+                max_steps: int = 3,
+                global_top_k: int = 3,
+                min_utility: float = 0.5,
+                stop_on_first_correct: bool = True,
+            ) -> None:
+                self.local_memory = local_memory
+                self.global_memory = global_memory
+                self.reflection_engine = reflection_engine
+                self.environment = environment
+                self.generate_code = generate_code
+                self.max_steps = max_steps
+                self.global_top_k = global_top_k
+                self.min_utility = min_utility
+                self.stop_on_first_correct = stop_on_first_correct
+
+            def run_benchmark_task(self, task_id: str, challenge_data: dict) -> dict:
+                level = int(challenge_data["level"])
+                problem_id = int(challenge_data["problem_id"])
+                prompt = self.environment.build_prompt(level, problem_id)
+                raw = self.generate_code(prompt)
+                _ = raw
+                return {
+                    "sample_id": 0,
+                    "compiled": False,
+                    "correctness": False,
+                    "runtime": -1.0,
+                    "runtime_stats": {},
+                    "metadata": {"level": level, "problem_id": problem_id, "backend": self.environment.backend, "precision": self.environment.precision, "iterations_run": 0, "best_speedup": 0.0},
+                }
+
+        KernelBenchEvolvingAgent = _FallbackAgent
 
     agent = KernelBenchEvolvingAgent(
         local_memory=local_memory,

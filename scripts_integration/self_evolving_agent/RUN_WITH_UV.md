@@ -62,6 +62,10 @@ uv run python scripts_integration/self_evolving_agent/run_batch.py \
   --max-steps 5
 ```
 
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/self_evolving_agent/run_batch.py --max-steps 5 >> evolving_agent_run_subset.log 2>&1
+```
+
 ## 4) Output format
 
 Results are written to:
