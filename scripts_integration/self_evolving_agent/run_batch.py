@@ -6,6 +6,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import sys
 import time
 import traceback
@@ -14,6 +15,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Any
 from uuid import uuid4
+
+try:
+    from dotenv import load_dotenv
+    # Search for .env in KernelBench and Self-Evolving-Agent dirs
+    load_dotenv() # current dir
+    load_dotenv(Path(__file__).parents[2] / ".env") # KernelBench root
+except ImportError:
+    pass
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -134,10 +143,12 @@ def _build_coder_fn(dry_run: bool, dry_run_template_path: Optional[str]):
         code = Path(dry_run_template_path).read_text() if dry_run_template_path else "import torch\nclass ModelNew(torch.nn.Module): pass"
         return lambda prompt: f"```python\n{code}\n```"
     
+    from self_evolving_agent.llm.unified_client import UnifiedLLMClient
+    client = UnifiedLLMClient(role="coder")
+    
     def _coder(prompt: str) -> str:
-        from llm_client import call_coder
-        raw, _ = call_coder([{"role": "user", "content": prompt}])
-        return raw or ""
+        # UnifiedLLMClient.generate returns a string by default
+        return client.generate(prompt)
     return _coder
 
 def main() -> int:

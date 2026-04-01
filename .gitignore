@@ -27,6 +27,7 @@ logs/
 workspaces/
 integration_test_task*/
 run_integration/*
+runs_evolving/*
 
 aide/
 eval_log/
