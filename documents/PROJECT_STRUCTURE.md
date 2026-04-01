@@ -39,7 +39,8 @@ Below are more detailed, repo-specific entries discovered in this repository (up
   - `aide/` — package modules and agents (e.g., `agent.py`, `interpreter.py`, `run.py`).
 
 - `scripts_integration/` — Integration helpers and test harnesses for external workflows:
-  - `self_evolving_agent/` — integration harness and `run_batch.py` for the Self-Evolving Agent integration with KernelBench.
+  - `self_evolving_agent/` — integration harness and `run_batch.py` for the Self-Evolving Agent integration with KernelBench. Recent changes: the integration was consolidated into a single `run_batch.py` and legacy wrapper files were removed.
+    - Example files: `scripts_integration/self_evolving_agent/run_batch.py`, `scripts_integration/self_evolving_agent/README.md`, `scripts_integration/self_evolving_agent/RUN_WITH_UV.md`
   - `docker/` — Docker helpers and images for reproducible runs.
   - `evolving_agent/` — utilities and templates for evolving-agent experiments.
 
