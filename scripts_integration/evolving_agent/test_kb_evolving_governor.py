@@ -31,8 +31,8 @@ def test_run_kb_governor_continues_after_fatal_cuda_error(tmp_path: Path, monkey
     def _fake_eval(**_k):
         calls["count"] += 1
         if calls["count"] == 1:
-            return 0.0, False, False, "CUDA error: an illegal memory access was encountered"
-        return 2.0, True, True, None
+            return 0.0, False, False, "CUDA error: an illegal memory access was encountered", -1.0, {}, {}
+        return 2.0, True, True, None, 25.1, {"mean": 25.1}, {"hardware": "NVIDIA RTX A6000", "device": "cuda:0"}
 
     monkeypatch.setattr(governor, "_evaluate_candidate_isolated", _fake_eval)
 
@@ -60,11 +60,11 @@ def test_run_kb_governor_continues_after_fatal_cuda_error(tmp_path: Path, monkey
 def test_evaluate_candidate_isolated_timeout(monkeypatch) -> None:
     def _slow_eval(**_k):
         time.sleep(1.0)
-        return 1.0, True, True, None
+        return 1.0, True, True, None, 5.0, {"mean": 5.0}, {"hardware": "NVIDIA RTX A6000"}
 
     monkeypatch.setattr(governor, "_evaluate_candidate", _slow_eval)
 
-    speedup, correctness, compiled, err = governor._evaluate_candidate_isolated(
+    speedup, correctness, compiled, err, runtime, runtime_stats, metadata = governor._evaluate_candidate_isolated(
         reference_code="x",
         candidate_code="y",
         backend="cuda",
@@ -78,3 +78,11 @@ def test_evaluate_candidate_isolated_timeout(monkeypatch) -> None:
     assert compiled is False
     assert err is not None
     assert "evaluation_timeout" in err
+    assert runtime == -1.0
+    assert runtime_stats == {}
+    assert metadata == {}
+
+
+def test_is_fatal_cuda_error_handles_exception_object() -> None:
+    err = ImportError("CUDA error: an illegal memory access was encountered")
+    assert governor._is_fatal_cuda_error(err) is True

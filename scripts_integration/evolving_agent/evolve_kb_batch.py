@@ -9,7 +9,18 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import torch
+try:
+    import torch
+except Exception:
+    class _CudaStub:
+        @staticmethod
+        def is_available() -> bool:
+            return False
+
+    class _TorchStub:
+        cuda = _CudaStub()
+
+    torch = _TorchStub()  # type: ignore[assignment]
 
 try:
     from scripts_integration.evolving_agent.kb_evolving_governor import (
@@ -57,24 +68,71 @@ def _write_json(path: Path, payload: dict | list) -> None:
 
 def _to_kernelbench_eval_entry(run_entry: dict, *, level: int, problem_id: int) -> dict:
     """Convert evolving run output into KernelBench-style eval entry shape."""
+    runtime_stats = run_entry.get("runtime_stats")
+    if not isinstance(runtime_stats, dict):
+        runtime_stats = {}
+
+    raw_metadata = run_entry.get("metadata")
+    if not isinstance(raw_metadata, dict):
+        raw_metadata = {}
+
+    runtime = run_entry.get("runtime", -1.0)
+    try:
+        runtime = float(runtime)
+    except Exception:
+        runtime = -1.0
+
+    merged_metadata = {
+        "hardware": raw_metadata.get("hardware") or runtime_stats.get("hardware"),
+        "device": raw_metadata.get("device") or runtime_stats.get("device"),
+        "correctness_trials": raw_metadata.get("correctness_trials"),
+        "source": "evolving_agent_prototype",
+        "level": int(level),
+        "problem_id": int(problem_id),
+        "best_speedup": float(run_entry.get("best_speedup", 0.0) or 0.0),
+        "backend": run_entry.get("backend"),
+        "precision": run_entry.get("precision"),
+        "iterations_run": int(run_entry.get("iterations_run", 0) or 0),
+        "error": run_entry.get("error"),
+    }
+
     return {
         "sample_id": 0,
         "compiled": bool(run_entry.get("best_compiled", False)),
         "correctness": bool(run_entry.get("best_correct", False)),
-        "metadata": {
-            "source": "evolving_agent_prototype",
-            "level": int(level),
-            "problem_id": int(problem_id),
-            "best_speedup": float(run_entry.get("best_speedup", 0.0) or 0.0),
-            "backend": run_entry.get("backend"),
-            "precision": run_entry.get("precision"),
-            "iterations_run": int(run_entry.get("iterations_run", 0) or 0),
-            "error": run_entry.get("error"),
-        },
-        # Runtime values are not persisted by this prototype yet.
-        "runtime": -1.0,
-        "runtime_stats": {},
+        "metadata": merged_metadata,
+        "runtime": runtime,
+        "runtime_stats": runtime_stats,
     }
+
+
+def _normalize_level_first_eval_doc(payload: dict | list | None) -> dict:
+    """Normalize eval json payload into level-first shape: {level: {problem_id: [entries]}}."""
+    if not isinstance(payload, dict):
+        return {}
+
+    # Already level-first.
+    if payload and all(isinstance(v, dict) for v in payload.values()):
+        return payload
+
+    # Legacy shape: {problem_id: [entries]}
+    normalized: dict[str, dict[str, list]] = {}
+    for problem_id, entries in payload.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+            level_value = metadata.get("level")
+            if level_value is None:
+                continue
+            level_key = str(level_value)
+            pid_key = str(problem_id)
+            normalized.setdefault(level_key, {})
+            normalized[level_key].setdefault(pid_key, [])
+            normalized[level_key][pid_key].append(entry)
+    return normalized
 
 
 def _level_eval_path(run_dir: Path, level: int) -> Path:
@@ -162,7 +220,7 @@ def main() -> int:
         for entry in runs
         if isinstance(entry, dict) and "level" in entry and "problem_id" in entry
     }
-    eval_doc = _read_json(eval_path, default={})
+    eval_doc = _normalize_level_first_eval_doc(_read_json(eval_path, default={}))
     level_eval_docs: dict[int, dict] = {}
 
     for idx, row in enumerate(rows, start=1):
@@ -212,9 +270,11 @@ def main() -> int:
             }
             runs.append(entry)
             completed_keys.add(key)
+            level_key = str(level)
             pid_key = str(problem_id)
-            eval_doc.setdefault(pid_key, [])
-            eval_doc[pid_key].append(
+            eval_doc.setdefault(level_key, {})
+            eval_doc[level_key].setdefault(pid_key, [])
+            eval_doc[level_key][pid_key].append(
                 _to_kernelbench_eval_entry(entry, level=level, problem_id=problem_id)
             )
             if level not in level_eval_docs:
@@ -234,9 +294,11 @@ def main() -> int:
         entry["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
         runs.append(entry)
         completed_keys.add(key)
+        level_key = str(level)
         pid_key = str(problem_id)
-        eval_doc.setdefault(pid_key, [])
-        eval_doc[pid_key].append(
+        eval_doc.setdefault(level_key, {})
+        eval_doc[level_key].setdefault(pid_key, [])
+        eval_doc[level_key][pid_key].append(
             _to_kernelbench_eval_entry(entry, level=level, problem_id=problem_id)
         )
         if level not in level_eval_docs:

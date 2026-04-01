@@ -8,10 +8,31 @@ import traceback
 from dataclasses import dataclass
 from pathlib import Path
 
-import torch
-from kernelbench import eval as kb_eval
-from kernelbench.dataset import construct_kernelbench_dataset
-from kernelbench.prompt_constructor_toml import get_prompt_for_backend
+try:
+    import torch
+except Exception:
+    class _CudaStub:
+        @staticmethod
+        def is_available() -> bool:
+            return False
+
+    class _TorchStub:
+        cuda = _CudaStub()
+
+    torch = _TorchStub()  # type: ignore[assignment]
+
+try:
+    from kernelbench import eval as kb_eval
+    from kernelbench.dataset import construct_kernelbench_dataset
+    from kernelbench.prompt_constructor_toml import get_prompt_for_backend
+except Exception:
+    kb_eval = None
+
+    def construct_kernelbench_dataset(*_args, **_kwargs):  # type: ignore[no-redef]
+        raise RuntimeError("kernelbench.dataset is unavailable in this environment")
+
+    def get_prompt_for_backend(*_args, **_kwargs):  # type: ignore[no-redef]
+        raise RuntimeError("kernelbench.prompt_constructor_toml is unavailable in this environment")
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -19,18 +40,75 @@ _SELF_EVOLVING_ROOT = _REPO_ROOT / "Self-Evolving-Agent"
 if str(_SELF_EVOLVING_ROOT) not in sys.path:
     sys.path.append(str(_SELF_EVOLVING_ROOT))
 
-from execution import extract_python_code  # type: ignore  # noqa: E402
-from llm_client import call_coder, call_summarizer  # type: ignore  # noqa: E402
-from memory_manager import (  # type: ignore  # noqa: E402
-    DEFAULT_L0_ENTRY_PROMOTE_THRESHOLD,
-    DEFAULT_L0_TOKEN_BUDGET,
-    append_l0,
-    format_l0_for_prompt,
-    new_l0,
-    promote_l0_to_l1,
-    read_l1,
-    should_promote_l0,
-)
+try:
+    from kernelbench.utils import extract_python_code  # type: ignore  # noqa: E402
+except Exception:
+    def extract_python_code(raw):  # type: ignore[no-redef]
+        if not raw:
+            return None, "empty_model_output"
+        text = str(raw)
+        start = text.find("```")
+        if start == -1:
+            return text.strip(), None
+        end = text.find("```", start + 3)
+        if end == -1:
+            return text.strip(), None
+        block = text[start + 3 : end]
+        lines = block.splitlines()
+        if lines and lines[0].strip().lower() in {"python", "py"}:
+            lines = lines[1:]
+        code = "\n".join(lines).strip()
+        return (code if code else None), (None if code else "empty_code_block")
+
+try:
+    from llm_client import call_coder, call_summarizer  # type: ignore  # noqa: E402
+except Exception as llm_import_error:
+    def call_coder(*_args, **_kwargs):  # type: ignore[no-redef]
+        raise RuntimeError(f"llm_client unavailable: {llm_import_error}")
+
+    def call_summarizer(*_args, **_kwargs):  # type: ignore[no-redef]
+        raise RuntimeError(f"llm_client unavailable: {llm_import_error}")
+
+try:
+    from memory_manager import (  # type: ignore  # noqa: E402
+        DEFAULT_L0_ENTRY_PROMOTE_THRESHOLD,
+        DEFAULT_L0_TOKEN_BUDGET,
+        append_l0,
+        format_l0_for_prompt,
+        new_l0,
+        promote_l0_to_l1,
+        read_l1,
+        should_promote_l0,
+    )
+except Exception:
+    DEFAULT_L0_ENTRY_PROMOTE_THRESHOLD = 6
+    DEFAULT_L0_TOKEN_BUDGET = 6000
+
+    def new_l0():  # type: ignore[no-redef]
+        return []
+
+    def append_l0(l0, role, content):  # type: ignore[no-redef]
+        l0.append({"role": str(role), "content": str(content)})
+
+    def format_l0_for_prompt(l0):  # type: ignore[no-redef]
+        return "\n\n".join(f"[{item['role']}]\n{item['content']}" for item in l0)
+
+    def should_promote_l0(l0, entry_threshold=DEFAULT_L0_ENTRY_PROMOTE_THRESHOLD, token_budget=DEFAULT_L0_TOKEN_BUDGET):  # type: ignore[no-redef]
+        content_size = sum(len(str(item.get("content", ""))) for item in l0)
+        return len(l0) >= int(entry_threshold) or content_size >= int(token_budget)
+
+    def read_l1(l1_path):  # type: ignore[no-redef]
+        path = Path(l1_path)
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8")
+
+    def promote_l0_to_l1(l0, summary_text, l1_path):  # type: ignore[no-redef]
+        path = Path(l1_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(f"\n- {summary_text.strip()}\n")
+        l0.clear()
 
 
 CODER_SYSTEM_PROMPT = """You are an expert GPU kernel engineer solving KernelBench optimization tasks.
@@ -86,6 +164,8 @@ class IterationRecord:
     correctness: bool
     compiled: bool
     error: str | None
+    runtime: float = -1.0
+    runtime_stats: dict | None = None
 
 
 @dataclass
@@ -101,13 +181,16 @@ class KBGovernorResult:
     best_code: str | None
     iterations_run: int
     records: list[IterationRecord]
+    runtime: float = -1.0
+    runtime_stats: dict | None = None
+    metadata: dict | None = None
     error: str | None = None
 
 
-def _is_fatal_cuda_error(err: str | None) -> bool:
+def _is_fatal_cuda_error(err: object | None) -> bool:
     if not err:
         return False
-    lower = err.lower()
+    lower = str(err).lower()
     return any(marker in lower for marker in _FATAL_CUDA_ERROR_MARKERS)
 
 
@@ -150,8 +233,11 @@ def _evaluate_candidate(
     candidate_code: str,
     backend: str,
     precision: str,
-) -> tuple[float, bool, bool, str | None]:
+) -> tuple[float, bool, bool, str | None, float, dict, dict]:
     try:
+        if kb_eval is None:
+            return 0.0, False, False, "kernelbench.eval unavailable", -1.0, {}, {}
+
         dtype = kb_eval.get_torch_dtype_from_string(precision)
         result = kb_eval.eval_kernel_against_ref(
             reference_code,
@@ -163,18 +249,23 @@ def _evaluate_candidate(
         correctness = bool(result.correctness)
         compiled = bool(result.compiled)
         speedup = 0.0
-        if correctness and result.runtime and result.runtime > 0:
+        runtime = float(result.runtime) if result.runtime is not None else -1.0
+        runtime_stats = dict(result.runtime_stats or {})
+        metadata = dict(result.metadata or {})
+        if correctness and result.runtime and result.runtime > 0 and result.ref_runtime and result.ref_runtime > 0:
             speedup = float(result.ref_runtime / result.runtime)
         err = None
         if not correctness:
             err = (
-                result.metadata.get("compilation_error")
-                or result.metadata.get("runtime_error")
-                or result.metadata.get("correctness_issue")
+                metadata.get("compilation_error")
+                or metadata.get("runtime_error")
+                or metadata.get("correctness_issue")
             )
-        return speedup, correctness, compiled, err
+        if err is not None:
+            err = str(err)
+        return speedup, correctness, compiled, err, runtime, runtime_stats, metadata
     except Exception as exc:
-        return 0.0, False, False, str(exc)
+        return 0.0, False, False, str(exc), -1.0, {}, {}
 
 
 def _evaluate_candidate_worker(
@@ -201,7 +292,7 @@ def _evaluate_candidate_isolated(
     precision: str,
     timeout_sec: float,
     start_method: str,
-) -> tuple[float, bool, bool, str | None]:
+) -> tuple[float, bool, bool, str | None, float, dict, dict]:
     ctx = mp.get_context(start_method)
     queue: mp.Queue = ctx.Queue(maxsize=1)
     proc = ctx.Process(
@@ -221,22 +312,44 @@ def _evaluate_candidate_isolated(
                 False,
                 False,
                 f"evaluation_timeout: exceeded {timeout_sec:.1f}s for isolated eval",
+                -1.0,
+                {},
+                {},
             )
 
         if not queue.empty():
             payload = queue.get_nowait()
-            if isinstance(payload, tuple) and len(payload) == 4:
-                speedup, correctness, compiled, err = payload
-                return float(speedup), bool(correctness), bool(compiled), err
+            if isinstance(payload, tuple) and len(payload) == 7:
+                speedup, correctness, compiled, err, runtime, runtime_stats, metadata = payload
+                return (
+                    float(speedup),
+                    bool(correctness),
+                    bool(compiled),
+                    (str(err) if err is not None else None),
+                    float(runtime),
+                    (runtime_stats if isinstance(runtime_stats, dict) else {}),
+                    (metadata if isinstance(metadata, dict) else {}),
+                )
 
         return (
             0.0,
             False,
             False,
             f"evaluation_worker_error: worker exited with code {proc.exitcode}",
+            -1.0,
+            {},
+            {},
         )
     except Exception as exc:
-        return 0.0, False, False, f"evaluation_orchestration_error: {type(exc).__name__}: {exc}"
+        return (
+            0.0,
+            False,
+            False,
+            f"evaluation_orchestration_error: {type(exc).__name__}: {exc}",
+            -1.0,
+            {},
+            {},
+        )
     finally:
         if proc.is_alive():
             proc.terminate()
@@ -286,6 +399,12 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
     best_compiled = False
     best_code: str | None = None
     best_code_path: Path | None = None
+    best_runtime = -1.0
+    best_runtime_stats: dict = {}
+    best_metadata: dict = {}
+    last_eval_runtime = -1.0
+    last_eval_runtime_stats: dict = {}
+    last_eval_metadata: dict = {}
     fatal_cuda_error_count = 0
     run_error: str | None = None
 
@@ -332,7 +451,7 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
             )
         else:
             append_l0(l0, "code", code)
-            speedup, correctness, compiled, err = _evaluate_candidate_isolated(
+            speedup, correctness, compiled, err, runtime, runtime_stats, metadata = _evaluate_candidate_isolated(
                 reference_code=problem.code,
                 candidate_code=code,
                 backend=cfg.backend,
@@ -340,6 +459,10 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
                 timeout_sec=cfg.eval_timeout_sec,
                 start_method=cfg.eval_start_method,
             )
+
+            last_eval_runtime = runtime
+            last_eval_runtime_stats = runtime_stats
+            last_eval_metadata = metadata
 
             terminal_log = (
                 f"KERNEL_BENCH_CORRECT: {correctness}\n"
@@ -356,6 +479,8 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
                     correctness=correctness,
                     compiled=compiled,
                     error=err,
+                    runtime=runtime,
+                    runtime_stats=runtime_stats,
                 )
             )
 
@@ -364,6 +489,9 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
                 best_correct = correctness
                 best_compiled = compiled
                 best_code = code
+                best_runtime = runtime
+                best_runtime_stats = runtime_stats
+                best_metadata = metadata
                 best_code_path = workspace_dir / f"best_iter_{iteration}.py"
                 best_code_path.write_text(code, encoding="utf-8")
 
@@ -409,6 +537,15 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
             "continued via isolated per-iteration eval workers"
         )
 
+    if not best_metadata:
+        best_metadata = dict(last_eval_metadata)
+
+    if best_runtime < 0 and last_eval_runtime >= 0:
+        best_runtime = last_eval_runtime
+
+    if not best_runtime_stats and last_eval_runtime_stats:
+        best_runtime_stats = dict(last_eval_runtime_stats)
+
     return KBGovernorResult(
         level=cfg.level,
         problem_id=cfg.problem_id,
@@ -421,6 +558,9 @@ def run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
         best_code=best_code,
         iterations_run=len(records),
         records=records,
+        runtime=float(best_runtime),
+        runtime_stats=best_runtime_stats,
+        metadata=best_metadata,
         error=run_error,
     )
 
@@ -443,9 +583,14 @@ def governor_result_to_dict(result: KBGovernorResult) -> dict:
                 "correctness": r.correctness,
                 "compiled": r.compiled,
                 "error": r.error,
+                "runtime": r.runtime,
+                "runtime_stats": r.runtime_stats or {},
             }
             for r in result.records
         ],
+        "runtime": result.runtime,
+        "runtime_stats": result.runtime_stats or {},
+        "metadata": result.metadata or {},
         "error": result.error,
     }
 
@@ -466,5 +611,8 @@ def safe_run_kb_governor(cfg: KBGovernorConfig) -> KBGovernorResult:
             best_code=None,
             iterations_run=0,
             records=[],
+            runtime=-1.0,
+            runtime_stats={},
+            metadata={},
             error=traceback.format_exc(),
         )
