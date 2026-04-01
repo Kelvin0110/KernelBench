@@ -22,82 +22,19 @@ if str(_SEA_SRC) not in sys.path:
 if str(_SEA_ROOT) not in sys.path:
     sys.path.insert(0, str(_SEA_ROOT))
 
+# Import modular components from SEA core
+from self_evolving_agent.integrations.kernelbench.reflection import (  # noqa: E402
+    SimpleKernelBenchReflectionEngine,
+)
+from self_evolving_agent.integrations.kernelbench.batch_runner import (  # noqa: E402
+    load_subset_csv,
+    to_level_first_entry,
+    _read_json,
+    _write_json,
+)
+
 KernelBenchEnvironment = None
 KernelBenchEvolvingAgent = None
-
-
-def _ensure_runtime_dependencies() -> None:
-    global KernelBenchEnvironment
-    global KernelBenchEvolvingAgent
-
-    if KernelBenchEnvironment is None:
-        from scripts_integration.self_evolving_agent.kb_environment import KernelBenchEnvironment as _Env  # noqa: WPS433,E402
-
-        KernelBenchEnvironment = _Env
-    if KernelBenchEvolvingAgent is None:
-        from scripts_integration.self_evolving_agent.kb_agent import KernelBenchEvolvingAgent as _Agent  # noqa: WPS433,E402
-
-        KernelBenchEvolvingAgent = _Agent
-
-
-class _FallbackReflectionEngine:
-    def __init__(self, *args, **kwargs):
-        _ = args
-        _ = kwargs
-
-    def trigger_reflection(self, task_id: str) -> None:
-        _ = task_id
-
-
-class SimpleKernelBenchReflectionEngine(_FallbackReflectionEngine):
-    """Best-effort reflection that promotes recent task summary to global memory."""
-
-    def __init__(self, local_memory, global_memory):
-        self.local_memory = local_memory
-        self.global_memory = global_memory
-
-    def trigger_reflection(self, task_id: str) -> None:
-        traces = self.local_memory.get_recent(limit=20, task_id=task_id)
-        if not traces:
-            return
-        latest = traces[-1]
-        summary = _GlobalStrategyMemory(
-            id=f"kb-gsm-{uuid4().hex}",
-            timestamp=time.time(),
-            content=f"{task_id}: {latest.content[:400]}",
-            metadata={"source": "scripts_integration_reflection", "task_id": task_id},
-            applicability_scope=["kernelbench"],
-            utility_score=0.5,
-            invocation_count=1,
-        )
-        similar = self.global_memory.find_similar(summary.content, threshold_distance=0.15)
-        if similar is None:
-            self.global_memory.add_wisdom(summary)
-        else:
-            summary.id = similar.id
-            summary.utility_score = max(similar.utility_score, summary.utility_score)
-            summary.invocation_count = similar.invocation_count + 1
-            self.global_memory.update_wisdom(summary)
-        self.local_memory.flush(task_id)
-
-
-def load_subset_csv(path: str | Path) -> list[dict[str, int]]:
-    rows: list[dict[str, int]] = []
-    subset_path = Path(path)
-    with subset_path.open("r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if not row:
-                continue
-            rows.append({"level": int(row["level"]), "problem_id": int(row["problem_id"])})
-    return rows
-
-
-def _read_json(path: Path, default: dict | list):
-    if not path.is_file():
-        return default
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def _write_json(path: Path, payload: dict | list) -> None:
@@ -143,6 +80,24 @@ def to_level_first_entry(run_result: dict, *, level: int, problem_id: int) -> di
         "runtime": runtime,
         "runtime_stats": runtime_stats,
     }
+
+
+def _ensure_runtime_dependencies() -> None:
+    global KernelBenchEnvironment
+    global KernelBenchEvolvingAgent
+
+    if KernelBenchEnvironment is None:
+        from scripts_integration.self_evolving_agent.kb_environment import (  # noqa: WPS433,E402
+            KernelBenchEnvironment as _Env,
+        )
+
+        KernelBenchEnvironment = _Env
+    if KernelBenchEvolvingAgent is None:
+        from scripts_integration.self_evolving_agent.kb_agent import (  # noqa: WPS433,E402
+            KernelBenchEvolvingAgent as _Agent,
+        )
+
+        KernelBenchEvolvingAgent = _Agent
 
 
 def run_subset(
