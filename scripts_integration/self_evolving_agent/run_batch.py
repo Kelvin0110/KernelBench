@@ -143,7 +143,7 @@ def _build_coder_fn(dry_run: bool, dry_run_template_path: Optional[str]):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--subset-csv", default="subset_selection/selected_problems_50.csv")
-    parser.add_argument("--output-path", default="runs/sea_integration_run/eval_results.json")
+    parser.add_argument("--output-path", default="runs_evolving/evolving_memory_integration_run/eval_results.json")
     parser.add_argument("--backend", default="cuda")
     parser.add_argument("--precision", default="fp32")
     parser.add_argument("--max-steps", type=int, default=3)
