@@ -30,6 +30,23 @@ uv run python scripts_integration/self_evolving_agent/run_batch.py \
   --dry-run
 ```
 
+# Provider configuration (new)
+
+The Self-Evolving-Agent now uses an explicit provider registry. Configure providers and role mappings via environment JSON variables. Example entries (add to your `.env` or export in the shell):
+
+```bash
+export SEA_PROVIDERS='[{"id": "openai", "provider": "openai", "api_key_env": "OPENAI_API_KEY", "defaults": {"model": "gpt-4o"}} , {"id": "nvidia", "provider": "nvidia", "api_key_env": "NVIDIA_API_KEY", "defaults": {"model": "nemotron-ultra"}}]'
+
+export SEA_ROLE_CODER='{"role":"coder","provider_id":"nvidia","model":"nemotron-ultra","max_retries":3}'
+export SEA_ROLE_SUMMARIZER='{"role":"summarizer","provider_id":"openai","model":"gpt-4o","max_retries":2}'
+```
+
+Notes:
+- `SEA_PROVIDERS` declares provider entries (id, provider type, which env var holds the API key, and optional defaults).
+- `SEA_ROLE_<NAME>` maps a semantic role to a specific `provider_id` and model. This avoids auto-parsing model strings in scripts.
+
+When `uv run` starts, ensure the env vars are loaded (for example by sourcing your `.env` file) so the ProviderRegistry can resolve API keys.
+
 This command validates orchestration and output schema.
 
 ## 3) Real run with LLM calls

@@ -37,51 +37,6 @@ KernelBenchEnvironment = None
 KernelBenchEvolvingAgent = None
 
 
-def _write_json(path: Path, payload: dict | list) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-
-
-def to_level_first_entry(run_result: dict, *, level: int, problem_id: int) -> dict:
-    runtime_stats = run_result.get("runtime_stats")
-    if not isinstance(runtime_stats, dict):
-        runtime_stats = {}
-
-    metadata = run_result.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
-
-    runtime = run_result.get("runtime", -1.0)
-    try:
-        runtime = float(runtime)
-    except Exception:
-        runtime = -1.0
-
-    merged_metadata = {
-        "hardware": metadata.get("hardware") or runtime_stats.get("hardware"),
-        "device": metadata.get("device") or runtime_stats.get("device"),
-        "correctness_trials": metadata.get("correctness_trials"),
-        "source": metadata.get("source") or "self_evolving_agent",
-        "level": int(level),
-        "problem_id": int(problem_id),
-        "best_speedup": float(metadata.get("best_speedup", 0.0) or 0.0),
-        "backend": metadata.get("backend"),
-        "precision": metadata.get("precision"),
-        "iterations_run": int(metadata.get("iterations_run", 0) or 0),
-        "error": metadata.get("error"),
-    }
-
-    return {
-        "sample_id": int(run_result.get("sample_id", 0) or 0),
-        "compiled": bool(run_result.get("compiled", False)),
-        "correctness": bool(run_result.get("correctness", False)),
-        "metadata": merged_metadata,
-        "runtime": runtime,
-        "runtime_stats": runtime_stats,
-    }
-
-
 def _ensure_runtime_dependencies() -> None:
     global KernelBenchEnvironment
     global KernelBenchEvolvingAgent
