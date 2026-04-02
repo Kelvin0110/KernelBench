@@ -63,3 +63,13 @@
   - Kept `Self-Evolving-Agent/src/self_evolving_agent/integrations/kernelbench/*` as reusable package-core for future direct library usage.
 - **Impact**: Plan expectation is satisfied (scripts in `scripts_integration/self_evolving_agent`), while modular architecture remains available for programmatic reuse.
 - **Status**: Completed
+
+### 2026-04-02 - GitHub Copilot
+- **Feature**: Refactored SEA Integration for Persistent Memory and Iterative Optimization.
+- **Implementation**:
+  - **Memory Persistence**: Switched from in-memory mocks to `JSONLinesLocalMemory` (per-task JSONL traces) and `ChromaGlobalMemory` (persistent Vector DB for cross-task wisdom) in `scripts_integration/self_evolving_agent/run_batch.py`.
+  - **Iterative Optimization**: Updated `KernelBenchEvolvingAgent` in `agent.py` to default `stop_on_first_correct=False`, ensuring the agent continues to refine kernels for speed even after passing correctness checks.
+  - **Structured Logging**: Enhanced `batch_runner.py` and `agent.py` to capture and save full iteration traces (`iteration_logs.json`), source code (`kernels/`), and prompts. Folder structure now aligns with integration standards: `logs/level_X_problem_Y/`.
+  - **Code Reuse**: Refactored `run_batch.py` to utilize the centralized `run_subset` function from `batch_runner.py`, employing an `agent_factory` pattern to handle fresh local memory per task while maintaining a shared global memory.
+- **Impact**: Enables "true self-evolution" where the agent learns strategies across different problems and persists its knowledge base to disk.
+- **Status**: Completed

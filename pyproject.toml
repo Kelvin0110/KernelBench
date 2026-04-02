@@ -42,6 +42,9 @@ evolving-agent = [
     "self-evolving-agent",
     "pandas",
     "scikit-learn",
+    "chromadb",
+    "pydantic",
+    "pyyaml>=6.0.0",
 ]
 gpu = [
     # GPU-specific dependencies (requires CUDA)

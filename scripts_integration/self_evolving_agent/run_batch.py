@@ -71,16 +71,7 @@ def main() -> int:
     
     env = KernelBenchEnvironment(backend=args.backend, precision=args.precision)
 
-    from self_evolving_agent.integrations.kernelbench.batch_runner import _read_json, _write_json, to_level_first_entry
-
-    output = Path(args.output_path)
-    eval_doc = _read_json(output, default={})
-    
-    for row in subset_rows:
-        level, pid = int(row["level"]), int(row["problem_id"])
-        task_id = f"L{level}_P{pid}"
-        logger.info(f"Running {task_id}")
-        
+    def agent_factory(task_id: str, level: int, pid: int):
         # Fresh Local Memory for each task
         local_mem = JSONLinesLocalMemory(
             task_id=task_id, 
@@ -90,7 +81,7 @@ def main() -> int:
         
         reflex = SimpleKernelBenchReflectionEngine(local_memory=local_mem, global_memory=global_mem)
         
-        agent = KernelBenchEvolvingAgent(
+        return KernelBenchEvolvingAgent(
             local_memory=local_mem,
             global_memory=global_mem,
             reflection_engine=reflex,
@@ -98,21 +89,16 @@ def main() -> int:
             generate_code=_build_coder_fn(),
             max_steps=args.max_steps,
         )
-        
-        try:
-            result = agent.run_benchmark_task(
-                task_id, 
-                {"level": level, "problem_id": pid, "max_steps": args.max_steps, "backend": args.backend, "precision": args.precision}
-            )
-        except Exception:
-            logger.error(f"Failed {task_id}: {traceback.format_exc()}")
-            result = {"compiled": False, "correctness": False, "error": traceback.format_exc()}
 
-        l_key, p_key = str(level), str(pid)
-        eval_doc.setdefault(l_key, {}).setdefault(p_key, []).append(
-            to_level_first_entry(result, level=level, problem_id=pid)
-        )
-        _write_json(output, eval_doc)
+    # Use the centralized run_subset logic to handle execution and result saving
+    run_subset(
+        agent_factory=agent_factory,
+        subset_rows=subset_rows,
+        output_path=args.output_path,
+        max_steps=args.max_steps,
+        backend=args.backend,
+        precision=args.precision,
+    )
 
     logger.info(f"Done. Results in {args.output_path}")
     return 0
