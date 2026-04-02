@@ -9,35 +9,16 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    import torch
-except Exception:
-    class _CudaStub:
-        @staticmethod
-        def is_available() -> bool:
-            return False
-
-    class _TorchStub:
-        cuda = _CudaStub()
-
-    torch = _TorchStub()  # type: ignore[assignment]
-
-try:
-    from scripts_integration.evolving_agent.kb_evolving_governor import (
-        KBGovernorConfig,
-        governor_result_to_dict,
-        safe_run_kb_governor,
-    )
-except ModuleNotFoundError:
-    # Support direct execution: python scripts_integration/evolving_agent/evolve_kb_batch.py
-    repo_root = Path(__file__).resolve().parents[2]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-    from scripts_integration.evolving_agent.kb_evolving_governor import (
-        KBGovernorConfig,
-        governor_result_to_dict,
-        safe_run_kb_governor,
-    )
+import torch
+# Support direct execution: python scripts_integration/evolving_agent/evolve_kb_batch.py
+repo_root = Path(__file__).resolve().parents[2]
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+from scripts_integration.evolving_agent.kb_evolving_governor import (
+    KBGovernorConfig,
+    governor_result_to_dict,
+    safe_run_kb_governor,
+)
 
 
 def _load_subset_rows(path: Path) -> list[dict]:
