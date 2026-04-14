@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import multiprocessing as mp
+import queue
 import sys
 import traceback
 from importlib import import_module
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SELF_EVOLVING_ROOT = _REPO_ROOT / "Self-Evolving-Agent"
@@ -67,6 +70,48 @@ Output rules:
 """
 
 
+def _run_kernelbench_eval(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        kb_eval = import_module("kernelbench.eval")
+    except ModuleNotFoundError:
+        return {
+            "ok": False,
+            "worker_error": "kernelbench.eval unavailable in this environment",
+        }
+
+    try:
+        dtype = kb_eval.get_torch_dtype_from_string(payload["precision"])
+        result = kb_eval.eval_kernel_against_ref(
+            payload["reference_code"],
+            payload["candidate_code"],
+            backend=payload["backend"],
+            precision=dtype,
+            measure_performance=True,
+            build_dir=payload.get("build_dir"),
+        )
+    except Exception as exc:  # pragma: no cover - runtime external branch
+        return {
+            "ok": False,
+            "worker_error": f"kernelbench evaluation error: {type(exc).__name__}: {exc}",
+        }
+
+    runtime_stats = getattr(result, "runtime_stats", {}) or {}
+    metadata = getattr(result, "metadata", {}) or {}
+    return {
+        "ok": True,
+        "compiled": bool(getattr(result, "compiled", False)),
+        "correct": bool(getattr(result, "correctness", False)),
+        "runtime": getattr(result, "runtime", None),
+        "ref_runtime": getattr(result, "ref_runtime", None),
+        "runtime_stats": dict(runtime_stats),
+        "metadata": dict(metadata),
+    }
+
+
+def _kernelbench_eval_worker(payload: dict[str, Any], out_queue: Any) -> None:
+    out_queue.put(_run_kernelbench_eval(payload))
+
+
 class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
     """KernelBench governor that plugs into evolving_common memory/prompt/logging utilities."""
 
@@ -86,68 +131,52 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             ),
         )
 
-    def _evaluate_candidate(self, code: str) -> KBEvalResult:
-        normalized = code.strip()
-        if not normalized:
-            return KBEvalResult(
-                compiled=False,
-                correct=False,
-                error_message="empty candidate code",
-            )
+    def _evaluate_in_subprocess(self, payload: dict[str, Any]) -> dict[str, Any]:
+        start_method = str(self.config.evaluation_start_method).strip().lower()
+        if start_method not in {"spawn", "fork", "forkserver"}:
+            start_method = "spawn"
+
+        ctx = mp.get_context(start_method)
+        out_queue = ctx.Queue(maxsize=1)
+        proc = ctx.Process(target=_kernelbench_eval_worker, args=(payload, out_queue), daemon=True)
+        proc.start()
+        proc.join(timeout=float(self.config.evaluation_timeout_s))
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=5)
+            return {
+                "ok": False,
+                "worker_error": f"kernelbench evaluation timeout after {self.config.evaluation_timeout_s}s",
+            }
 
         try:
-            kb_eval = import_module("kernelbench.eval")
-        except ModuleNotFoundError:
+            return out_queue.get_nowait()
+        except queue.Empty:
+            return {
+                "ok": False,
+                "worker_error": f"kernelbench evaluation worker exited with code {proc.exitcode}",
+            }
+
+    def _build_eval_result(self, payload: dict[str, Any]) -> KBEvalResult:
+        if not payload.get("ok", False):
             return KBEvalResult(
                 compiled=False,
                 correct=False,
-                error_message="kernelbench.eval unavailable in this environment",
+                error_message=str(payload.get("worker_error") or "kernelbench evaluation failed"),
             )
 
-        if not self.config.reference_code:
-            return KBEvalResult(
-                compiled=False,
-                correct=False,
-                error_message="missing reference_code for KernelBench evaluation",
-            )
-
-        try:
-            dtype = kb_eval.get_torch_dtype_from_string(self.config.precision)
-            # Use unique names for JIT compilation to avoid stale torch_extensions lock file hangs
-            # across different problems or iterations.
-            unique_name = f"kb_l{self.config.level}_p{self.config.problem_id}"
-            if "name=\"hinge_loss_ext\"" in normalized:
-                normalized = normalized.replace("name=\"hinge_loss_ext\"", f"name=\"{unique_name}\"")
-            elif "load_inline(" in normalized and "name=" not in normalized:
-                # If name is not explicitly provided, it might default to something generic.
-                # However, usually load_inline requires a name or uses an internal one.
-                pass
-
-            result = kb_eval.eval_kernel_against_ref(
-                self.config.reference_code,
-                normalized,
-                backend=self.config.backend,
-                precision=dtype,
-                measure_performance=True,
-            )
-        except Exception as exc:  # pragma: no cover - external runtime branch
-            return KBEvalResult(
-                compiled=False,
-                correct=False,
-                error_message=f"kernelbench evaluation error: {type(exc).__name__}: {exc}",
-            )
-
-        compiled = bool(getattr(result, "compiled", False))
-        correct = bool(getattr(result, "correctness", False))
-        runtime = getattr(result, "runtime", None)
-        ref_runtime = getattr(result, "ref_runtime", None)
+        compiled = bool(payload.get("compiled", False))
+        correct = bool(payload.get("correct", False))
+        runtime = payload.get("runtime")
+        ref_runtime = payload.get("ref_runtime")
+        runtime_stats = payload.get("runtime_stats") if isinstance(payload.get("runtime_stats"), dict) else {}
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
 
         speedup: float | None = None
         if correct and runtime and ref_runtime and runtime > 0 and ref_runtime > 0:
             speedup = float(ref_runtime / runtime)
 
-        runtime_stats = getattr(result, "runtime_stats", {}) or {}
-        metadata = getattr(result, "metadata", {}) or {}
         error_message = None
         if not correct:
             error_message = (
@@ -184,6 +213,45 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             runtime_stats=dict(runtime_stats),
             metadata=dict(metadata),
         )
+
+    def _evaluate_candidate(self, code: str, *, attempt: int) -> KBEvalResult:
+        normalized = code.strip()
+        if not normalized:
+            return KBEvalResult(
+                compiled=False,
+                correct=False,
+                error_message="empty candidate code",
+            )
+
+        if not self.config.reference_code:
+            return KBEvalResult(
+                compiled=False,
+                correct=False,
+                error_message="missing reference_code for KernelBench evaluation",
+            )
+
+        build_dir = (
+            Path(self.config.results_root)
+            / self.config.run_name
+            / "builds"
+            / f"l{self.config.level}_p{self.config.problem_id}_iter{attempt}_{uuid4().hex[:8]}"
+        )
+        build_dir.mkdir(parents=True, exist_ok=True)
+
+        payload = {
+            "reference_code": self.config.reference_code,
+            "candidate_code": normalized,
+            "backend": self.config.backend,
+            "precision": self.config.precision,
+            "build_dir": str(build_dir),
+        }
+
+        if self.config.isolate_evaluation_process:
+            eval_payload = self._evaluate_in_subprocess(payload)
+        else:
+            eval_payload = _run_kernelbench_eval(payload)
+
+        return self._build_eval_result(eval_payload)
 
     def _get_summarizer_prompt(self, result: KBEvalResult) -> str:
         terminal = (
@@ -307,7 +375,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     records.append(record)
                 else:
                     append_l0(l0, "code", code)
-                    eval_result = self._evaluate_candidate(code)
+                    eval_result = self._evaluate_candidate(code, attempt=attempt)
                     terminal_log = (
                         f"KERNEL_BENCH_CORRECT: {eval_result.correct}\n"
                         f"KERNEL_BENCH_SPEEDUP: {float(eval_result.speedup or 0.0):.6f}\n"

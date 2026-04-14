@@ -122,6 +122,31 @@ def _level_eval_path(run_dir: Path, level: int) -> Path:
     return run_dir / f"eval_results_level_{level}.json"
 
 
+def _extract_best_kernel_code(run_entry: dict[str, Any]) -> str | None:
+    best_code = run_entry.get("best_code")
+    if isinstance(best_code, str) and best_code.strip():
+        return best_code
+
+    records = run_entry.get("records")
+    if isinstance(records, list):
+        for record in reversed(records):
+            if not isinstance(record, dict):
+                continue
+            candidate = record.get("candidate_code")
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate
+
+    return None
+
+
+def _write_kernel_export(run_dir: Path, *, level: int, problem_id: str, code: str) -> Path:
+    kernels_dir = run_dir / "kernels"
+    kernels_dir.mkdir(parents=True, exist_ok=True)
+    export_path = kernels_dir / f"level_{level}_problem_{problem_id}_sample_0_kernel.py"
+    export_path.write_text(code, encoding="utf-8")
+    return export_path
+
+
 def _summarize_per_level_runs(runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     per_level: dict[str, dict[str, Any]] = {}
     for entry in runs:
@@ -317,6 +342,13 @@ def main() -> int:
             result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
             entry = governor_result_to_dict(result)
             entry["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
+
+        export_code = _extract_best_kernel_code(entry)
+        if export_code:
+            export_path = _write_kernel_export(run_dir, level=level, problem_id=problem_id, code=export_code)
+            entry["exported_kernel_path"] = str(export_path)
+            if not entry.get("best_code_path"):
+                entry["best_code_path"] = str(export_path)
 
         runs.append(entry)
         completed_keys.add(key)

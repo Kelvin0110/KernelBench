@@ -107,3 +107,21 @@
   - `evolving_runs.json` now records `iterations_run=3` entries with structured per-attempt error traces instead of `iterations_run=0` aborted records.
   - Current remaining failures are model-level CUDA correctness/runtime issues (illegal memory access), not orchestrator control-flow failures.
 - **Status**: Completed
+
+### 2026-04-14 - GitHub Copilot
+- **Feature**: Added per-evaluation process isolation and kernel export artifacts for `scripts_integration/new_evolving_agent`, then validated with a full 3-problem run.
+- **Implementation**:
+  - Updated `Self-Evolving-Agent/kernelbench/config.py` with `isolate_evaluation_process` and `evaluation_start_method` controls (default spawn isolation on).
+  - Reworked `scripts_integration/new_evolving_agent/kb_governor.py` to execute each candidate eval in a dedicated subprocess with timeout handling and structured payload/result marshaling.
+  - Added per-attempt unique build directories (`runs_evolving/<run>/builds/l<level>_p<problem>_iter<k>_<id>`) to avoid cross-attempt extension build interference.
+  - Added kernel export support in `scripts_integration/new_evolving_agent/evolve_kb_batch.py`:
+    - Exports per-problem best/fallback kernel to `runs_evolving/<run>/kernels/level_<level>_problem_<id>_sample_0_kernel.py`.
+    - Stores `exported_kernel_path` in `evolving_runs.json` entries.
+  - Updated tests in `scripts_integration/new_evolving_agent/test_kb_governor.py` and `scripts_integration/new_evolving_agent/test_evolve_kb_batch.py` for isolation-aware behavior and export helpers.
+  - Executed the exact command requested for debugging:
+    - `CUDA_VISIBLE_DEVICES=1 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name debug_agent --max-problems 3 --max-iterations 5`
+- **Impact**:
+  - Run completed end-to-end (`total_completed=3`) with mixed outcomes: one problem achieved correctness/speedup, while others failed with OOM, demonstrating failures are no longer a universal illegal-memory cascade.
+  - Verified exported kernels for all three problems under the run `kernels/` directory.
+  - Confirms subprocess isolation mitigates process-wide CUDA poisoning after illegal-address failures while preserving continued batch progress.
+- **Status**: Completed

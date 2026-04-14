@@ -36,6 +36,7 @@ def test_config_supports_batch_integration_fields(tmp_path: Path) -> None:
         level=1,
         run_name="new-agent-test",
         results_root=tmp_path,
+        isolate_evaluation_process=False,
     )
 
     assert cfg.level == 1
@@ -65,6 +66,7 @@ def test_governor_run_returns_best_metrics(tmp_path: Path, monkeypatch) -> None:
         results_root=tmp_path,
         max_iterations=1,
         promote_entry_threshold=99,
+        isolate_evaluation_process=False,
     )
 
     kb_gov = governor.KBGovernor(cfg)

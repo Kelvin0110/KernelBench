@@ -65,6 +65,20 @@ def test_to_kernelbench_eval_entry_includes_runtime_and_metadata() -> None:
     assert entry["metadata"]["correctness_trials"] == "(5 / 5)"
 
 
+def test_extract_best_kernel_code_prefers_best_code_then_records() -> None:
+    with_best = {
+        "best_code": "print('best')",
+        "records": [{"candidate_code": "print('candidate')"}],
+    }
+    from_records = {
+        "best_code": None,
+        "records": [{"candidate_code": "print('older')"}, {"candidate_code": "print('newer')"}],
+    }
+
+    assert evolve_kb_batch._extract_best_kernel_code(with_best) == "print('best')"
+    assert evolve_kb_batch._extract_best_kernel_code(from_records) == "print('newer')"
+
+
 def test_main_dry_run_writes_level_first_eval_results(tmp_path: Path, monkeypatch) -> None:
     subset_csv = tmp_path / "subset.csv"
     subset_csv.write_text(
@@ -97,7 +111,9 @@ def test_main_dry_run_writes_level_first_eval_results(tmp_path: Path, monkeypatc
     rc = evolve_kb_batch.main()
     assert rc == 0
 
-    eval_results_path = results_root / run_name / "eval_results.json"
+    matching_runs = sorted(p for p in results_root.glob(f"{run_name}*") if p.is_dir())
+    assert matching_runs
+    eval_results_path = matching_runs[-1] / "eval_results.json"
     payload = json.loads(eval_results_path.read_text(encoding="utf-8"))
 
     assert "1" in payload
