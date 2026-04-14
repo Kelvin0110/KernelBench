@@ -63,7 +63,7 @@ uv run python scripts_integration/self_evolving_agent/run_batch.py \
 ```
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/self_evolving_agent/run_batch.py --max-steps 5 >> evolving_agent_run_subset.log 2>&1
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/self_evolving_agent/run_batch.py --max-steps 5 --output-path runs_evolving/evolving_memory_integration_run2/eval_results.json >> evolving_agent_run_subset2.log 2>&1 &
 ```
 
 ## 4) Output format

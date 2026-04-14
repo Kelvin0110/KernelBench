@@ -1,11 +1,12 @@
 # Project Progress & Development Ledger
 
 ## Current Phase: Scoped Implementation
-- **Active Goal**: Stabilize subset-driven evolving-agent batch evaluation and align result schema with KernelBench-style outputs.
+- **Active Goal**: Complete the new `scripts_integration/new_evolving_agent` integration path with evolving_common-driven governor loop, recorder-backed metrics, and subset batch orchestration.
 - **Critical Reminders**:
   - Keep `eval_results.json` in level-first shape: `{level: {problem_id: [entries]}}`.
   - Preserve runtime fields (`runtime`, `runtime_stats`) for downstream analysis.
   - Handle optional integration dependencies gracefully (LLM/memory helpers may be unavailable locally).
+  - Ensure new integrations use `evolving_common` helpers (`BestMetricsHolder`, `BenchmarkRunRecorder`, memory/prompt helpers) instead of duplicating local logic.
 
 ---
 
@@ -72,4 +73,22 @@
   - **Structured Logging**: Enhanced `batch_runner.py` and `agent.py` to capture and save full iteration traces (`iteration_logs.json`), source code (`kernels/`), and prompts. Folder structure now aligns with integration standards: `logs/level_X_problem_Y/`.
   - **Code Reuse**: Refactored `run_batch.py` to utilize the centralized `run_subset` function from `batch_runner.py`, employing an `agent_factory` pattern to handle fresh local memory per task while maintaining a shared global memory.
 - **Impact**: Enables "true self-evolution" where the agent learns strategies across different problems and persists its knowledge base to disk.
+- **Status**: Completed
+
+### 2026-04-13 - GitHub Copilot
+- **Feature**: Implemented the new KernelBench integration loop under `scripts_integration/new_evolving_agent` with shared evolving_common primitives.
+- **Implementation**:
+  - Expanded `Self-Evolving-Agent/kernelbench/config.py` with run-level fields used by batch orchestration and recorder/promotion controls.
+  - Expanded `Self-Evolving-Agent/kernelbench/schemas.py` with runtime/metadata fields and a new `KBGovernorResult` schema.
+  - Rewrote `scripts_integration/new_evolving_agent/kb_governor.py` to implement the full iteration loop and integrate:
+    - `evolving_common.prompt_context` for coder/summarizer memory-aware prompts,
+    - `evolving_common.llm_client` for coder calls,
+    - `evolving_common.benchmark_memory` + `memory_manager` for L0/L1 handling,
+    - `BestMetricsHolder` + `BenchmarkRunRecorder` for per-iteration and time-sampled metrics.
+  - Added `scripts_integration/new_evolving_agent/evolve_kb_batch.py` to execute subset runs, write level-first `eval_results.json`, per-level result files, and aggregated `run_summary.json`.
+  - Added `scripts_integration/new_evolving_agent/RUN_WITH_UV.md` with environment setup, dependency checks, dry-run, and CUDA run commands.
+  - Added tests:
+    - `scripts_integration/new_evolving_agent/test_kb_governor.py`
+    - `scripts_integration/new_evolving_agent/test_evolve_kb_batch.py`
+- **Impact**: New integration path now supports full iterative evaluation with common memory/prompt/metric infrastructure and generates both per-problem and aggregated metrics artifacts in the expected format.
 - **Status**: Completed

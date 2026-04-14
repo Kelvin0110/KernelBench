@@ -37,3 +37,7 @@ subset_selection/*.md
 subset_selection/*.json
 
 .DS_Store
+
+# memory files
+.agent_memory/
+chroma_db/

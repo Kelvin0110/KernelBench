@@ -2,6 +2,9 @@
 
 This guide runs the prototype integration on a Linux server with an NVIDIA CUDA GPU.
 
+## Reminder:
+This integration combine with the initial prototype branch of Self-Evolving-Agent
+
 ## 1) Prerequisites
 
 - NVIDIA driver and CUDA runtime available

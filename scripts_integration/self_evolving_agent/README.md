@@ -34,3 +34,6 @@ Troubleshooting
 
 Support
 - These are wrapper scripts; behavioral changes to LLM interaction are implemented in the Self-Evolving-Agent package under `Self-Evolving-Agent/src/self_evolving_agent/`.
+
+## Reminder:
+This integration combine with the 2nd prototype branch of Self-Evolving-Agent
