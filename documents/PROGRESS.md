@@ -141,3 +141,21 @@
   - LLM calls now preserve reasoning payloads for downstream analysis.
   - Iteration artifacts now include structured terminal output for each code evaluation/execution step, improving debuggability.
 - **Status**: Completed
+
+### 2026-04-14 - GitHub Copilot
+- **Feature**: Fixed non-serializable evaluation metadata crash in batch JSON dumping and added runtime-focused metrics logging.
+- **Implementation**:
+  - Reproduced and traced batch failure (`TypeError: Object of type RuntimeError is not JSON serializable`) to raw exception objects carried in nested run metadata during `_write_json(...)`.
+  - Updated `scripts_integration/new_evolving_agent/evolve_kb_batch.py` JSON persistence to use a safe `default` encoder that converts exception/path objects to strings instead of crashing writes.
+  - Extended `scripts_integration/new_evolving_agent/kb_governor.py` iteration logging to include runtime and reference runtime in:
+    - terminal logs (`KERNEL_BENCH_RUNTIME`, `KERNEL_BENCH_REF_RUNTIME`),
+    - `evaluation_terminal_output.jsonl` `extra` payload,
+    - `metrics_iteration` / `metrics_best` snapshots.
+  - Extended batch summaries in `evolve_kb_batch.py` to report runtime aggregation (`best_runtime_overall`, per-level `best_runtime`).
+  - Added regression coverage:
+    - `scripts_integration/new_evolving_agent/test_evolve_kb_batch.py::test_write_json_serializes_exception_objects`
+    - updated `scripts_integration/new_evolving_agent/test_kb_governor.py` to assert runtime appears in evaluation terminal-output logs.
+- **Impact**:
+  - Batch runs no longer fail mid-run when evaluation metadata includes exception objects.
+  - Runtime is now extracted and logged alongside speedup, improving observability for performance analysis.
+- **Status**: Completed

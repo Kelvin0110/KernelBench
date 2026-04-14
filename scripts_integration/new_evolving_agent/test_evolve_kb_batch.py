@@ -122,3 +122,21 @@ def test_main_dry_run_writes_level_first_eval_results(tmp_path: Path, monkeypatc
     assert "5" in payload["2"]
     assert payload["1"]["100"][0]["metadata"]["level"] == 1
     assert payload["2"]["5"][0]["metadata"]["level"] == 2
+
+
+def test_write_json_serializes_exception_objects(tmp_path: Path) -> None:
+    output = tmp_path / "out.json"
+    payload = {
+        "runs": [
+            {
+                "metadata": {
+                    "runtime_error": RuntimeError("cuda illegal memory access"),
+                }
+            }
+        ]
+    }
+
+    evolve_kb_batch._write_json(output, payload)
+
+    data = json.loads(output.read_text(encoding="utf-8"))
+    assert "cuda illegal memory access" in data["runs"][0]["metadata"]["runtime_error"]

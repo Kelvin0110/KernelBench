@@ -14,6 +14,7 @@ This directory containing the "Inner Loop" and "Outer Loop" implementation for i
 - **[evolve_kb_batch.py](evolve_kb_batch.py)**: Implements the **Outer Loop** (Batch Orchestrator).
   - Processes a subset of KernelBench problems (from a CSV file).
   - Manages per-level execution (e.g., Level 1, Level 2) and aggregates results into standard KernelBench JSON formats (`eval_results_level_X.json`).
+  - Uses exception-safe JSON serialization so evaluation metadata containing runtime exceptions cannot crash artifact persistence.
   - Handles resume-on-failure logic by tracking progress in `evolving_runs.json`.
 
 - **[RUN_WITH_UV.md](RUN_WITH_UV.md)**: Standardized execution guide using the `uv` package manager for reproducible environments and dependency management.
@@ -39,9 +40,9 @@ The `KBGovernor` leverages these reusable modules from `Self-Evolving-Agent/evol
 - **`memory_manager`**: Manages the two-tier hierarchical memory:
     - **L0 (Iteration-level)**: Short-term logs of attempts, failures, and intermediate metrics.
     - **L1 (Journal-level)**: Long-term extracted insights (meta-learning) that persist across iterations.
-- **`metrics_holder`**: A thread-safe container (`BestMetricsHolder`) that tracking the "Current Best" performance (speedup/correctness).
+- **`metrics_holder`**: A thread-safe container (`BestMetricsHolder`) that tracks the "Current Best" performance (speedup/runtime/correctness).
 - **`run_recorder`**: Handles filesystem logging and writes the canonical `metrics_by_time.jsonl` traces found in result folders.
-  - `chat_history.jsonl` now records `assistant_reasoning` / `assistant_reasoning_content` keys when present.
+  - `chat_history.jsonl` now records `assistant_reasoning` keys when present.
   - `evaluation_terminal_output.jsonl` stores per-iteration code-evaluation terminal output.
 
 ---
@@ -56,6 +57,7 @@ The `KBGovernor` leverages these reusable modules from `Self-Evolving-Agent/evol
 6. **Persistence**: `run_recorder` saves snapshots of the code and metrics to `results/evolving_logs/<run_name>/`.
   - Includes iteration-level terminal output logs for evaluation/execution results.
 7. **Aggregation**: Once the batch finishes, `evolve_kb_batch.py` flattens the results into a level-first `eval_results.json` for standard analysis.
+  - Run summaries include both `best_speedup_overall` and `best_runtime_overall`.
 
 ---
 

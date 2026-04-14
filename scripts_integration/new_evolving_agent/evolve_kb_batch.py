@@ -48,9 +48,16 @@ def _read_json(path: Path, default: dict | list):
 
 
 def _write_json(path: Path, payload: dict | list) -> None:
+    def _json_default(obj: Any) -> str:
+        if isinstance(obj, BaseException):
+            return f"{type(obj).__name__}: {obj}"
+        if isinstance(obj, Path):
+            return str(obj)
+        return repr(obj)
+
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+        json.dump(payload, f, indent=2, default=_json_default)
 
 
 def _to_kernelbench_eval_entry(run_entry: dict[str, Any], *, level: int, problem_id: str) -> dict[str, Any]:
@@ -157,6 +164,7 @@ def _summarize_per_level_runs(runs: list[dict[str, Any]]) -> dict[str, dict[str,
                 "completed": 0,
                 "correct": 0,
                 "best_speedup": 0.0,
+                "best_runtime": None,
             },
         )
         bucket["completed"] += 1
@@ -166,6 +174,14 @@ def _summarize_per_level_runs(runs: list[dict[str, Any]]) -> dict[str, dict[str,
             float(bucket["best_speedup"]),
             float(entry.get("best_speedup", 0.0) or 0.0),
         )
+        runtime = entry.get("runtime")
+        try:
+            runtime_f = float(runtime)
+        except Exception:
+            runtime_f = -1.0
+        if runtime_f >= 0:
+            current = bucket.get("best_runtime")
+            bucket["best_runtime"] = runtime_f if current is None else min(float(current), runtime_f)
     return per_level
 
 
@@ -224,7 +240,7 @@ def main() -> int:
     parser.add_argument(
         "--time-sample-interval-sec",
         type=float,
-        default=900.0,
+        default=300.0,
         help="Recorder sampling interval for metrics_by_time.jsonl.",
     )
     args = parser.parse_args()
@@ -377,6 +393,19 @@ def main() -> int:
     if successful:
         best_overall = max(float(e.get("best_speedup", 0.0)) for e in successful)
 
+    best_runtime_overall: float | None = None
+    runtime_candidates: list[float] = []
+    for entry in runs:
+        runtime = entry.get("runtime")
+        try:
+            runtime_f = float(runtime)
+        except Exception:
+            continue
+        if runtime_f >= 0:
+            runtime_candidates.append(runtime_f)
+    if runtime_candidates:
+        best_runtime_overall = min(runtime_candidates)
+
     summary = {
         "run_name": args.run_name,
         "subset_csv": str(subset_csv),
@@ -386,6 +415,7 @@ def main() -> int:
         "total_completed": len(runs),
         "total_correct": len(successful),
         "best_speedup_overall": best_overall,
+        "best_runtime_overall": best_runtime_overall,
         "per_level_summary": _summarize_per_level_runs(runs),
         "results_path": str(eval_path),
         "evolving_runs_path": str(evolving_runs_path),

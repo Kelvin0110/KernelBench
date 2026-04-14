@@ -52,6 +52,10 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name memory_evolving_agent >> new_evolving_gpu_run.log 2>&1
 ```
 
+```bash
+CUDA_VISIBLE_DEVICES=1 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name debug_memory_evolving_agent --max-problems 2 --max-iterations 2
+```
+
 ## 6) Output files
 
 Run artifacts are written to `runs_evolving/<run_name>/`:

@@ -437,9 +437,21 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 else:
                     append_l0(l0, "code", code)
                     eval_result = self._evaluate_candidate(code, attempt=attempt)
+                    runtime_value = (
+                        float(eval_result.runtime)
+                        if eval_result.runtime is not None
+                        else None
+                    )
+                    ref_runtime_value = (
+                        float(eval_result.ref_runtime)
+                        if eval_result.ref_runtime is not None
+                        else None
+                    )
                     terminal_log = (
                         f"KERNEL_BENCH_CORRECT: {eval_result.correct}\n"
                         f"KERNEL_BENCH_SPEEDUP: {float(eval_result.speedup or 0.0):.6f}\n"
+                        f"KERNEL_BENCH_RUNTIME: {runtime_value if runtime_value is not None else 'n/a'}\n"
+                        f"KERNEL_BENCH_REF_RUNTIME: {ref_runtime_value if ref_runtime_value is not None else 'n/a'}\n"
                     )
                     if eval_result.error_message:
                         terminal_log += f"KERNEL_BENCH_ERROR: {eval_result.error_message}\n"
@@ -457,6 +469,8 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                             "compiled": bool(eval_result.compiled),
                             "correct": bool(eval_result.correct),
                             "speedup": float(eval_result.speedup or 0.0),
+                            "runtime": runtime_value,
+                            "ref_runtime": ref_runtime_value,
                             "error": eval_result.error_message,
                         },
                     )
@@ -485,12 +499,19 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     "compiled": bool(eval_result.compiled),
                     "correct": bool(eval_result.correct),
                     "speedup": float(eval_result.speedup or 0.0),
+                    "runtime": float(eval_result.runtime) if eval_result.runtime is not None else None,
+                    "ref_runtime": (
+                        float(eval_result.ref_runtime)
+                        if eval_result.ref_runtime is not None
+                        else None
+                    ),
                     "error": eval_result.error_message,
                 }
                 metrics_best = {
                     "compiled": best_compiled,
                     "correct": best_correct,
                     "speedup": best_speedup,
+                    "runtime": best_runtime if best_runtime >= 0 else None,
                 }
                 holder.update_iteration_metrics(metrics_iteration)
                 holder.update_best(metrics_best)
@@ -525,7 +546,12 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     print(
                         f"[kb-governor] iter={attempt} "
                         f"correct={eval_result.correct} compiled={eval_result.compiled} "
-                        f"speedup={float(eval_result.speedup or 0.0):.4f}"
+                        f"speedup={float(eval_result.speedup or 0.0):.4f} "
+                        f"runtime={float(eval_result.runtime):.6f}"
+                        if eval_result.runtime is not None
+                        else f"[kb-governor] iter={attempt} "
+                        f"correct={eval_result.correct} compiled={eval_result.compiled} "
+                        f"speedup={float(eval_result.speedup or 0.0):.4f} runtime=n/a"
                     )
 
         except Exception:
