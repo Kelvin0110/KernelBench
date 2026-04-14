@@ -193,7 +193,7 @@ def main() -> int:
     parser.add_argument(
         "--results-root",
         type=str,
-        default="results/evolving_logs",
+        default="runs_evolving/",
         help="Base directory for run artifacts",
     )
     parser.add_argument(
@@ -203,6 +203,11 @@ def main() -> int:
         help="Recorder sampling interval for metrics_by_time.jsonl.",
     )
     args = parser.parse_args()
+
+    # Append UTC timestamp to run-name to avoid collisions and make runs unique.
+    # Format: YYYY_MM_DD_HH_MM (year_month_day_hour_minute)
+    now_str = datetime.now(timezone.utc).strftime("%Y_%m_%d_%H_%M")
+    args.run_name = f"{args.run_name}_{now_str}"
 
     _check_integration_dependencies(dry_run=args.dry_run)
 

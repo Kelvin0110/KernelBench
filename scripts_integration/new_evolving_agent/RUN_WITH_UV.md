@@ -46,26 +46,15 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --dry-run
 ```
 
-## 5) Real CUDA run (small prototype batch)
+## 5) Real CUDA run
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name new_evolving_gpu_latest \
-  --max-problems 2 \
-  --max-iterations 1 \
-  >> new_evolving_gpu_run.log 2>&1
-```
-
-```
-CUDA_VISIBLE_DEVICES=1 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name new_evolving_gpu_latest \
-  --max-problems 2 \
-  --max-iterations 1
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name memory_evolving_agent >> new_evolving_gpu_run.log 2>&1
 ```
 
 ## 6) Output files
 
-Run artifacts are written to `results/evolving_logs/<run_name>/`:
+Run artifacts are written to `runs_evolving/<run_name>/`:
 
 - `shared_l1.txt`
 - `eval_results.json` (level-first shape: `{level: {problem_id: [entries]}}`)

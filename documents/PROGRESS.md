@@ -92,3 +92,18 @@
     - `scripts_integration/new_evolving_agent/test_evolve_kb_batch.py`
 - **Impact**: New integration path now supports full iterative evaluation with common memory/prompt/metric infrastructure and generates both per-problem and aggregated metrics artifacts in the expected format.
 - **Status**: Completed
+
+### 2026-04-14 - GitHub Copilot
+- **Feature**: Systematic debugging and stabilization of `new_evolving_agent` batch execution for multi-iteration runs.
+- **Implementation**:
+  - Investigated a stuck run using the exact integration command:
+    - `CUDA_VISIBLE_DEVICES=1 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name new_evolving_gpu_latest --max-problems 2 --max-iterations 3`
+  - Verified that earlier hangs were tied to torch extension compile state (`torch.utils.cpp_extension` / lock contention scenarios) and confirmed the run now progresses through all inner-loop iterations.
+  - Fixed a hard failure in `scripts_integration/new_evolving_agent/kb_governor.py` where invalid negative runtime values from failed evals propagated into `KBEvalResult(runtime>=0)` and raised `pydantic.ValidationError`.
+  - Normalized invalid/negative `runtime` and `ref_runtime` to `None` before constructing `KBEvalResult`, allowing failed candidates to be recorded without aborting governor progress.
+  - Re-ran the batch from a clean run directory state and verified full completion for both selected problems with per-iteration artifacts emitted.
+- **Impact**:
+  - Batch execution no longer stops at iteration recording due to schema validation crashes.
+  - `evolving_runs.json` now records `iterations_run=3` entries with structured per-attempt error traces instead of `iterations_run=0` aborted records.
+  - Current remaining failures are model-level CUDA correctness/runtime issues (illegal memory access), not orchestrator control-flow failures.
+- **Status**: Completed

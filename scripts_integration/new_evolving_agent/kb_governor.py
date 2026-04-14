@@ -113,6 +113,16 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
 
         try:
             dtype = kb_eval.get_torch_dtype_from_string(self.config.precision)
+            # Use unique names for JIT compilation to avoid stale torch_extensions lock file hangs
+            # across different problems or iterations.
+            unique_name = f"kb_l{self.config.level}_p{self.config.problem_id}"
+            if "name=\"hinge_loss_ext\"" in normalized:
+                normalized = normalized.replace("name=\"hinge_loss_ext\"", f"name=\"{unique_name}\"")
+            elif "load_inline(" in normalized and "name=" not in normalized:
+                # If name is not explicitly provided, it might default to something generic.
+                # However, usually load_inline requires a name or uses an internal one.
+                pass
+
             result = kb_eval.eval_kernel_against_ref(
                 self.config.reference_code,
                 normalized,
@@ -148,13 +158,29 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             if error_message is not None:
                 error_message = str(error_message)
 
+        runtime_value: float | None
+        ref_runtime_value: float | None
+        try:
+            runtime_value = float(runtime) if runtime is not None and float(runtime) >= 0 else None
+        except Exception:
+            runtime_value = None
+
+        try:
+            ref_runtime_value = (
+                float(ref_runtime)
+                if ref_runtime is not None and float(ref_runtime) >= 0
+                else None
+            )
+        except Exception:
+            ref_runtime_value = None
+
         return KBEvalResult(
             compiled=compiled,
             correct=correct,
             speedup=speedup,
             error_message=error_message,
-            runtime=float(runtime) if runtime is not None else None,
-            ref_runtime=float(ref_runtime) if ref_runtime is not None else None,
+            runtime=runtime_value,
+            ref_runtime=ref_runtime_value,
             runtime_stats=dict(runtime_stats),
             metadata=dict(metadata),
         )
