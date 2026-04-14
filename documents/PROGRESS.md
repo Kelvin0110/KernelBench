@@ -125,3 +125,19 @@
   - Verified exported kernels for all three problems under the run `kernels/` directory.
   - Confirms subprocess isolation mitigates process-wide CUDA poisoning after illegal-address failures while preserving continued batch progress.
 - **Status**: Completed
+
+### 2026-04-14 - GitHub Copilot
+- **Feature**: Added reasoning field propagation and per-iteration evaluation terminal-output logging for the new evolving-agent integration.
+- **Implementation**:
+  - Updated `Self-Evolving-Agent/evolving_common/llm_client.py` to extract reasoning from NVIDIA/OpenAI-compatible responses (handling both `reasoning` and `reasoning_content` keys).
+  - Updated `Self-Evolving-Agent/evolving_common/run_recorder.py` so `chat_history.jsonl` stores explicit `assistant_reasoning` keys.
+  - Added `evaluation_terminal_output.jsonl` recorder stream for per-iteration code evaluation/execution terminal logs.
+  - Updated `scripts_integration/new_evolving_agent/kb_governor.py` to capture KernelBench eval stdout/stderr, propagate it into `KBEvalResult.terminal_output`, and persist iteration terminal logs.
+  - Updated `Self-Evolving-Agent/kernelbench/schemas.py` with `terminal_output` on `KBEvalResult`.
+  - Added tests:
+    - `Self-Evolving-Agent/tests/test_kernelbench_adapter.py`
+    - Extended `scripts_integration/new_evolving_agent/test_kb_governor.py` to verify terminal-output capture/persistence.
+- **Impact**:
+  - LLM calls now preserve reasoning payloads for downstream analysis.
+  - Iteration artifacts now include structured terminal output for each code evaluation/execution step, improving debuggability.
+- **Status**: Completed

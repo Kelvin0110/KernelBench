@@ -26,6 +26,7 @@ class _FakeEvalModule:
 
     @staticmethod
     def eval_kernel_against_ref(*_args, **_kwargs):
+        print("FAKE_EVAL_STDOUT")
         return _FakeEvalResult()
 
 
@@ -77,3 +78,15 @@ def test_governor_run_returns_best_metrics(tmp_path: Path, monkeypatch) -> None:
     assert result.best_speedup == 2.0
     assert result.iterations_run == 1
     assert len(result.records) == 1
+    assert "FAKE_EVAL_STDOUT" in (result.records[0].evaluation.terminal_output or "")
+
+    eval_terminal_log = (
+        tmp_path
+        / "new-agent-test"
+        / "workspaces"
+        / "level_1_problem_100"
+        / "evaluation_terminal_output.jsonl"
+    )
+    assert eval_terminal_log.is_file()
+    payload = eval_terminal_log.read_text(encoding="utf-8")
+    assert "FAKE_EVAL_STDOUT" in payload

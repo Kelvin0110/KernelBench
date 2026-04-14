@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import multiprocessing as mp
 import queue
 import sys
 import traceback
+from contextlib import redirect_stderr, redirect_stdout
 from importlib import import_module
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -79,24 +81,51 @@ def _run_kernelbench_eval(payload: dict[str, Any]) -> dict[str, Any]:
             "worker_error": "kernelbench.eval unavailable in this environment",
         }
 
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+
     try:
         dtype = kb_eval.get_torch_dtype_from_string(payload["precision"])
-        result = kb_eval.eval_kernel_against_ref(
-            payload["reference_code"],
-            payload["candidate_code"],
-            backend=payload["backend"],
-            precision=dtype,
-            measure_performance=True,
-            build_dir=payload.get("build_dir"),
-        )
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            result = kb_eval.eval_kernel_against_ref(
+                payload["reference_code"],
+                payload["candidate_code"],
+                backend=payload["backend"],
+                precision=dtype,
+                measure_performance=True,
+                build_dir=payload.get("build_dir"),
+            )
     except Exception as exc:  # pragma: no cover - runtime external branch
+        terminal_stdout = stdout_capture.getvalue()
+        terminal_stderr = stderr_capture.getvalue()
+        terminal_output = "\n".join(
+            chunk.strip()
+            for chunk in (
+                f"[stdout]\n{terminal_stdout}" if terminal_stdout.strip() else "",
+                f"[stderr]\n{terminal_stderr}" if terminal_stderr.strip() else "",
+            )
+            if chunk
+        )
         return {
             "ok": False,
             "worker_error": f"kernelbench evaluation error: {type(exc).__name__}: {exc}",
+            "terminal_stdout": terminal_stdout,
+            "terminal_stderr": terminal_stderr,
+            "terminal_output": terminal_output or None,
         }
 
     runtime_stats = getattr(result, "runtime_stats", {}) or {}
     metadata = getattr(result, "metadata", {}) or {}
+    terminal_stdout = stdout_capture.getvalue()
+    terminal_stderr = stderr_capture.getvalue()
+    terminal_output = "\n".join(
+        chunk.strip()
+        for chunk in (
+            f"[stdout]\n{terminal_stdout}" if terminal_stdout.strip() else "",
+            f"[stderr]\n{terminal_stderr}" if terminal_stderr.strip() else "",
+        )
+        if chunk
+    )
     return {
         "ok": True,
         "compiled": bool(getattr(result, "compiled", False)),
@@ -105,6 +134,9 @@ def _run_kernelbench_eval(payload: dict[str, Any]) -> dict[str, Any]:
         "ref_runtime": getattr(result, "ref_runtime", None),
         "runtime_stats": dict(runtime_stats),
         "metadata": dict(metadata),
+        "terminal_stdout": terminal_stdout,
+        "terminal_stderr": terminal_stderr,
+        "terminal_output": terminal_output or None,
     }
 
 
@@ -172,6 +204,9 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         ref_runtime = payload.get("ref_runtime")
         runtime_stats = payload.get("runtime_stats") if isinstance(payload.get("runtime_stats"), dict) else {}
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        terminal_output = payload.get("terminal_output")
+        if not isinstance(terminal_output, str) or not terminal_output.strip():
+            terminal_output = None
 
         speedup: float | None = None
         if correct and runtime and ref_runtime and runtime > 0 and ref_runtime > 0:
@@ -203,6 +238,10 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         except Exception:
             ref_runtime_value = None
 
+        normalized_metadata = dict(metadata)
+        if terminal_output:
+            normalized_metadata.setdefault("evaluation_terminal_output", terminal_output)
+
         return KBEvalResult(
             compiled=compiled,
             correct=correct,
@@ -210,8 +249,9 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             error_message=error_message,
             runtime=runtime_value,
             ref_runtime=ref_runtime_value,
+            terminal_output=terminal_output,
             runtime_stats=dict(runtime_stats),
-            metadata=dict(metadata),
+            metadata=normalized_metadata,
         )
 
     def _evaluate_candidate(self, code: str, *, attempt: int) -> KBEvalResult:
@@ -337,6 +377,16 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                         "error": err,
                     }
                     holder.update_iteration_metrics(metrics_iteration)
+                    recorder.record_evaluation_terminal_output(
+                        iteration=attempt,
+                        phase="coder_call",
+                        terminal_output=err,
+                        extra={
+                            "compiled": False,
+                            "correct": False,
+                            "speedup": 0.0,
+                        },
+                    )
                     recorder.record_iteration_snapshot(
                         iteration=attempt,
                         l0_entries=l0_entries_to_json_serializable(l0),
@@ -361,7 +411,18 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 code, extract_err = normalize_extracted_python(raw)
                 if extract_err or not code:
                     extraction_error = extract_err or "no code extracted"
-                    append_l0(l0, "terminal", f"extract_error={extraction_error}; raw={(raw or '')[:1000]}")
+                    extract_terminal = f"extract_error={extraction_error}; raw={(raw or '')[:1000]}"
+                    append_l0(l0, "terminal", extract_terminal)
+                    recorder.record_evaluation_terminal_output(
+                        iteration=attempt,
+                        phase="extract",
+                        terminal_output=extract_terminal,
+                        extra={
+                            "compiled": False,
+                            "correct": False,
+                            "speedup": 0.0,
+                        },
+                    )
                     eval_result = KBEvalResult(
                         compiled=False,
                         correct=False,
@@ -382,7 +443,23 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     )
                     if eval_result.error_message:
                         terminal_log += f"KERNEL_BENCH_ERROR: {eval_result.error_message}\n"
+                    if eval_result.terminal_output:
+                        terminal_log += (
+                            "KERNEL_BENCH_EVAL_TERMINAL_OUTPUT:\n"
+                            f"{eval_result.terminal_output}\n"
+                        )
                     append_l0(l0, "terminal", terminal_log)
+                    recorder.record_evaluation_terminal_output(
+                        iteration=attempt,
+                        phase="evaluation",
+                        terminal_output=eval_result.terminal_output or terminal_log,
+                        extra={
+                            "compiled": bool(eval_result.compiled),
+                            "correct": bool(eval_result.correct),
+                            "speedup": float(eval_result.speedup or 0.0),
+                            "error": eval_result.error_message,
+                        },
+                    )
 
                     record = KBIterationRecord(
                         attempt=attempt,
