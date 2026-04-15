@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KernelBench Evolution Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <style>
+        .sidebar { width: 300px; height: 100vh; overflow-y: auto; border-right: 1px solid #e5e7eb; }
+        .main-content { flex: 1; height: 100vh; overflow-y: auto; display: flex; }
+        .timeline { width: 100px; padding: 20px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; align-items: center; }
+        .details { flex: 1; padding: 20px; overflow-y: auto; }
+        .node { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 2px solid #ccc; margin-bottom: 20px; }
+        .node.active { background-color: #3b82f6; border-color: #2563eb; color: white; }
+        .node:hover { border-color: #3b82f6; }
+        .node-line { width: 2px; height: 20px; background-color: #ccc; margin-bottom: 20px; margin-top: -20px; }
+        .metric-block { margin-bottom: 24px; padding: 16px; background-color: white; border: 1px solid #f3f4f6; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .metric-label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+        .metric-value { font-family: monospace; }
+        pre { background: #f8fafc; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0; overflow-x: auto; font-size: 0.875rem; }
+    </style>
+</head>
+<body class="bg-gray-50 h-screen overflow-hidden">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const App = () => {
+            const [runs, setRuns] = useState([]);
+            const [selectedRun, setSelectedRun] = useState(null);
+            const [problems, setProblems] = useState([]);
+            const [selectedProblem, setSelectedProblem] = useState(null);
+            const [iterations, setIterations] = useState([]);
+            const [selectedIteration, setSelectedIteration] = useState(null);
+
+            const API_BASE = "http://127.0.0.1:8000/api";
+
+            // Load runs on mount
+            useEffect(() => {
+                fetch(`${API_BASE}/runs`)
+                    .then(r => r.json())
+                    .then(data => setRuns(data));
+            }, []);
+
+            const selectRun = (run) => {
+                setSelectedRun(run);
+                setProblems([]);
+                setSelectedProblem(null);
+                setIterations([]);
+                setSelectedIteration(null);
+                
+                fetch(`${API_BASE}/runs/${run.name}/problems?root_name=${run.root}`)
+                    .then(r => r.json())
+                    .then(data => setProblems(data));
+            };
+
+            const selectProblem = (problem) => {
+                setSelectedProblem(problem);
+                setIterations([]);
+                setSelectedIteration(null);
+
+                fetch(`${API_BASE}/runs/${selectedRun.name}/problems/${problem.id}/iterations?root_name=${selectedRun.root}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        setIterations(data);
+                        if (data.length > 0) setSelectedIteration(data[0]);
+                    });
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden">
+                    {/* Sidebar: Runs and Problems */}
+                    <div className="sidebar bg-white p-4">
+                        <h1 className="text-xl font-bold mb-6 text-blue-800">Evolution Visualizer</h1>
+                        
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold mb-2 text-gray-400 uppercase tracking-widest">Runs</h2>
+                            <div className="space-y-1">
+                                {runs.map(run => (
+                                    <button 
+                                        key={run.name}
+                                        onClick={() => selectRun(run)}
+                                        className={`w-full text-left px-3 py-2 rounded text-sm ${selectedRun?.name === run.name ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'}`}
+                                    >
+                                        {run.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {selectedRun && (
+                            <div>
+                                <h2 className="text-sm font-semibold mb-2 text-gray-400 uppercase tracking-widest">Problems</h2>
+                                <div className="space-y-1">
+                                    {problems.map(p => (
+                                        <button 
+                                            key={p.id}
+                                            onClick={() => selectProblem(p)}
+                                            className={`w-full text-left px-3 py-2 rounded text-sm ${selectedProblem?.id === p.id ? 'bg-indigo-50 text-indigo-700 font-medium' : 'hover:bg-gray-50'}`}
+                                        >
+                                            {p.id}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Main Content: Timeline and Metrics */}
+                    <div className="main-content">
+                        {selectedProblem ? (
+                            <React.Fragment>
+                                <div className="timeline">
+                                    {iterations.map((iter, idx) => (
+                                        <React.Fragment key={iter.index}>
+                                            <div 
+                                                className={`node ${selectedIteration?.index === iter.index ? 'active' : ''}`}
+                                                onClick={() => setSelectedIteration(iter)}
+                                            >
+                                                {iter.index}
+                                            </div>
+                                            {idx < iterations.length - 1 && <div className="node-line"></div>}
+                                        </React.Fragment>
+                                    ))}
+                                </div>
+
+                                <div className="details relative">
+                                    {selectedIteration ? (
+                                        <div className="max-w-4xl mx-auto pb-20">
+                                            <div className="flex items-baseline gap-3 border-b mb-6 pb-2">
+                                                <h3 className="text-2xl font-bold">{selectedProblem.id}</h3>
+                                                <span className="text-lg text-gray-500">Iteration {selectedIteration.index}</span>
+                                            </div>
+
+                                            {/* Summary Metrics */}
+                                            <div className="grid grid-cols-3 gap-4 mb-8">
+                                                <div className="bg-white p-4 rounded-lg shadow-sm border">
+                                                    <div className="metric-label">Correctness</div>
+                                                    <div className={`mt-1 font-bold ${selectedIteration.metrics?.best_correct ? 'text-green-600' : 'text-red-600'}`}>
+                                                        {selectedIteration.metrics?.best_correct ? "PASS" : "FAIL"}
+                                                    </div>
+                                                </div>
+                                                <div className="bg-white p-4 rounded-lg shadow-sm border">
+                                                    <div className="metric-label">Best Speedup</div>
+                                                    <div className="mt-1 font-bold text-blue-600">
+                                                        {selectedIteration.metrics?.best_speedup?.toFixed(4) ?? "-"}
+                                                    </div>
+                                                </div>
+                                                <div className="bg-white p-4 rounded-lg shadow-sm border">
+                                                    <div className="metric-label">Attempt Count</div>
+                                                    <div className="mt-1 font-bold text-gray-700">
+                                                        {selectedIteration.metrics?.iterations_run ?? 0}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Detailed Blocks */}
+                                            {selectedIteration.chat.map((turn, i) => (
+                                                <div key={i} className="mb-6">
+                                                   <h4 className="text-lg font-semibold mb-4 text-gray-700">Evolution Step {i+1}</h4>
+                                                   
+                                                   <div className="metric-block">
+                                                        <div className="metric-label">Role: Assistant (Coder) Text</div>
+                                                        <pre className="mt-2 whitespace-pre-wrap">{turn.assistant_text || turn.messages?.[turn.messages.length - 1]?.content}</pre>
+                                                   </div>
+
+                                                   {turn.assistant_reasoning && (
+                                                       <div className="metric-block">
+                                                            <div className="metric-label">CoT Reasoning</div>
+                                                            <div className="mt-2 text-gray-700 italic border-l-4 pl-4 border-emerald-200 py-1 bg-emerald-50/20">{turn.assistant_reasoning}</div>
+                                                       </div>
+                                                   )}
+                                                   
+                                                   {/* Terminal output for this turn */}
+                                                   {selectedIteration.terminal.length > 0 && (
+                                                       <div className="metric-block">
+                                                            <div className="metric-label">Terminal / Eval Output</div>
+                                                            <pre className="mt-2 bg-slate-900 text-blue-100">{selectedIteration.terminal.map(t => t.stdout || t.output).join('\n')}</pre>
+                                                       </div>
+                                                   )}
+                                                </div>
+                                            ))}
+
+                                            {/* Memory Snapshot */}
+                                            {selectedIteration.snapshot && (
+                                                <div className="grid grid-cols-2 gap-4 mt-8">
+                                                    <div className="metric-block">
+                                                        <div className="metric-label">L0 Memory (Recent Logs)</div>
+                                                        <pre className="mt-2 text-xs h-64 overflow-y-auto">{selectedIteration.snapshot.l0_memory || "Empty"}</pre>
+                                                    </div>
+                                                    <div className="metric-block">
+                                                        <div className="metric-label">L1 Memory (Journal)</div>
+                                                        <pre className="mt-2 text-xs h-64 overflow-y-auto font-mono text-indigo-700 bg-indigo-50/50">{selectedIteration.snapshot.l1_memory || "Empty"}</pre>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="flex h-full items-center justify-center text-gray-400">Select an iteration node to view metrics</div>
+                                    )}
+                                </div>
+                            </React.Fragment>
+                        ) : (
+                            <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                                <svg className="w-24 h-24 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.836.44l-1.08 1.08a2 2 0 01-3.132 0l-1.08-1.08a2 2 0 00-1.836-.44l-1.53.306a6 6 0 00-3.86-.517l-.318-.158a6 6 0 01-3.86-.517l-2.387.477a2 2 0 00-1.022.547l-1.4 1.4a2 2 0 01-3.132 0l-1.4-1.4a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L1.87 15.21a2 2 0 00-1.836.44L1 15.21a2 2 0 01-3.132 0l-1.08-1.08a2 2 0 00-1.836-.44l-1.53.306a6 6 0 00-3.86-.517l-.318-.158a6 6 0 01-3.86-.517l-2.387.477a2 2 0 00-1.022.547l-1.4 1.4z"></path>
+                                </svg>
+                                <span>Select a run and a problem to view evolution logs</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

@@ -58,6 +58,10 @@ dev = [
     "pytest",
     "ruff",
 ]
+vis = [
+    "fastapi",
+    "uvicorn",
+]
 
 
 [tool.setuptools.packages.find]
