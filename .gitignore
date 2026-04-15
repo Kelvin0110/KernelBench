@@ -13,7 +13,7 @@ cache/*
 _build_cache/
 uv.lock
 CLAUDE.md
-analysis
+/analysis/
 *.log
 # *.sh
 TUTORIAL.md
