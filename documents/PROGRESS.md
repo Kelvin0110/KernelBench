@@ -269,3 +269,24 @@
 - **KernelBench Adaptation:**
     - Refactored `kb_governor.py` to import and utilize all shared components from `evolving_common`.
     - Simplified `KBGovernor` by removing redundant local implementations of parsing and formatting.
+
+### 2026-04-16 - GitHub Copilot
+- **Feature**: Added cached run-level performance visualization pipeline for the KernelBench web visualizer.
+- **Implementation**:
+  - Added `Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py`.
+    - Reads each run's `workspaces/*/metrics_by_iteration.jsonl`.
+    - Resolves baseline runtimes using `results/timing/<hardware>/<baseline>.json` + `kernelbench.dataset` mapping.
+    - Computes per-iteration per-problem `current_speedup` / `best_speedup` (50 dots/iteration expected for full subset runs).
+    - Computes per-iteration fast-p curves using default thresholds `[0.0, 0.5, 0.8, 1.0, 1.5, 2.0]`.
+    - Caches output to `runs_evolving/<run_name>/visualizations/performance_stats.json`.
+  - Extended `Self-Evolving-Agent/visualizations/kernelbench/server/app.py` with:
+    - `GET /api/runs/{run_name}/performance-stats` to serve cached chart stats without scanning workspace directories on each UI request.
+  - Extended `Self-Evolving-Agent/visualizations/kernelbench/index.html` with:
+    - Sidebar button flow: `Load Run Charts` / `Refresh Run Charts` / `Show Charts`.
+    - Plot controls: `current|best` speedup, `mean|median` aggregate line, and log-scale toggle.
+    - Two charts: speedup scatter+aggregate line and multi-line fast-p plot.
+  - Updated `Self-Evolving-Agent/visualizations/README.md` with cached-chart generation and usage instructions.
+- **Impact**:
+  - Visualization is now scalable for run-level trend analysis and does not re-walk all problem folders during frontend chart rendering.
+  - Users can compare per-iteration speedup distributions and fast-p progression directly in the UI for selected runs.
+- **Status**: Completed

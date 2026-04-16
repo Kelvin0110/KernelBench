@@ -54,6 +54,8 @@ Below are more detailed, repo-specific entries discovered in this repository (up
   - `src/self_evolving_agent/` — agent core, integrations, memory backends.
   - `tests/` — shared unit tests for reusable memory/prompt infrastructure.
     - Example files: `Self-Evolving-Agent/tests/test_memory_manager.py`, `Self-Evolving-Agent/tests/test_prompt_context.py`
+  - `visualizations/kernelbench/` — browser UI + FastAPI backend for per-problem inspection and run-level cached performance charts.
+    - Example files: `Self-Evolving-Agent/visualizations/kernelbench/index.html`, `Self-Evolving-Agent/visualizations/kernelbench/server/app.py`, `Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py`
   - `documents/PROGRESS.md` — project progress ledger for that subproject.
 
 - `analysis/` — Post-processing and benchmarking results, for example:
