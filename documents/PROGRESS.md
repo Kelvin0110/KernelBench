@@ -290,3 +290,44 @@
   - Visualization is now scalable for run-level trend analysis and does not re-walk all problem folders during frontend chart rendering.
   - Users can compare per-iteration speedup distributions and fast-p progression directly in the UI for selected runs.
 - **Status**: Completed
+
+### 2026-04-16 - GitHub Copilot
+- **Feature**: Added reusable performance-stats helpers, AIDE checkpoint fast-p extraction, PDF export, and web AIDE-vs-evolving comparison.
+- **Implementation**:
+  - Added shared helper module `src/kernelbench/performance_stats.py` for reusable parsing/stat aggregation utilities:
+    - fast-p threshold parsing and score computation,
+    - subset CSV loading,
+    - baseline lookup construction,
+    - checkpoint/sample extraction helpers,
+    - autoscaling and series-alignment helpers for charting.
+  - Refactored `Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py` to use shared helpers and changed fast-p to use **best runtime** (while keeping compatibility aliases in payload keys).
+  - Added `Self-Evolving-Agent/visualizations/kernelbench/server/generate_aide_integration_stats.py`:
+    - Scans `run_integration/docker_level_x_<model>_step<step>` (supports optional `inte_` prefix),
+    - reads subset problems from `subset_selection/selected_problems_50.csv`,
+    - extracts node checkpoint runtimes from `checkpoints/node_*/eval_results.json`,
+    - computes fast-p curves across levels and writes `run_integration/analysis/aide_subset_<model>_step<step>.json`.
+  - Added `Self-Evolving-Agent/visualizations/kernelbench/server/export_performance_plots_pdf.py` for PDF export of:
+    - speedup scatter+aggregate,
+    - evolving fast-p curves,
+    - selected-threshold AIDE-vs-evolving fast-p comparison (overlapping iterations only).
+  - Extended `Self-Evolving-Agent/visualizations/kernelbench/server/app.py`:
+    - fixed refresh command flag (`--runs-root`),
+    - added AIDE stats endpoints:
+      - `GET /api/integration/aide-fastp?model=...&step=...`
+      - `POST /api/integration/aide-fastp/refresh?model=...&step=...`.
+  - Extended `Self-Evolving-Agent/visualizations/kernelbench/index.html`:
+    - dynamic fast-p autoscaling,
+    - AIDE model/step controls and refresh/load actions,
+    - p-threshold selector,
+    - AIDE-vs-evolving fast-p comparison chart.
+  - Added tests in `scripts_integration/new_evolving_agent/tests/test_performance_stats.py` for:
+    - threshold parsing,
+    - runtime-mode-dependent fast-p,
+    - comparison alignment,
+    - best-runtime fast-p behavior in evolving stats generation.
+  - Updated `Self-Evolving-Agent/visualizations/README.md` and added `matplotlib` to `pyproject.toml` `vis` dependency group for PDF plotting.
+- **Impact**:
+  - Web dashboard and exported PDFs now support direct AIDE-vs-evolving fast-p comparisons.
+  - fast-p semantics for evolving runs now match best-runtime intent.
+  - Performance-stat logic is centralized and reusable across scripts/API flows.
+- **Status**: Completed

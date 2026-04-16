@@ -15,6 +15,7 @@ This file documents the repository top-level layout and describes the purpose of
 - `src/` — Primary library code. Example files:
   - `src/kernelbench/compile.py` — compile-and-cache helpers.
   - `src/kernelbench/eval.py` — evaluation orchestration and helpers.
+  - `src/kernelbench/performance_stats.py` — shared fast-p/speedup parsing, aggregation, and chart-alignment helpers used by visualization scripts.
 
 - `scripts/` — Utility scripts for running evaluations and helpers.
 
@@ -56,6 +57,7 @@ Below are more detailed, repo-specific entries discovered in this repository (up
     - Example files: `Self-Evolving-Agent/tests/test_memory_manager.py`, `Self-Evolving-Agent/tests/test_prompt_context.py`
   - `visualizations/kernelbench/` — browser UI + FastAPI backend for per-problem inspection and run-level cached performance charts.
     - Example files: `Self-Evolving-Agent/visualizations/kernelbench/index.html`, `Self-Evolving-Agent/visualizations/kernelbench/server/app.py`, `Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py`
+    - Additional scripts: `Self-Evolving-Agent/visualizations/kernelbench/server/generate_aide_integration_stats.py`, `Self-Evolving-Agent/visualizations/kernelbench/server/export_performance_plots_pdf.py`
   - `documents/PROGRESS.md` — project progress ledger for that subproject.
 
 - `analysis/` — Post-processing and benchmarking results, for example:
