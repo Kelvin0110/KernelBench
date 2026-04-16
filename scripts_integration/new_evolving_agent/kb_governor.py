@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import io
+import json
 import multiprocessing as mp
 import queue
+import re
 import sys
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
@@ -23,8 +25,12 @@ if str(_SELF_EVOLVING_ROOT) not in sys.path:
 from evolving_common.benchmark_memory import fresh_l0_for_problem, l0_entries_to_json_serializable
 from evolving_common.governor import maybe_promote_l0_to_l1, normalize_extracted_python
 from evolving_common.governor.base import BaseEvolvingGovernor
-from evolving_common.llm_client import call_coder_with_meta
-from evolving_common.memory_manager import append_l0, format_l0_for_prompt, read_l1
+from evolving_common.llm_client import (
+    call_coder_with_meta,
+    call_extractor_with_meta,
+    resolve_nvidia_model_id,
+)
+from evolving_common.memory_manager import append_l0, format_l0_for_prompt, read_l1, read_l1_jsonl
 from evolving_common.metrics_holder import BestMetricsHolder
 from evolving_common.prompt_context import (
     SUMMARIZER_SYSTEM_PROMPT,
@@ -61,15 +67,26 @@ except Exception:
     KBGovernorResult = getattr(_schema_module, "KBGovernorResult")
 
 
-CODER_SYSTEM_PROMPT = """You are an expert GPU kernel engineer solving KernelBench optimization tasks.
+CODER_SYSTEM_PROMPT = """You are an expert GPU kernel engineer solving kernel code optimization tasks.
+
+Memory + planning rules:
+1. L0 is recent raw attempt/evaluation history for this problem. L1 is shared cross-problem lessons.
+2. You have a fixed iteration budget for this run. Choose one action each turn: propose_new, debug_current, or refine_current.
+3. You must include both tags before code: <action>...</action> and <reasoning>...</reasoning>.
 
 Output rules:
-1. Return exactly one fenced Python code block.
+1. Return tags followed by exactly one fenced Python code block and no extra prose.
 2. The code block must define ModelNew that implements the same behavior as the reference architecture.
 3. Use the requested backend style in the task context.
 4. Prioritize correctness first, then maximize speedup.
-5. Do not include any explanation outside the code block.
 """
+
+EXTRACTOR_SYSTEM_PROMPT = """You select relevant L1 memory IDs for the next coding attempt by comparing the current condition with the summary descriptions of each L1 entry.
+Return ONLY JSON: {"selected_entry_ids": ["id1", "id2", ...]}.
+Do not include text outside JSON.
+"""
+
+ALLOWED_CODER_ACTIONS = ["propose_new", "debug_current", "refine_current"]
 
 
 def _run_kernelbench_eval(payload: dict[str, Any]) -> dict[str, Any]:
@@ -150,18 +167,246 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
     def __init__(self, config: KBGovernorConfig) -> None:
         super().__init__(max_iterations=config.max_iterations)
         self.config = config
+        self._last_promoted_count = 0
 
-    def _get_coder_prompt(self, task_prompt: str, l1_text: str, l0_text: str) -> str:
+    def _get_coder_prompt(
+        self,
+        task_prompt: str,
+        l1_text: str,
+        l0_text: str,
+        *,
+        selected_l1_entries: list[dict[str, str]] | None = None,
+        allowed_actions: list[str] | None = None,
+        iteration_context: str | None = None,
+        latest_eval_feedback: str | None = None,
+    ) -> str:
         return build_user_prompt_with_memory(
             task_section=task_prompt,
             l1_text=l1_text,
             l0_formatted=l0_text,
+            selected_l1_entries=selected_l1_entries,
+            allowed_actions=allowed_actions,
+            iteration_context=iteration_context,
+            latest_eval_feedback=latest_eval_feedback,
             task_heading="## Official KernelBench task prompt",
             closing_instruction=(
                 f"KernelBench Level {self.config.level}, Problem {self.config.problem_id}. "
                 "Return exactly one fenced Python implementation."
             ),
         )
+
+    def _latest_eval_feedback(self, records: list[KBIterationRecord]) -> str:
+        if not records:
+            return "No prior evaluation feedback in this run."
+        latest = records[-1]
+        evaluation = latest.evaluation
+        return (
+            f"attempt={latest.attempt}, compiled={evaluation.compiled}, "
+            f"correct={evaluation.correct}, speedup={float(evaluation.speedup or 0.0):.6f}, "
+            f"error={evaluation.error_message or 'none'}"
+        )
+
+    def _build_iteration_context(
+        self,
+        *,
+        attempt: int,
+        best_speedup: float,
+        best_correct: bool,
+        best_compiled: bool,
+    ) -> str:
+        return (
+            f"iteration={attempt}/{self.config.max_iterations}; "
+            f"best_speedup_so_far={best_speedup:.6f}; "
+            f"best_correct_so_far={best_correct}; "
+            f"best_compiled_so_far={best_compiled}"
+        )
+
+    def _format_l0_for_coder_prompt(self, l0: list[dict[str, str]]) -> str:
+        if not l0:
+            return "(no L0 entries yet)"
+
+        groups: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+
+        def _ensure_group() -> dict[str, Any]:
+            nonlocal current
+            if current is None:
+                current = {
+                    "action": "(unknown)",
+                    "reasoning": "(none)",
+                    "code": None,
+                    "terminal": [],
+                }
+            return current
+
+        for entry in l0:
+            role = entry.get("role", "")
+            content = (entry.get("content") or "").strip()
+            if not content:
+                continue
+
+            if role == "system" and content.startswith("coder_action="):
+                if current is not None and current.get("code"):
+                    groups.append(current)
+                    current = None
+                grp = _ensure_group()
+                grp["action"] = content.split("=", 1)[1].strip() or "(unknown)"
+                continue
+
+            if role == "system" and content.startswith("coder_reasoning="):
+                grp = _ensure_group()
+                grp["reasoning"] = content.split("=", 1)[1].strip() or "(none)"
+                continue
+
+            if role == "code":
+                grp = _ensure_group()
+                grp["code"] = content
+                continue
+
+            if role == "terminal":
+                grp = _ensure_group()
+                grp["terminal"].append(content)
+                continue
+
+            grp = _ensure_group()
+            grp["terminal"].append(f"{role}: {content}")
+
+        if current is not None:
+            groups.append(current)
+
+        if not groups:
+            return format_l0_for_prompt(l0)
+
+        rendered: list[str] = []
+        for idx, grp in enumerate(groups[-8:], start=1):
+            code_text = (grp.get("code") or "(no code captured)").strip()
+            if len(code_text) > 800:
+                code_text = f"{code_text[:800]}\n... [truncated]"
+
+            terminal_items = grp.get("terminal") or []
+            terminal_text = "\n\n".join(terminal_items[-2:]).strip() or "(no terminal output captured)"
+            if len(terminal_text) > 1200:
+                terminal_text = f"{terminal_text[:1200]}\n... [truncated]"
+
+            rendered.append(
+                "\n".join(
+                    [
+                        f"### Attempt history #{idx}",
+                        f"Action: {grp.get('action')}",
+                        f"Reasoning: {grp.get('reasoning')}",
+                        "Code:",
+                        code_text,
+                        "",
+                        "Terminal:",
+                        terminal_text,
+                    ]
+                )
+            )
+
+        return "\n\n".join(rendered)
+
+    def _build_extractor_messages(
+        self,
+        *,
+        task_prompt: str,
+        l1_entries: list[dict[str, str]],
+        iteration_context: str,
+        latest_eval_feedback: str,
+    ) -> list[dict[str, str]]:
+        candidate_lines: list[str] = []
+        for entry in l1_entries:
+            entry_id = (entry.get("entry_id") or "").strip()
+            description = (entry.get("description") or "").strip()
+            content = (entry.get("content") or "").strip()
+            content_preview = content[:280]
+            candidate_lines.append(
+                f"id={entry_id}\ndescription={description}\ncontent={content_preview}"
+            )
+        candidates = "\n\n".join(candidate_lines)
+        user_prompt = (
+            f"Select up to {self.config.extractor_max_memories} entry IDs relevant for the next iteration.\n\n"
+            f"Task:\n{task_prompt.strip()}\n\n"
+            f"{iteration_context}\n"
+            f"Latest evaluation feedback:\n{latest_eval_feedback}\n\n"
+            f"Candidates:\n{candidates}\n"
+        )
+        return [
+            {"role": "system", "content": EXTRACTOR_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+
+    def _parse_selected_entry_ids(
+        self,
+        raw_text: str | None,
+        *,
+        valid_ids: set[str],
+    ) -> list[str]:
+        if not raw_text or not valid_ids:
+            return []
+
+        selected: list[str] = []
+        text = raw_text.strip()
+        parsed: Any = None
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            parsed = None
+
+        candidate_ids: list[str] = []
+        if isinstance(parsed, dict):
+            for key in ("selected_entry_ids", "entry_ids", "selected_ids", "ids"):
+                maybe_list = parsed.get(key)
+                if isinstance(maybe_list, list):
+                    candidate_ids = [str(item).strip() for item in maybe_list]
+                    break
+        elif isinstance(parsed, list):
+            candidate_ids = [str(item).strip() for item in parsed]
+
+        if not candidate_ids:
+            for entry_id in valid_ids:
+                if entry_id and entry_id in text:
+                    candidate_ids.append(entry_id)
+
+        seen: set[str] = set()
+        for entry_id in candidate_ids:
+            if entry_id in valid_ids and entry_id not in seen:
+                selected.append(entry_id)
+                seen.add(entry_id)
+            if len(selected) >= self.config.extractor_max_memories:
+                break
+        return selected
+
+    @staticmethod
+    def _extract_optional_tag(raw_text: str | None, tag_name: str) -> str | None:
+        if not raw_text:
+            return None
+        match = re.search(
+            rf"<{tag_name}>\s*(.*?)\s*</{tag_name}>",
+            raw_text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match is None:
+            return None
+        value = match.group(1).strip()
+        return value or None
+
+    def _fallback_action(self, *, attempt: int, records: list[KBIterationRecord]) -> str:
+        if attempt <= 1:
+            return "propose_new"
+        if records and records[-1].evaluation.correct:
+            return "refine_current"
+        return "debug_current"
+
+    def _fallback_reasoning(self, raw_text: str | None, action: str) -> str:
+        if raw_text:
+            stripped = re.sub(r"<action>.*?</action>", "", raw_text, flags=re.IGNORECASE | re.DOTALL)
+            stripped = re.sub(r"<reasoning>.*?</reasoning>", "", stripped, flags=re.IGNORECASE | re.DOTALL)
+            stripped = re.sub(r"```[\s\S]*?```", "", stripped, flags=re.DOTALL)
+            for line in stripped.splitlines():
+                candidate = line.strip()
+                if candidate:
+                    return candidate[:240]
+        return f"Fallback reasoning: continue with action={action} based on latest evaluation feedback."
 
     def _evaluate_in_subprocess(self, payload: dict[str, Any]) -> dict[str, Any]:
         start_method = str(self.config.evaluation_start_method).strip().lower()
@@ -352,8 +597,83 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             for attempt in range(1, self.config.max_iterations + 1):
                 holder.set_iteration(attempt)
                 l1_text = read_l1(l1_path)
-                l0_text = format_l0_for_prompt(l0)
-                coder_prompt = self._get_coder_prompt(task_prompt, l1_text, l0_text)
+                l0_text = self._format_l0_for_coder_prompt(l0)
+                iteration_context = self._build_iteration_context(
+                    attempt=attempt,
+                    best_speedup=best_speedup,
+                    best_correct=best_correct,
+                    best_compiled=best_compiled,
+                )
+                latest_eval_feedback = self._latest_eval_feedback(records)
+                selected_l1_entries: list[dict[str, str]] | None = None
+
+                l1_entries = read_l1_jsonl(l1_path)
+                if self.config.enable_l1_extractor and l1_entries:
+                    max_entries = max(1, int(self.config.extractor_max_memories))
+                    fallback_selected = l1_entries[-max_entries:]
+                    extractor_messages = self._build_extractor_messages(
+                        task_prompt=task_prompt,
+                        l1_entries=l1_entries,
+                        iteration_context=iteration_context,
+                        latest_eval_feedback=latest_eval_feedback,
+                    )
+                    try:
+                        extractor_model_id = (
+                            resolve_nvidia_model_id(self.config.extractor_model)
+                            if self.config.extractor_model
+                            else None
+                        )
+                        extractor_raw, _extractor_tokens, extractor_meta = call_extractor_with_meta(
+                            extractor_messages,
+                            max_tokens=self.config.extractor_max_tokens,
+                            timeout_sec=self.config.extractor_timeout_sec,
+                            model_id=extractor_model_id,
+                        )
+                        recorder.record_llm_turn(
+                            iteration=attempt,
+                            phase="extractor",
+                            messages=extractor_messages,
+                            assistant_text=extractor_raw,
+                            extra=extractor_meta,
+                        )
+                        selected_ids = self._parse_selected_entry_ids(
+                            extractor_raw,
+                            valid_ids={entry.get("entry_id", "") for entry in l1_entries},
+                        )
+                        if selected_ids:
+                            by_id = {
+                                str(entry.get("entry_id", "")): entry
+                                for entry in l1_entries
+                                if entry.get("entry_id")
+                            }
+                            selected_l1_entries = [
+                                by_id[entry_id]
+                                for entry_id in selected_ids
+                                if entry_id in by_id
+                            ][:max_entries]
+                    except Exception as exc:
+                        append_l0(
+                            l0,
+                            "terminal",
+                            f"extractor_selection_error: {type(exc).__name__}: {exc}",
+                        )
+
+                    if not selected_l1_entries:
+                        selected_l1_entries = fallback_selected
+
+                l1_for_prompt = l1_text
+                if selected_l1_entries:
+                    l1_for_prompt = "(Extractor-selected L1 entries are provided in the section below.)"
+
+                coder_prompt = self._get_coder_prompt(
+                    task_prompt,
+                    l1_for_prompt,
+                    l0_text,
+                    selected_l1_entries=selected_l1_entries,
+                    allowed_actions=ALLOWED_CODER_ACTIONS,
+                    iteration_context=iteration_context,
+                    latest_eval_feedback=latest_eval_feedback,
+                )
                 coder_messages = [
                     {"role": "system", "content": CODER_SYSTEM_PROMPT},
                     {"role": "user", "content": coder_prompt},
@@ -407,6 +727,20 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     assistant_text=raw,
                     extra=coder_meta,
                 )
+
+                action_text = self._extract_optional_tag(raw, "action")
+                if not action_text:
+                    action_text = self._fallback_action(attempt=attempt, records=records)
+
+                action_norm = action_text.strip().lower()
+                if action_norm not in ALLOWED_CODER_ACTIONS:
+                    action_norm = self._fallback_action(attempt=attempt, records=records)
+                append_l0(l0, "system", f"coder_action={action_norm}")
+
+                reasoning_text = self._extract_optional_tag(raw, "reasoning")
+                if not reasoning_text:
+                    reasoning_text = self._fallback_reasoning(raw, action_norm)
+                append_l0(l0, "system", f"coder_reasoning={reasoning_text}")
 
                 code, extract_err = normalize_extracted_python(raw)
                 if extract_err or not code:
@@ -516,7 +850,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 holder.update_iteration_metrics(metrics_iteration)
                 holder.update_best(metrics_best)
 
-                maybe_promote_l0_to_l1(
+                self._last_promoted_count = maybe_promote_l0_to_l1(
                     l0,
                     l1_path=l1_path,
                     entry_threshold=self.config.promote_entry_threshold,
@@ -531,6 +865,8 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     log_prefix="[kb-governor]",
                     on_summarizer_round=recorder.summarizer_callback(attempt),
                     on_l0_cleared_without_l1=recorder.flush_without_l1_callback(attempt),
+                    clear_l0_after_promotion=False,
+                    last_promoted_count=self._last_promoted_count,
                 )
 
                 recorder.record_iteration_snapshot(

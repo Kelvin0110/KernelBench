@@ -37,9 +37,11 @@ This integration relies on shared components located in the `Self-Evolving-Agent
 The `KBGovernor` leverages these reusable modules from `Self-Evolving-Agent/evolving_common/`:
 - **`llm_client`**: Handles structured NVIDIA/OpenAI-compatible API calls with retry logic.
   - Exposes assistant `content` and `reasoning` in metadata for downstream logging.
+  - Supports a dedicated extractor-model path (`call_extractor_with_meta`) used to retrieve relevant L1 memories before each coder call.
 - **`memory_manager`**: Manages the two-tier hierarchical memory:
     - **L0 (Iteration-level)**: Short-term logs of attempts, failures, and intermediate metrics.
     - **L1 (Journal-level)**: Long-term extracted insights (meta-learning) that persist across iterations.
+      - Persists to both `shared_l1.txt` (human-readable journal) and `shared_l1.jsonl` (structured entries with `description`).
 - **`metrics_holder`**: A thread-safe container (`BestMetricsHolder`) that tracks the "Current Best" performance (speedup/runtime/correctness).
 - **`run_recorder`**: Handles filesystem logging and writes the canonical `metrics_by_time.jsonl` traces found in result folders.
   - `chat_history.jsonl` now records `assistant_reasoning` keys when present.
@@ -50,13 +52,14 @@ The `KBGovernor` leverages these reusable modules from `Self-Evolving-Agent/evol
 ## 3. Workflow & Data Flow
 
 1. **Initialization**: `evolve_kb_batch.py` reads the problem subset and initializes a `KBGovernor` for each task.
-2. **Context Building**: The governor fetches insights from the **L1 Journal** to prep the LLM with "learned" CUDA best practices.
-3. **Generation**: `llm_client` receives a prompt (augmented with **L0** history) and generates a candidate `ModelNew` class.
-4. **Evaluation**: `KBGovernor` executes the code via KernelBench's evaluation engine.
-5. **Reflection**: The iteration's results are summarized, updating the **L0** memory and potentially promoting insights to **L1**.
-6. **Persistence**: `run_recorder` saves snapshots of the code and metrics to `results/evolving_logs/<run_name>/`.
+2. **L1 Selection**: If structured L1 entries exist, the governor runs an extractor model stage to select the most relevant entries (configurable max count).
+3. **Context Building**: The governor prepares one system prompt + one user prompt using selected L1 entries and structured L0 history.
+4. **Generation**: `llm_client` receives the prompt and generates a candidate `ModelNew` class.
+5. **Evaluation**: `KBGovernor` executes the code via KernelBench's evaluation engine.
+6. **Reflection**: The iteration's results are summarized, updating **L1** while retaining L0 history for future rounds.
+7. **Persistence**: `run_recorder` saves snapshots of the code and metrics to `results/evolving_logs/<run_name>/`.
   - Includes iteration-level terminal output logs for evaluation/execution results.
-7. **Aggregation**: Once the batch finishes, `evolve_kb_batch.py` flattens the results into a level-first `eval_results.json` for standard analysis.
+8. **Aggregation**: Once the batch finishes, `evolve_kb_batch.py` flattens the results into a level-first `eval_results.json` for standard analysis.
   - Run summaries include both `best_speedup_overall` and `best_runtime_overall`.
 
 ---

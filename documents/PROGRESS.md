@@ -159,3 +159,99 @@
   - Batch runs no longer fail mid-run when evaluation metadata includes exception objects.
   - Runtime is now extracted and logged alongside speedup, improving observability for performance analysis.
 - **Status**: Completed
+
+### 2026-04-15 - GitHub Copilot
+- **Feature**: Implemented structured L0/L1 prompt updates with extractor-driven L1 selection for `new_evolving_agent`.
+- **Implementation**:
+  - Added design and implementation artifacts:
+    - `docs/superpowers/specs/2026-04-15-kb-l0-l1-prompt-memory-selection-design.md`
+    - `docs/superpowers/plans/2026-04-15-kb-l0-l1-prompt-memory-selection.md`
+  - Updated shared memory/prompt stack:
+    - `Self-Evolving-Agent/evolving_common/memory_manager.py`
+      - Added structured L1 JSONL support (`append_l1_jsonl`, `read_l1_jsonl`, `resolve_l1_jsonl_path`).
+      - Promotion now writes both `.txt` and `.jsonl` outputs.
+      - Added optional `clear_l0_after_promotion` behavior to support L0 retention.
+    - `Self-Evolving-Agent/evolving_common/prompt_context.py`
+      - Added structured user-prompt sections for selected L1 entries, allowed actions, iteration context, and latest eval feedback.
+      - Updated summarizer prompts to require `Description:` and `Details:` format for L1 memories.
+    - `Self-Evolving-Agent/evolving_common/governor/promotion.py`
+      - Propagates `clear_l0_after_promotion` to memory promotion.
+    - `Self-Evolving-Agent/evolving_common/llm_client.py`
+      - Added dedicated extractor model path (`get_tri_llm_model_ids`, `call_extractor`, `call_extractor_with_meta`).
+  - Updated KernelBench governor/config integration:
+    - `Self-Evolving-Agent/kernelbench/config.py`
+      - Added extractor controls (`extractor_model`, `extractor_max_memories`, `extractor_max_tokens`, `extractor_timeout_sec`, `enable_l1_extractor`).
+    - `scripts_integration/new_evolving_agent/kb_governor.py`
+      - Added extractor stage to select relevant L1 entries (configurable top-k, default 10).
+      - Updated coder system prompt to include action-policy and memory semantics.
+      - Preserved one-system/one-user message shape while enriching user prompt structure.
+      - Added optional `<action>`/`<reasoning>` tag parsing and L0 logging.
+      - Disabled L0 clearing on promotion for this governor path.
+      - Restricted coder prompt L1 context to extractor-selected entries (full L1 text is no longer injected when selection is available).
+      - Added richer iteration context including best metrics so far.
+      - Added structured L0 rendering for coder prompts (action/reasoning/code/terminal grouped by attempt history).
+  - Added/updated tests:
+    - `Self-Evolving-Agent/tests/test_memory_manager.py`
+    - `Self-Evolving-Agent/tests/test_prompt_context.py`
+    - `scripts_integration/new_evolving_agent/tests/test_kb_governor.py`
+    - `scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py` (fixed missing `sys` import for `sys.argv` monkeypatch).
+    - Added malformed JSONL resilience coverage in `Self-Evolving-Agent/tests/test_memory_manager.py`.
+- **Impact**:
+  - Coder prompts now consume structured L0 + selectively retrieved L1 memories without switching to full chat-history replay.
+  - L1 memory is now machine-readable and queryable while preserving existing journal text output.
+  - Iterative runs can retain richer L0 context across promotions.
+  - Runs are now resilient to malformed lines in `shared_l1.jsonl` (invalid lines are skipped rather than aborting the run).
+- **Status**: Completed
+
+### 2026-04-15 - GitHub Copilot
+- **Feature**: Refined memory-promotion defaults, description constraints, and extractor-model override semantics based on follow-up review.
+- **Implementation**:
+  - Updated `Self-Evolving-Agent/evolving_common/memory_manager.py`:
+    - Added `DEFAULT_L1_DESCRIPTION_MAX_TOKENS = 512`.
+    - Changed `promote_l0_to_l1(..., clear_l0_after_promotion=False)` default so L0 is retained unless explicitly cleared.
+    - Kept robust malformed JSONL handling in `read_l1_jsonl`.
+  - Updated `Self-Evolving-Agent/evolving_common/governor/promotion.py`:
+    - Changed `maybe_promote_l0_to_l1(..., clear_l0_after_promotion=False)` default to align with retained-L0 design.
+  - Updated `Self-Evolving-Agent/evolving_common/prompt_context.py`:
+    - Summarizer prompt now explicitly states description max length (`512` chars) for deterministic extraction behavior.
+  - Updated `Self-Evolving-Agent/kernelbench/config.py`:
+    - Changed `extractor_model` to optional (`str | None`), allowing env-driven default model resolution when unset.
+  - Updated `scripts_integration/new_evolving_agent/kb_governor.py`:
+    - Extractor call now only passes explicit model override when configured; otherwise relies on llm client env/default selection.
+  - Updated tests:
+    - `Self-Evolving-Agent/tests/test_memory_manager.py`
+    - `scripts_integration/new_evolving_agent/tests/test_kb_governor.py`
+- **Impact**:
+  - Default memory behavior now matches retained-L0 strategy across both direct promotion and governor promotion helpers.
+  - Description extraction is no longer silently constrained to 200 chars and is now contract-aligned with prompt guidance.
+  - Extractor model config no longer duplicates env settings by force; per-run override remains available.
+- **Status**: Completed
+
+## Refinement of L1 Summarization and L0 Retention Policy (2026-04-15)
+- **Goal**: Transition L1 summarization from generic summaries to high-density engineering logs and enforce L0 retention by default.
+- **Actions**:
+  - Updated `Self-Evolving-Agent/evolving_common/prompt_context.py`:
+    - Redesigned `SUMMARIZER_SYSTEM_PROMPT` to enforce a structured, technical schema: "Description", "Lesson Learned", "What Failed", "What Worked", and "Strategies for Success".
+    - Updated `build_summarizer_user_message` to provide explicit formatting examples and emphasize technical specificity.
+  - Updated `scripts_integration/new_evolving_agent/kb_governor.py`:
+    - Modified `maybe_promote_l0_to_l1` call to explicitly set `clear_l0_after_promotion=False`, ensuring L0 history remains available for the coder model even after summarization.
+- **Impact**:
+  - L1 entries now capture deep CUDA/kernel insights, following the detailed pattern requested for better cross-problem learning.
+  - L0 history is now fully preserved across promotions, allowing the coder to see the immediate context of recent attempts alongside the broader L1 journal.
+- **Status**: Completed
+
+## Generalization and Optimization of L1 Summarization Loop (2026-04-15)
+- **Goal**: Generalize summarizer prompts for all ML benchmaks and prevent redundant per-iteration summarization when L0 is retained.
+- **Actions**:
+  - Updated `Self-Evolving-Agent/evolving_common/prompt_context.py`:
+    - Refined `SUMMARIZER_SYSTEM_PROMPT` to be benchmark-agnostic, replacing CUDA-specific examples with general ML failure modes (e.g., "vanishing gradients", "OOM").
+  - Updated `Self-Evolving-Agent/evolving_common/memory_manager.py`:
+    - Modified `should_promote_l0` to accept `last_promoted_count`. It now triggers based on *new* entries since the last promotion, preventing redundant summaries when L0 is not cleared.
+  - Updated `Self-Evolving-Agent/evolving_common/governor/promotion.py`:
+    - Updated `maybe_promote_l0_to_l1` to track and return the incremented `last_promoted_count`.
+  - Updated `scripts_integration/new_evolving_agent/kb_governor.py`:
+    - Applied state tracking for `self._last_promoted_count` to the main execution loop.
+- **Impact**:
+  - The framework is now cleaner and more applicable to a wider range of ML tasks.
+  - Promotion logic is now efficient: even if L0 is retained for the coder's benefit, the summarizer is only called when a significant batch of *new* work has been accumulated.
+- **Status**: Completed

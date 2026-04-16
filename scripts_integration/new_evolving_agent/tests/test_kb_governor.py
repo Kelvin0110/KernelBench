@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 
 from scripts_integration.new_evolving_agent import kb_governor as governor
-from kernelbench.config import KBGovernorConfig
-from kernelbench.schemas import KBEvalResult
 
 
 class _FakeEvalResult:
@@ -106,7 +104,11 @@ def test_kb_governor_reports_missing_kernelbench_runtime(monkeypatch) -> None:
 
     monkeypatch.setattr(governor, 'import_module', _mock_import)
 
-    cfg = governor.KBGovernorConfig(problem_id='demo', reference_code='class Model: pass')
+    cfg = governor.KBGovernorConfig(
+        problem_id='demo',
+        reference_code='class Model: pass',
+        isolate_evaluation_process=False,
+    )
     kb_gov = governor.KBGovernor(cfg)
     result = kb_gov._evaluate_candidate('class ModelNew: pass', attempt=1)
 
@@ -172,3 +174,174 @@ def test_kb_governor_calls_kernelbench_eval(monkeypatch) -> None:
     assert result.correct is True
     assert result.speedup == 2.5
     assert result.error_message is None
+
+
+def test_governor_uses_extractor_selected_l1_in_coder_prompt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(governor, "import_module", lambda _name: _FakeEvalModule())
+
+    l1_txt = tmp_path / "shared_l1.txt"
+    l1_txt.write_text("# shared l1\n", encoding="utf-8")
+    l1_jsonl = l1_txt.with_suffix(".jsonl")
+    selected_entry = {
+        "entry_id": "selected-memory-1",
+        "timestamp": "2026-04-15T00:00:00+00:00",
+        "description": "Use vectorized loads",
+        "content": "Prefer contiguous access in the inner loop.",
+        "source": "summarizer",
+    }
+    non_selected_entry = {
+        "entry_id": "skip-memory-2",
+        "timestamp": "2026-04-15T00:01:00+00:00",
+        "description": "DO_NOT_INCLUDE_DESC",
+        "content": "DO_NOT_INCLUDE_CONTENT",
+        "source": "summarizer",
+    }
+    l1_jsonl.write_text(
+        json.dumps(selected_entry, ensure_ascii=False)
+        + "\n"
+        + json.dumps(non_selected_entry, ensure_ascii=False)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    captured_messages: list[list[dict[str, str]]] = []
+
+    def _fake_coder(messages, **_kwargs):
+        captured_messages.append(messages)
+        return ('```python\nprint("candidate")\n```', 16, {"model_id": "fake-coder"})
+
+    monkeypatch.setattr(governor, "call_coder_with_meta", _fake_coder)
+    monkeypatch.setattr(
+        governor,
+        "call_extractor_with_meta",
+        lambda *_a, **_k: (
+            '{"selected_entry_ids": ["selected-memory-1"]}',
+            8,
+            {"model_id": "fake-extractor"},
+        ),
+    )
+    monkeypatch.setattr(governor, "maybe_promote_l0_to_l1", lambda *_a, **_k: None)
+
+    cfg = governor.KBGovernorConfig(
+        problem_id="100",
+        reference_code='print("ref")',
+        level=1,
+        run_name="extractor-selection-test",
+        results_root=tmp_path,
+        shared_l1_path=l1_txt,
+        max_iterations=1,
+        isolate_evaluation_process=False,
+        enable_l1_extractor=True,
+        extractor_max_memories=1,
+    )
+
+    result = governor.KBGovernor(cfg).run(task_prompt="Optimize this model")
+
+    assert result.iterations_run == 1
+    assert captured_messages
+    user_prompt = captured_messages[0][1]["content"]
+    assert "## Selected L1 memory" in user_prompt
+    assert "selected-memory-1" in user_prompt
+    assert "Use vectorized loads" in user_prompt
+    assert "Prefer contiguous access in the inner loop." in user_prompt
+    assert "DO_NOT_INCLUDE_DESC" not in user_prompt
+    assert "DO_NOT_INCLUDE_CONTENT" not in user_prompt
+    assert "best_speedup_so_far" in user_prompt
+
+
+def test_governor_promotion_keeps_l0_after_promotion(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(governor, "import_module", lambda _name: _FakeEvalModule())
+    monkeypatch.setattr(
+        governor,
+        "call_coder_with_meta",
+        lambda *_a, **_k: ('```python\nprint("candidate")\n```', 32, {"model_id": "fake-coder"}),
+    )
+
+    captured_kwargs: dict[str, object] = {}
+
+    def _capture_promote(*_args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return None
+
+    monkeypatch.setattr(governor, "maybe_promote_l0_to_l1", _capture_promote)
+
+    cfg = governor.KBGovernorConfig(
+        problem_id="100",
+        reference_code='print("ref")',
+        level=1,
+        run_name="promotion-keep-l0-test",
+        results_root=tmp_path,
+        max_iterations=1,
+        isolate_evaluation_process=False,
+    )
+
+    result = governor.KBGovernor(cfg).run(task_prompt="Optimize this model")
+
+    assert result.iterations_run == 1
+    assert "clear_l0_after_promotion" in captured_kwargs
+    assert captured_kwargs["clear_l0_after_promotion"] is False
+
+
+def test_governor_allows_extractor_model_none_uses_env_default(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(governor, "import_module", lambda _name: _FakeEvalModule())
+
+    l1_txt = tmp_path / "shared_l1.txt"
+    l1_txt.write_text("# shared l1\n", encoding="utf-8")
+    l1_jsonl = l1_txt.with_suffix(".jsonl")
+    l1_jsonl.write_text(
+        json.dumps(
+            {
+                "entry_id": "m1",
+                "timestamp": "2026-04-15T00:00:00+00:00",
+                "description": "d1",
+                "content": "c1",
+                "source": "summarizer",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    captured_extractor_model_ids: list[object] = []
+
+    def _fake_extractor(_messages, **kwargs):
+        captured_extractor_model_ids.append(kwargs.get("model_id"))
+        return ('{"selected_entry_ids": ["m1"]}', 8, {"model_id": "fake-extractor"})
+
+    monkeypatch.setattr(governor, "call_extractor_with_meta", _fake_extractor)
+    monkeypatch.setattr(
+        governor,
+        "call_coder_with_meta",
+        lambda *_a, **_k: ('```python\nprint("candidate")\n```', 32, {"model_id": "fake-coder"}),
+    )
+    monkeypatch.setattr(governor, "maybe_promote_l0_to_l1", lambda *_a, **_k: None)
+
+    cfg = governor.KBGovernorConfig(
+        problem_id="100",
+        reference_code='print("ref")',
+        level=1,
+        run_name="extractor-model-none-test",
+        results_root=tmp_path,
+        shared_l1_path=l1_txt,
+        max_iterations=1,
+        isolate_evaluation_process=False,
+        enable_l1_extractor=True,
+        extractor_model=None,
+    )
+
+    governor.KBGovernor(cfg).run(task_prompt="Optimize this model")
+
+    assert captured_extractor_model_ids
+    assert captured_extractor_model_ids[0] is None
+
+
+def test_summarizer_prompt_mentions_description_max_length() -> None:
+    assert "Description" in governor.SUMMARIZER_SYSTEM_PROMPT
+    assert "max" in governor.SUMMARIZER_SYSTEM_PROMPT.lower()

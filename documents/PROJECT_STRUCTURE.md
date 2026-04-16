@@ -26,6 +26,10 @@ This file documents the repository top-level layout and describes the purpose of
 
 - `assets/` — Static assets such as figures and images.
 
+- `docs/` — Design and planning artifacts for agent workflows and implementation specs.
+  - `docs/superpowers/specs/` — design specifications (for example, L0/L1 memory-selection architecture docs).
+  - `docs/superpowers/plans/` — executable implementation plans used by agentic workflows.
+
 - `.github/skills/` — Skills and documentation templates used by agents and contributors.
 
 Below are more detailed, repo-specific entries discovered in this repository (update when you add/remove subprojects):
@@ -48,6 +52,8 @@ Below are more detailed, repo-specific entries discovered in this repository (up
 
 - `Self-Evolving-Agent/` — A separate subproject living inside the repo (agent prototype and tests). Notable contents:
   - `src/self_evolving_agent/` — agent core, integrations, memory backends.
+  - `tests/` — shared unit tests for reusable memory/prompt infrastructure.
+    - Example files: `Self-Evolving-Agent/tests/test_memory_manager.py`, `Self-Evolving-Agent/tests/test_prompt_context.py`
   - `documents/PROGRESS.md` — project progress ledger for that subproject.
 
 - `analysis/` — Post-processing and benchmarking results, for example:
