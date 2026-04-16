@@ -23,8 +23,11 @@ if str(_SELF_EVOLVING_ROOT) not in sys.path:
     sys.path.append(str(_SELF_EVOLVING_ROOT))
 
 from evolving_common.benchmark_memory import fresh_l0_for_problem, l0_entries_to_json_serializable
+from evolving_common.execution import evaluate_in_subprocess
 from evolving_common.governor import maybe_promote_l0_to_l1, normalize_extracted_python
 from evolving_common.governor.base import BaseEvolvingGovernor
+from evolving_common.governor.code_extract import parse_selected_entry_ids
+from evolving_common.governor.util import extract_optional_tag, get_fallback_action
 from evolving_common.llm_client import (
     call_coder_with_meta,
     call_extractor_with_meta,
@@ -33,9 +36,13 @@ from evolving_common.llm_client import (
 from evolving_common.memory_manager import append_l0, format_l0_for_prompt, read_l1, read_l1_jsonl
 from evolving_common.metrics_holder import BestMetricsHolder
 from evolving_common.prompt_context import (
+    ALLOWED_CODER_ACTIONS,
+    BASE_EVOLVING_CODER_SYSTEM_PROMPT,
+    DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
     SUMMARIZER_SYSTEM_PROMPT,
     build_summarizer_user_message,
     build_user_prompt_with_memory,
+    format_l0_for_coder_prompt,
 )
 from evolving_common.run_recorder import BenchmarkRunRecorder, RunRecorderConfig
 
@@ -67,12 +74,9 @@ except Exception:
     KBGovernorResult = getattr(_schema_module, "KBGovernorResult")
 
 
-CODER_SYSTEM_PROMPT = """You are an expert GPU kernel engineer solving kernel code optimization tasks.
+CODER_SYSTEM_PROMPT = f"""You are an expert GPU kernel engineer solving kernel code optimization tasks.
 
-Memory + planning rules:
-1. L0 is recent raw attempt/evaluation history for this problem. L1 is shared cross-problem lessons.
-2. You have a fixed iteration budget for this run. Choose one action each turn: propose_new, debug_current, or refine_current.
-3. You must include both tags before code: <action>...</action> and <reasoning>...</reasoning>.
+{BASE_EVOLVING_CODER_SYSTEM_PROMPT}
 
 Output rules:
 1. Return tags followed by exactly one fenced Python code block and no extra prose.
@@ -81,12 +85,7 @@ Output rules:
 4. Prioritize correctness first, then maximize speedup.
 """
 
-EXTRACTOR_SYSTEM_PROMPT = """You select relevant L1 memory IDs for the next coding attempt by comparing the current condition with the summary descriptions of each L1 entry.
-Return ONLY JSON: {"selected_entry_ids": ["id1", "id2", ...]}.
-Do not include text outside JSON.
-"""
-
-ALLOWED_CODER_ACTIONS = ["propose_new", "debug_current", "refine_current"]
+EXTRACTOR_SYSTEM_PROMPT = DEFAULT_EXTRACTOR_SYSTEM_PROMPT
 
 
 def _run_kernelbench_eval(payload: dict[str, Any]) -> dict[str, Any]:
@@ -222,88 +221,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         )
 
     def _format_l0_for_coder_prompt(self, l0: list[dict[str, str]]) -> str:
-        if not l0:
-            return "(no L0 entries yet)"
-
-        groups: list[dict[str, Any]] = []
-        current: dict[str, Any] | None = None
-
-        def _ensure_group() -> dict[str, Any]:
-            nonlocal current
-            if current is None:
-                current = {
-                    "action": "(unknown)",
-                    "reasoning": "(none)",
-                    "code": None,
-                    "terminal": [],
-                }
-            return current
-
-        for entry in l0:
-            role = entry.get("role", "")
-            content = (entry.get("content") or "").strip()
-            if not content:
-                continue
-
-            if role == "system" and content.startswith("coder_action="):
-                if current is not None and current.get("code"):
-                    groups.append(current)
-                    current = None
-                grp = _ensure_group()
-                grp["action"] = content.split("=", 1)[1].strip() or "(unknown)"
-                continue
-
-            if role == "system" and content.startswith("coder_reasoning="):
-                grp = _ensure_group()
-                grp["reasoning"] = content.split("=", 1)[1].strip() or "(none)"
-                continue
-
-            if role == "code":
-                grp = _ensure_group()
-                grp["code"] = content
-                continue
-
-            if role == "terminal":
-                grp = _ensure_group()
-                grp["terminal"].append(content)
-                continue
-
-            grp = _ensure_group()
-            grp["terminal"].append(f"{role}: {content}")
-
-        if current is not None:
-            groups.append(current)
-
-        if not groups:
-            return format_l0_for_prompt(l0)
-
-        rendered: list[str] = []
-        for idx, grp in enumerate(groups[-8:], start=1):
-            code_text = (grp.get("code") or "(no code captured)").strip()
-            if len(code_text) > 800:
-                code_text = f"{code_text[:800]}\n... [truncated]"
-
-            terminal_items = grp.get("terminal") or []
-            terminal_text = "\n\n".join(terminal_items[-2:]).strip() or "(no terminal output captured)"
-            if len(terminal_text) > 1200:
-                terminal_text = f"{terminal_text[:1200]}\n... [truncated]"
-
-            rendered.append(
-                "\n".join(
-                    [
-                        f"### Attempt history #{idx}",
-                        f"Action: {grp.get('action')}",
-                        f"Reasoning: {grp.get('reasoning')}",
-                        "Code:",
-                        code_text,
-                        "",
-                        "Terminal:",
-                        terminal_text,
-                    ]
-                )
-            )
-
-        return "\n\n".join(rendered)
+        return format_l0_for_coder_prompt(l0, max_entries=10)
 
     def _build_extractor_messages(
         self,
@@ -341,61 +259,19 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         *,
         valid_ids: set[str],
     ) -> list[str]:
-        if not raw_text or not valid_ids:
-            return []
-
-        selected: list[str] = []
-        text = raw_text.strip()
-        parsed: Any = None
-        try:
-            parsed = json.loads(text)
-        except Exception:
-            parsed = None
-
-        candidate_ids: list[str] = []
-        if isinstance(parsed, dict):
-            for key in ("selected_entry_ids", "entry_ids", "selected_ids", "ids"):
-                maybe_list = parsed.get(key)
-                if isinstance(maybe_list, list):
-                    candidate_ids = [str(item).strip() for item in maybe_list]
-                    break
-        elif isinstance(parsed, list):
-            candidate_ids = [str(item).strip() for item in parsed]
-
-        if not candidate_ids:
-            for entry_id in valid_ids:
-                if entry_id and entry_id in text:
-                    candidate_ids.append(entry_id)
-
-        seen: set[str] = set()
-        for entry_id in candidate_ids:
-            if entry_id in valid_ids and entry_id not in seen:
-                selected.append(entry_id)
-                seen.add(entry_id)
-            if len(selected) >= self.config.extractor_max_memories:
-                break
-        return selected
+        return parse_selected_entry_ids(
+            raw_text,
+            valid_ids=valid_ids,
+            max_memories=self.config.extractor_max_memories,
+        )
 
     @staticmethod
     def _extract_optional_tag(raw_text: str | None, tag_name: str) -> str | None:
-        if not raw_text:
-            return None
-        match = re.search(
-            rf"<{tag_name}>\s*(.*?)\s*</{tag_name}>",
-            raw_text,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        if match is None:
-            return None
-        value = match.group(1).strip()
-        return value or None
+        return extract_optional_tag(raw_text, tag_name)
 
     def _fallback_action(self, *, attempt: int, records: list[KBIterationRecord]) -> str:
-        if attempt <= 1:
-            return "propose_new"
-        if records and records[-1].evaluation.correct:
-            return "refine_current"
-        return "debug_current"
+        is_last_correct = bool(records and records[-1].evaluation.correct)
+        return get_fallback_action(attempt, records, is_last_correct=is_last_correct)
 
     def _fallback_reasoning(self, raw_text: str | None, action: str) -> str:
         if raw_text:
@@ -409,31 +285,12 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         return f"Fallback reasoning: continue with action={action} based on latest evaluation feedback."
 
     def _evaluate_in_subprocess(self, payload: dict[str, Any]) -> dict[str, Any]:
-        start_method = str(self.config.evaluation_start_method).strip().lower()
-        if start_method not in {"spawn", "fork", "forkserver"}:
-            start_method = "spawn"
-
-        ctx = mp.get_context(start_method)
-        out_queue = ctx.Queue(maxsize=1)
-        proc = ctx.Process(target=_kernelbench_eval_worker, args=(payload, out_queue), daemon=True)
-        proc.start()
-        proc.join(timeout=float(self.config.evaluation_timeout_s))
-
-        if proc.is_alive():
-            proc.terminate()
-            proc.join(timeout=5)
-            return {
-                "ok": False,
-                "worker_error": f"kernelbench evaluation timeout after {self.config.evaluation_timeout_s}s",
-            }
-
-        try:
-            return out_queue.get_nowait()
-        except queue.Empty:
-            return {
-                "ok": False,
-                "worker_error": f"kernelbench evaluation worker exited with code {proc.exitcode}",
-            }
+        return evaluate_in_subprocess(
+            target_worker=_kernelbench_eval_worker,
+            payload=payload,
+            timeout_s=float(self.config.evaluation_timeout_s),
+            start_method=str(self.config.evaluation_start_method or "spawn"),
+        )
 
     def _build_eval_result(self, payload: dict[str, Any]) -> KBEvalResult:
         if not payload.get("ok", False):

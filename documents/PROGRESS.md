@@ -255,3 +255,17 @@
   - The framework is now cleaner and more applicable to a wider range of ML tasks.
   - Promotion logic is now efficient: even if L0 is retained for the coder's benefit, the summarizer is only called when a significant batch of *new* work has been accumulated.
 - **Status**: Completed
+
+### Generalized Common Components and Code Migration (2026-04-16)
+
+- **Prompt Generalization:** 
+    - Moved `ALLOWED_CODER_ACTIONS` and `DEFAULT_EXTRACTOR_SYSTEM_PROMPT` to `evolving_common/prompt_context.py`.
+    - Introduced `BASE_EVOLVING_CODER_SYSTEM_PROMPT` as a template for evolving agent coder prompts.
+    - Standardized `format_l0_for_coder_prompt` in common utilities to handle structured L0 attempts (action/reasoning/code/terminal).
+- **Core Utility Migration:**
+    - Created `evolving_common/governor/util.py` for generic tag extraction (`extract_optional_tag`) and fallback action selection logic.
+    - Moved extractor parsing logic to `evolving_common/governor/code_extract.py` via `parse_selected_entry_ids`.
+    - Migrated subprocess-based evaluation orchestration to `evolving_common/execution.py` (`evaluate_in_subprocess`).
+- **KernelBench Adaptation:**
+    - Refactored `kb_governor.py` to import and utilize all shared components from `evolving_common`.
+    - Simplified `KBGovernor` by removing redundant local implementations of parsing and formatting.
