@@ -40,6 +40,7 @@ from evolving_common.prompt_context import (
     BASE_EVOLVING_CODER_SYSTEM_PROMPT,
     DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
     SUMMARIZER_SYSTEM_PROMPT,
+    build_extractor_user_message,
     build_summarizer_user_message,
     build_user_prompt_with_memory,
     format_l0_for_coder_prompt,
@@ -231,22 +232,12 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         iteration_context: str,
         latest_eval_feedback: str,
     ) -> list[dict[str, str]]:
-        candidate_lines: list[str] = []
-        for entry in l1_entries:
-            entry_id = (entry.get("entry_id") or "").strip()
-            description = (entry.get("description") or "").strip()
-            content = (entry.get("content") or "").strip()
-            content_preview = content[:280]
-            candidate_lines.append(
-                f"id={entry_id}\ndescription={description}\ncontent={content_preview}"
-            )
-        candidates = "\n\n".join(candidate_lines)
-        user_prompt = (
-            f"Select up to {self.config.extractor_max_memories} entry IDs relevant for the next iteration.\n\n"
-            f"Task:\n{task_prompt.strip()}\n\n"
-            f"{iteration_context}\n"
-            f"Latest evaluation feedback:\n{latest_eval_feedback}\n\n"
-            f"Candidates:\n{candidates}\n"
+        user_prompt = build_extractor_user_message(
+            task_prompt=task_prompt,
+            l1_entries=l1_entries,
+            iteration_context=iteration_context,
+            latest_eval_feedback=latest_eval_feedback,
+            max_memories=self.config.extractor_max_memories,
         )
         return [
             {"role": "system", "content": EXTRACTOR_SYSTEM_PROMPT},
@@ -720,6 +711,9 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     catch_summarizer_errors=True,
                     verbose=self.config.verbose,
                     log_prefix="[kb-governor]",
+                    source=(
+                        f"Level {self.config.level} problem {self.config.problem_id}"
+                    ),
                     on_summarizer_round=recorder.summarizer_callback(attempt),
                     on_l0_cleared_without_l1=recorder.flush_without_l1_callback(attempt),
                     clear_l0_after_promotion=False,

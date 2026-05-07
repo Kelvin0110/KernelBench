@@ -331,3 +331,49 @@
   - fast-p semantics for evolving runs now match best-runtime intent.
   - Performance-stat logic is centralized and reusable across scripts/API flows.
 - **Status**: Completed
+
+### 2026-05-07 - GitHub Copilot
+- **Feature**: Refactored extractor core to common prompts and enhanced L1 promotion with source-problem tagging.
+- **Implementation**:
+  - **Prompt Generalization**: Extracted  to [`evolving_common/prompt_context.py`](Self-Evolving-Agent/evolving_common/prompt_context.py), standardizing how the agent selects relevant refined knowledge entries.
+  - **Memory Evolution**: Updated [`evolving_common/governor/promotion.py`](Self-Evolving-Agent/evolving_common/governor/promotion.py) to accept an optional `source` field during L0 -> L1 promotion.
+  - **KernelBench Wiring**: Refactored [`scripts_integration/new_evolving_agent/kb_governor.py`](scripts_integration/new_evolving_agent/kb_governor.py) to:
+    - Use the generalized extractor prompt builder.
+    - Pass problem-specific source tags (e.g., `Level x problem y`) into the L1 journal, improving cross-task searchability and audit trails.
+- **Impact**: Standardizes the "Two-Loop" architecture's extraction phase and provides better provenance for refined engineering insights in the persistent L1 knowledge base.
+- **Status**: Completed
+
+### 2026-05-07 - GitHub Copilot (Repository Updates)
+- **Feature**: Stabilized visualization logic and solidified KernelBench fast-p consistency.
+- **Implementation** (Self-Evolving-Agent [`98ece63`](https://github.com/Kelvin0110/Self-Evolving-Agent/commit/98ece639f49715222a8ffbbe5738e861862d956a)):
+  - Refactored web dashboard specifically at [`visualizations/kernelbench/index.html`](Self-Evolving-Agent/visualizations/kernelbench/index.html) to support interactive threshold toggling (legend clicking) and improved line-dot markers for fast-p progression.
+  - Hardened fast-p data lookup logic to handle numeric key mismatches between iteration snapshots and pre-aggregated series.
+  - Simplified [`generate_run_performance_stats.py`](Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py) by removing redundant compatibility logic for `fast_p_current` and standardizing on the `fast_p_best` metric.
+- **Implementation** (KernelBench [`9704fc5`](https://github.com/ScalingIntelligence/KernelBench/commit/9704fc561d579607a44c0186eb2598ef38da3e92)):
+  - Updated [`Self-Evolving-Agent`](Self-Evolving-Agent) submodule pointer to incorporate the visualization and logic refinements.
+  - Refined [`visualizations/kernelbench/README.md`](visualizations/kernelbench/README.md) usage instructions for PDF export.
+- **Impact**: Provides a more robust and interactive visualization suite for comparing Gen 2 Evolving Agent performance against baselines and AIDE results.
+- **Status**: Completed
+
+### 2026-05-07 - GitHub Copilot
+- **Feature**: Refactored extractor core to common prompts and enhanced L1 promotion with source-problem tagging.
+- **Implementation**:
+  - **Prompt Generalization**: Extracted `build_extractor_user_message` to [`evolving_common/prompt_context.py`](Self-Evolving-Agent/evolving_common/prompt_context.py), standardizing how the agent selects relevant refined knowledge entries.
+  - **Memory Evolution**: Updated [`evolving_common/governor/promotion.py`](Self-Evolving-Agent/evolving_common/governor/promotion.py) to accept an optional `source` field during L0 -> L1 promotion.
+  - **KernelBench Wiring**: Refactored [`scripts_integration/new_evolving_agent/kb_governor.py`](scripts_integration/new_evolving_agent/kb_governor.py) to:
+    - Use the generalized extractor prompt builder.
+    - Pass problem-specific source tags (e.g., `Level x problem y`) into the L1 journal, improving cross-task searchability and audit trails.
+- **Impact**: Standardizes the "Two-Loop" architecture's extraction phase and provides better provenance for refined engineering insights in the persistent L1 knowledge base.
+- **Status**: Completed
+
+### 2026-05-07 - GitHub Copilot (Repository Updates)
+- **Feature**: Stabilized visualization logic and solidified KernelBench fast-p consistency.
+- **Implementation** (Self-Evolving-Agent [`98ece63`](https://github.com/Kelvin0110/Self-Evolving-Agent/commit/98ece639f49715222a8ffbbe5738e861862d956a)):
+  - Refactored web dashboard specifically at [`visualizations/kernelbench/index.html`](Self-Evolving-Agent/visualizations/kernelbench/index.html) to support interactive threshold toggling (legend clicking) and improved line-dot markers for fast-p progression.
+  - Hardened fast-p data lookup logic to handle numeric key mismatches between iteration snapshots and pre-aggregated series.
+  - Simplified [`generate_run_performance_stats.py`](Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py) by removing redundant compatibility logic for `fast_p_current` and standardizing on the `fast_p_best` metric.
+- **Implementation** (KernelBench [`9704fc5`](https://github.com/ScalingIntelligence/KernelBench/commit/9704fc561d579607a44c0186eb2598ef38da3e92)):
+  - Updated [`Self-Evolving-Agent`](Self-Evolving-Agent) submodule pointer to incorporate the visualization and logic refinements.
+  - Refined [`visualizations/kernelbench/README.md`](visualizations/kernelbench/README.md) usage instructions for PDF export.
+- **Impact**: Provides a more robust and interactive visualization suite for comparing Gen 2 Evolving Agent performance against baselines and AIDE results.
+- **Status**: Completed
