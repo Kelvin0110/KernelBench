@@ -200,10 +200,12 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             return "No prior evaluation feedback in this run."
         latest = records[-1]
         evaluation = latest.evaluation
+        code_preview = (latest.candidate_code or "").strip()
         return (
             f"attempt={latest.attempt}, compiled={evaluation.compiled}, "
             f"correct={evaluation.correct}, speedup={float(evaluation.speedup or 0.0):.6f}, "
-            f"error={evaluation.error_message or 'none'}"
+            f"error={evaluation.error_message or 'none'}\n"
+            f"candidate_code:\n{code_preview}"
         )
 
     def _build_iteration_context(
@@ -575,6 +577,14 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     assistant_text=raw,
                     extra=coder_meta,
                 )
+
+                diagnosis_text = self._extract_optional_tag(raw, "diagnosis")
+                if diagnosis_text:
+                    append_l0(l0, "system", f"coder_diagnosis={diagnosis_text}")
+
+                hypothesis_text = self._extract_optional_tag(raw, "hypothesis")
+                if hypothesis_text:
+                    append_l0(l0, "system", f"coder_hypothesis={hypothesis_text}")
 
                 action_text = self._extract_optional_tag(raw, "action")
                 if not action_text:
