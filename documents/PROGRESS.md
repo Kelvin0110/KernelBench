@@ -355,6 +355,25 @@
 - **Impact**: Provides a more robust and interactive visualization suite for comparing Gen 2 Evolving Agent performance against baselines and AIDE results.
 - **Status**: Completed
 
+### 2026-05-07 - Consolidated Progress: Extractor, L1 Provenance, and Debugging
+- **Scope**: Consolidate several May 7 updates into one cohesive summary covering extractor prompt generalization, L0/L1 enhancements, provenance tagging, and targeted runtime/debug improvements.
+- **Key Changes**:
+  - Moved extractor prompt builder into the common prompt utilities and standardized the extractor user message format to include iteration context and a candidate code preview.
+  - Enhanced L0 records to capture `coder_diagnosis` and `coder_hypothesis` tags alongside existing `coder_action` and `coder_reasoning` entries, and rendered them in `format_l0_for_coder_prompt`.
+  - Added `source` provenance when promoting L0 -> L1 so L1 entries record the originating problem (e.g., "Level X problem Y") for better cross-task retrieval and audit.
+  - Improved `maybe_promote_l0_to_l1`/promotion flow to accept and forward `source`, and made L1 writes include structured JSONL plus the human-readable journal block.
+  - Updated `kb_governor.py` to use the generalized extractor prompt builder, include candidate code preview in latest evaluation feedback, append diagnosis/hypothesis into L0, and log configured iteration budgets for improved local debugging.
+  - Added concise debug prints in batch and governor runners to expose `max_iterations` and iteration-loop entry when `verbose=True` to help trace early loop exits in real runs.
+  - Fixed various resiliency issues around evaluation metadata serialization, subprocess isolation for builds, and invalid runtime normalization so multi-iteration runs do not abort prematurely.
+- **Files touched (representative)**:
+  - Self-Evolving-Agent/evolving_common/prompt_context.py
+  - Self-Evolving-Agent/evolving_common/memory_manager.py
+  - Self-Evolving-Agent/evolving_common/governor/promotion.py
+  - scripts_integration/new_evolving_agent/kb_governor.py
+  - scripts_integration/new_evolving_agent/evolve_kb_batch.py
+- **Impact**: Standardizes the Two-Loop extraction stage, improves L1 provenance and searchability, enriches L0 context for coder decisions, and provides better runtime debug traces to diagnose early iteration exits or build hangs.
+- **Status**: Completed
+
 ### 2026-05-07 - GitHub Copilot
 - **Feature**: Refactored extractor core to common prompts and enhanced L1 promotion with source-problem tagging.
 - **Implementation**:
