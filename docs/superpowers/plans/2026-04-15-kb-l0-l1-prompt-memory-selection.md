@@ -72,6 +72,7 @@ class L1Entry(TypedDict):
     entry_id: str
     timestamp: str
     description: str
+    trigger: str
     content: str
     source: str
 ```
