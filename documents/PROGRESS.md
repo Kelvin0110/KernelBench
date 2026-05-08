@@ -1,12 +1,13 @@
 # Project Progress & Development Ledger
 
 ## Current Phase: Scoped Implementation
-- **Active Goal**: Complete the new `scripts_integration/new_evolving_agent` integration path with evolving_common-driven governor loop, recorder-backed metrics, and subset batch orchestration.
+- **Active Goal**: Complete the `scripts_integration/new_evolving_agent` integration path with evolving_common-driven governor loop, recorder-backed metrics, subset batch orchestration, and GPU memory reservation around evaluation.
 - **Critical Reminders**:
   - Keep `eval_results.json` in level-first shape: `{level: {problem_id: [entries]}}`.
   - Preserve runtime fields (`runtime`, `runtime_stats`) for downstream analysis.
   - Handle optional integration dependencies gracefully (LLM/memory helpers may be unavailable locally).
   - Ensure new integrations use `evolving_common` helpers (`BestMetricsHolder`, `BenchmarkRunRecorder`, memory/prompt helpers) instead of duplicating local logic.
+  - Hoard and release GPU memory only through `evolving_common.governor.gpu_reserver.GPUMemoryReserver` when wrapping eval execution.
 
 ---
 
@@ -395,4 +396,13 @@
   - Updated [`Self-Evolving-Agent`](Self-Evolving-Agent) submodule pointer to incorporate the visualization and logic refinements.
   - Refined [`visualizations/kernelbench/README.md`](visualizations/kernelbench/README.md) usage instructions for PDF export.
 - **Impact**: Provides a more robust and interactive visualization suite for comparing Gen 2 Evolving Agent performance against baselines and AIDE results.
+- **Status**: Completed
+
+### 2026-05-08 - GitHub Copilot
+- **Feature**: Added GPU memory reservation for KernelBench governor evaluation windows.
+- **Implementation**:
+  - Created `Self-Evolving-Agent/evolving_common/governor/gpu_reserver.py` with `GPUMemoryReserver`, which allocates a large `torch.uint8` CUDA tensor on acquire and calls `torch.cuda.empty_cache()` on release.
+  - Updated `scripts_integration/new_evolving_agent/kb_governor.py` to instantiate `GPUMemoryReserver(reserve_gb=12.0)` during governor initialization.
+  - Wrapped `_evaluate_candidate(...)` so GPU memory is released immediately before KernelBench eval and reacquired in a `finally` block.
+- **Impact**: The governor now frees reserved VRAM while isolated CUDA evaluation is running, reducing contention and avoiding avoidable OOM pressure on shared GPUs.
 - **Status**: Completed

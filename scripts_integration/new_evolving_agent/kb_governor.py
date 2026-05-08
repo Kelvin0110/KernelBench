@@ -27,6 +27,7 @@ from evolving_common.execution import evaluate_in_subprocess
 from evolving_common.governor import maybe_promote_l0_to_l1, normalize_extracted_python
 from evolving_common.governor.base import BaseEvolvingGovernor
 from evolving_common.governor.code_extract import parse_selected_entry_ids
+from evolving_common.governor.gpu_reserver import GPUMemoryReserver
 from evolving_common.governor.util import extract_optional_tag, get_fallback_action
 from evolving_common.llm_client import (
     call_coder_with_meta,
@@ -168,6 +169,8 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         super().__init__(max_iterations=config.max_iterations)
         self.config = config
         self._last_promoted_count = 0
+        self.reserver = GPUMemoryReserver(reserve_gb=46.0)  #  49140MiB for NVIDIA RTX A6000
+        self.reserver.acquire()
 
     def _get_coder_prompt(
         self,
@@ -381,10 +384,14 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             "build_dir": str(build_dir),
         }
 
-        if self.config.isolate_evaluation_process:
-            eval_payload = self._evaluate_in_subprocess(payload)
-        else:
-            eval_payload = _run_kernelbench_eval(payload)
+        self.reserver.release()
+        try:
+            if self.config.isolate_evaluation_process:
+                eval_payload = self._evaluate_in_subprocess(payload)
+            else:
+                eval_payload = _run_kernelbench_eval(payload)
+        finally:
+            self.reserver.acquire()
 
         return self._build_eval_result(eval_payload)
 
