@@ -19,7 +19,7 @@
   - Modified `scripts_integration/evolving_agent/evolve_kb_batch.py`.
   - Updated `_to_kernelbench_eval_entry` to include runtime/runtime stats and hardware/device metadata passthrough.
   - Added `_normalize_level_first_eval_doc` to migrate legacy flat eval payloads into level-first shape.
-  - Updated batch write path to persist `eval_results.json` as `{level -> problem_id -> [entries]}`.
+        - Updated batch write path to persist `eval_results.json` as `{level -> problem_id -> [entries]}`.
   - Modified `scripts_integration/evolving_agent/kb_evolving_governor.py` to harden import fallbacks, normalize error handling, and propagate runtime/metadata from isolated eval workers.
 - **Impact**: Batch outputs now match the requested schema and carry richer timing metadata for analysis; governor behavior is safer under missing optional dependencies and non-string errors.
 - **Status**: Completed
@@ -405,4 +405,13 @@
   - Updated `scripts_integration/new_evolving_agent/kb_governor.py` to instantiate `GPUMemoryReserver(reserve_gb=12.0)` during governor initialization.
   - Wrapped `_evaluate_candidate(...)` so GPU memory is released immediately before KernelBench eval and reacquired in a `finally` block.
 - **Impact**: The governor now frees reserved VRAM while isolated CUDA evaluation is running, reducing contention and avoiding avoidable OOM pressure on shared GPUs.
+- **Status**: Completed
+
+### 2026-06-02 - GitHub Copilot
+- **Feature**: Refined Docker batch orchestration and single-run GPU reservation behavior for AIDE + KernelBench.
+- **Implementation**:
+  - Updated [`scripts_integration/docker/docker_batch_run.py`](scripts_integration/docker/docker_batch_run.py) to parse CLI-friendly `problem_ids` / `subset` values and expose a `max_problems` cap for subset-style batch runs.
+  - Updated [`scripts_integration/docker/docker_single_run.py`](scripts_integration/docker/docker_single_run.py) to use a held `GPUMemoryReserver` tensor during active runs and release it during cleanup instead of only warming the cache.
+  - Added [`scripts_integration/docker/RUN_WITH_UV.md`](scripts_integration/docker/RUN_WITH_UV.md) with the current `uv run` batch commands for GPT-OSS, Kimi Thinking, checkpointed runs, and subset examples.
+- **Impact**: Docker runs now preserve file ownership on mounted volumes, can be limited to a smaller problem slice without editing code, and keep GPU reservation semantics aligned with the shared evolving-agent helper.
 - **Status**: Completed

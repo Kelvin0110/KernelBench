@@ -49,6 +49,7 @@ class DockerBatchConfig(Config):
         self.gpus = "0"  # Comma-separated GPU IDs
         self.subset = (None, None)  # (start_id, end_id)
         self.problem_ids = None  # List of specific problem IDs
+        self.max_problems = 0  # Optional cap on number of problems to run
         self.steps = 50
         self.hours = 2.0
         self.code_model = "openai/gpt-oss-120b"
@@ -76,10 +77,49 @@ class DockerBatchConfig(Config):
         self.gpu_memory_fraction = 0.0  # Fraction of GPU memory to reserve per container
         # AIDE search hyperparameters (see aideml/aide/utils/config.yaml)
         self.max_debug_depth = 5    # Max chain of debug iterations before new draft
-        self.debug_prob = 0.5       # Probability of debugging a buggy node (vs drafting fresh)
-        self.num_drafts = 3         # Number of initial draft solutions in the search tree
+        self.debug_prob = 1.0       # Probability of debugging a buggy node (vs drafting fresh)
+        self.num_drafts = 5         # Number of initial draft solutions in the search tree
         # Checkpoint evaluation
         self.checkpoint_distance = 0  # Evaluate best kernel every N nodes; 0 = disabled
+
+
+def _parse_problem_ids(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text.lower() in {"none", "null"}:
+            return None
+        parts = [part.strip() for part in re.split(r"[,:;\s]+", text) if part.strip()]
+        return [int(part) for part in parts]
+    if isinstance(value, (list, tuple, set)):
+        return [int(part) for part in value]
+    return [int(value)]
+
+
+def _parse_subset(value):
+    if value is None:
+        return (None, None)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text.lower() in {"none", "null"}:
+            return (None, None)
+        delimiter = None
+        for candidate in (":", ",", "-"):
+            if candidate in text:
+                delimiter = candidate
+                break
+        if delimiter is None:
+            return (int(text), None)
+        parts = [part.strip() for part in text.split(delimiter)]
+    elif isinstance(value, (list, tuple)):
+        parts = list(value)
+    else:
+        return (int(value), None)
+
+    start = int(parts[0]) if len(parts) > 0 and parts[0] not in (None, "", "None", "null") else None
+    end = int(parts[1]) if len(parts) > 1 and parts[1] not in (None, "", "None", "null") else None
+    return (start, end)
 
 
 def cleanup_containers():
@@ -621,20 +661,26 @@ def main(config: DockerBatchConfig):
     if config.build_image:
         build_docker_image(mock=config.mock)
 
+    requested_problem_ids = _parse_problem_ids(config.problem_ids)
+    subset_start, subset_end = _parse_subset(config.subset)
+    max_problems = int(config.max_problems or 0)
+
     # Determine which problems to run
-    if config.problem_ids is not None:
-        problems_to_run = config.problem_ids
+    if requested_problem_ids is not None:
+        problems_to_run = requested_problem_ids
     else:
         dataset = construct_kernelbench_dataset(level=config.level, source="local")
         all_ids = dataset.get_problem_ids()
 
-        start_id, end_id = config.subset
-        if start_id is None and end_id is None:
+        if subset_start is None and subset_end is None:
             problems_to_run = all_ids
         else:
-            start = start_id if start_id is not None else min(all_ids)
-            end = end_id if end_id is not None else max(all_ids)
+            start = subset_start if subset_start is not None else min(all_ids)
+            end = subset_end if subset_end is not None else max(all_ids)
             problems_to_run = [p for p in all_ids if start <= p <= end]
+
+    if max_problems > 0:
+        problems_to_run = problems_to_run[:max_problems]
 
     run_dir = os.path.join("run_integration", config.run_name)
     os.makedirs(run_dir, exist_ok=True)

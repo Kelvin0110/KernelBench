@@ -22,6 +22,9 @@ import json
 import traceback
 import fcntl
 from collections import defaultdict
+
+import torch
+
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 
@@ -153,34 +156,46 @@ def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path)
             json.dump(sorted_results, f, indent=4)
 
 
-def reserve_gpu_memory(device, fraction):
-    """Pre-warm PyTorch's GPU memory cache to defend against other processes.
+class GPUMemoryReserver:
+    """Reserve a block of GPU memory while the run is active."""
 
-    How it works:
-      1. Allocate a dummy tensor claiming `fraction` of total GPU memory.
-      2. Delete it — memory goes to PyTorch's caching allocator, NOT back to the OS.
-      3. Subsequent allocations (AIDE kernels, eval) reuse from the cache.
-      4. Other processes on the server cannot claim this cached memory.
-    """
-    import torch
-    props = torch.cuda.get_device_properties(device)
-    total_bytes = props.total_memory
-    already_reserved = torch.cuda.memory_reserved(device)
-    target_bytes = int(total_bytes * fraction) - already_reserved
+    def __init__(self, reserve_gb: float = 10.0) -> None:
+        self.reserve_gb = reserve_gb
+        self.reserve_bytes = int(reserve_gb * 1024**3)
+        self.dummy_tensor = None
 
-    if target_bytes <= 0:
-        print(f"GPU memory already reserved: {already_reserved / 1e9:.1f} GB >= target {total_bytes * fraction / 1e9:.1f} GB")
-        return
+    def acquire(self) -> None:
+        """Allocate a large uint8 tensor on CUDA, if available."""
+        if self.dummy_tensor is not None:
+            return
+        if not torch.cuda.is_available():
+            return
 
-    print(f"Reserving GPU memory: {target_bytes / 1e9:.1f} GB ({fraction*100:.0f}% of {total_bytes / 1e9:.1f} GB total)")
-    try:
-        dummy = torch.empty(target_bytes, dtype=torch.uint8, device=device)
-        del dummy
-        # Do NOT call torch.cuda.empty_cache() — that would return memory to the OS
-        print(f"GPU memory reserved: {torch.cuda.memory_reserved(device) / 1e9:.1f} GB in PyTorch cache")
-    except RuntimeError as e:
-        print(f"WARNING: GPU memory reservation failed (fraction={fraction}): {e}")
-        print("Continuing without reservation — other processes may steal GPU memory mid-run.")
+        try:
+            self.dummy_tensor = torch.empty(
+                self.reserve_bytes,
+                dtype=torch.uint8,
+                device="cuda",
+            )
+            print(
+                f"GPU memory reserved: {self.reserve_gb:.1f} GB "
+                f"({self.reserve_bytes / 1e9:.1f} bytes)"
+            )
+        except RuntimeError as exc:
+            print(
+                "[GPUMemoryReserver] Warning: failed to reserve "
+                f"{self.reserve_bytes} bytes on CUDA: {exc}"
+            )
+
+    def release(self) -> None:
+        """Release the reserved block and clear the CUDA cache."""
+        if self.dummy_tensor is not None:
+            self.dummy_tensor = None
+
+        if not torch.cuda.is_available():
+            return
+
+        torch.cuda.empty_cache()
 
 
 def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", precision="fp32", mock_eval=False):
@@ -525,16 +540,16 @@ def main():
     parser.add_argument(
         "--max-debug-depth", type=int,
         default=int(os.environ.get("MAX_DEBUG_DEPTH", "5")),
-        help="Max debug chain depth for AIDE search (AIDE default: 3)",
+        help="Max debug chain depth for AIDE search (AIDE default: 5)",
     )
     parser.add_argument(
         "--debug-prob", type=float,
-        default=float(os.environ.get("DEBUG_PROB", "0.5")),
-        help="Probability of debugging vs new draft in AIDE search (AIDE default: 0.5)",
+        default=float(os.environ.get("DEBUG_PROB", "1.0")),
+        help="Probability of debugging vs new draft in AIDE search (AIDE default: 1.0)",
     )
     parser.add_argument(
         "--num-drafts", type=int,
-        default=int(os.environ.get("NUM_DRAFTS", "3")),
+        default=int(os.environ.get("NUM_DRAFTS", "5")),
         help="Number of initial draft solutions in AIDE search tree (AIDE default: 5)",
     )
     parser.add_argument(
@@ -552,6 +567,8 @@ def main():
     logger = logging.getLogger("aide")
     logger.setLevel(logging.INFO)
 
+    gpu_reserver = GPUMemoryReserver(args.gpu_memory_fraction)
+
     # Task dir is ephemeral inside the container
     task_dir = f"/tmp/aide_task/L{args.level}/P{args.problem_id}"
 
@@ -567,9 +584,8 @@ def main():
     # Pre-warm GPU memory cache to prevent other server processes from taking it mid-run.
     # Skip in mock mode (no real GPU) or if disabled (fraction=0).
     if not args.mock_eval and args.gpu_memory_fraction > 0:
-        import torch
         if torch.cuda.is_available():
-            reserve_gpu_memory(torch.device("cuda:0"), args.gpu_memory_fraction)
+            gpu_reserver.acquire()
         else:
             print("WARNING: GPU memory reservation requested but no CUDA GPU found, skipping.")
 
@@ -619,6 +635,10 @@ INSTRUCTIONS FOR AGENT:
     def cleanup():
         try:
             exp.interpreter.cleanup_session()
+        except Exception:
+            pass
+        try:
+            gpu_reserver.release()
         except Exception:
             pass
         try:
