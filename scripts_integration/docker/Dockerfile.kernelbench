@@ -11,7 +11,7 @@
 #     -e LEVEL=1 -e PROBLEM_ID=1 -e STEPS=3 -e HOURS=0.1 \
 #     kernelbench-aide
 
-FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 # Prevent interactive prompts during apt-get
 ENV DEBIAN_FRONTEND=noninteractive
@@ -31,7 +31,7 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 &
 WORKDIR /app
 
 # ---- Layer 1: PyTorch (largest, cached aggressively) ----
-RUN pip install --no-cache-dir torch==2.9.0 --index-url https://download.pytorch.org/whl/cu128
+RUN pip install --no-cache-dir torch==2.2.2 --index-url https://download.pytorch.org/whl/cu121
 
 # ---- Layer 2: AIDE library ----
 COPY aideml/ /app/aideml/
@@ -41,6 +41,9 @@ RUN pip install --no-cache-dir -e /app/aideml/
 COPY pyproject.toml /app/pyproject.toml
 COPY src/ /app/src/
 RUN pip install --no-cache-dir -e /app/
+
+# Reinstall PyTorch after AIDE to ensure correct CUDA version is used (AIDE may have installed another version as a dependency)
+RUN pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cu121 --force-reinstall
 
 # ---- Layer 4: Problem data (changes rarely) ----
 COPY KernelBench/ /app/KernelBench/
