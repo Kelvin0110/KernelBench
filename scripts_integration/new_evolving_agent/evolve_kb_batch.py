@@ -243,6 +243,11 @@ def main() -> int:
         default=300.0,
         help="Recorder sampling interval for metrics_by_time.jsonl.",
     )
+    parser.add_argument(
+        "--no-l1",
+        action="store_true",
+        help="Disable L1 memory for this run (no promotion, no extractor).",
+    )
     args = parser.parse_args()
 
     # Append UTC timestamp to run-name to avoid collisions and make runs unique.
@@ -349,6 +354,8 @@ def main() -> int:
                 backend=backend,
                 precision=args.precision,
                 max_iterations=args.max_iterations,
+                enable_promotion=(not args.no_l1),
+                enable_l1_extractor=(not args.no_l1),
                 shared_l1_path=shared_l1_path,
                 results_root=Path(args.results_root),
                 reference_code=problem.code,
