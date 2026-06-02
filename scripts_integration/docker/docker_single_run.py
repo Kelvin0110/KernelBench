@@ -24,8 +24,6 @@ import traceback
 import fcntl
 from collections import defaultdict
 
-import torch
-
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 
@@ -133,7 +131,7 @@ def add_to_eval_results_file(level, problem_id, sample_id, eval_result, eval_fil
     Handles stale lock detection and cleanup to prevent permanent deadlock if container
     crashes while holding fcntl.flock(). Uses non-blocking lock with retry and timeout.
     """
-    from kernelbench.eval import check_metadata_serializable_all_types
+    from kernelbench.eval import check_metadata_serializable_all_types  
 
     # Ensure directory exists
     os.makedirs(os.path.dirname(eval_file_path), exist_ok=True)
@@ -176,28 +174,30 @@ class GPUMemoryReserver:
         self.reserve_tensor = None
 
     def acquire(self) -> None:
-        if self.reserve_tensor is not None:
-            return
-        if not torch.cuda.is_available():
-            return
+        pass
+        # if self.reserve_tensor is not None:
+        #     return
+        # if not torch.cuda.is_available():
+        #     return
 
-        try:
-            device = torch.device("cuda:0")
-            props = torch.cuda.get_device_properties(device)
-            target_bytes = int(props.total_memory * self.reserve_fraction)
-            already_reserved = torch.cuda.memory_reserved(device)
-            target_bytes = max(0, target_bytes - already_reserved)
-            if target_bytes <= 0:
-                return
-            self.reserve_tensor = torch.empty(target_bytes, dtype=torch.uint8, device=device)
-        except Exception:
-            self.reserve_tensor = None
+        # try:
+        #     device = torch.device("cuda:0")
+        #     props = torch.cuda.get_device_properties(device)
+        #     target_bytes = int(props.total_memory * self.reserve_fraction)
+        #     already_reserved = torch.cuda.memory_reserved(device)
+        #     target_bytes = max(0, target_bytes - already_reserved)
+        #     if target_bytes <= 0:
+        #         return
+        #     self.reserve_tensor = torch.empty(target_bytes, dtype=torch.uint8, device=device)
+        # except Exception:
+        #     self.reserve_tensor = None
 
     def release(self) -> None:
-        if self.reserve_tensor is not None:
-            self.reserve_tensor = None
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        pass
+        # if self.reserve_tensor is not None:
+        #     self.reserve_tensor = None
+        # if torch.cuda.is_available():
+        #     torch.cuda.empty_cache()
 
 
 def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", precision="fp32", mock_eval=False):
@@ -306,6 +306,7 @@ def run_checkpoint_eval(
         eval_results.json[str(problem_id)].
     """
     from kernelbench.eval import check_metadata_serializable_all_types
+    import torch
 
     # Node-first path organization
     checkpoint_node_dir = os.path.join(
@@ -446,6 +447,7 @@ def safe_eval_kernel_against_ref(
                 On error, returns failed result with error details in metadata.
     """
     from kernelbench.eval import eval_kernel_against_ref
+    import torch
 
     try:
         eval_result = eval_kernel_against_ref(
@@ -584,6 +586,7 @@ def main():
     # Pre-warm GPU memory cache to prevent other server processes from taking it mid-run.
     # Skip in mock mode (no real GPU) or if disabled (fraction=0).
     if not args.mock_eval and args.gpu_memory_fraction > 0:
+        import torch
         if torch.cuda.is_available():
             gpu_reserver.acquire()
         else:
@@ -864,6 +867,7 @@ INSTRUCTIONS FOR AGENT:
                 add_to_eval_results_file(args.level, args.problem_id, 0, eval_result, eval_file_path)
                 print(f"Saved mock evaluation results to {eval_file_path}")
             else:
+                import torch
                 # Use safe evaluation wrapper (records errors instead of raising)
                 eval_result = safe_eval_kernel_against_ref(
                     original_model_src=problem.code,

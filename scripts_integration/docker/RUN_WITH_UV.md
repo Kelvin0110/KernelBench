@@ -169,15 +169,17 @@ nohup uv run python scripts_integration/docker/docker_batch_run.py \
 
 ```bash
 nohup uv run python scripts_integration/docker/docker_batch_run.py \
-  run_name=aide_subset_gpt_oss_120b_step50 \
+  run_name=aide_subset_gpt_oss_120b_step40 \
   level=1 \
   num_workers=2 \
-  gpus="0,1" \
+  gpus="2,3" \
   subset_csv=subset_selection/selected_problems_50.csv \
-  steps=50 \
-  hours=6.5 \
+  steps=40 \
+  hours=5.0 \
   build_image=False \
   checkpoint_distance=1 \
-  gpu_memory_fraction=0.9 \
-  >> aide_subset_gpt_oss_120b_step50.log 2>&1
+  gpu_memory_fraction=0.0 \
+  >> aide_subset_gpt_oss_120b_step40.log 2>&1
 ```
+
+> Remark: gpu_memory_fraction set to be non 0 since initialize CUDA inside parent process leads to duplication of GPU memory usage. Hence, gpu reserver cannot be used in the aide setting.

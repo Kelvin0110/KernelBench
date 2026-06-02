@@ -49,7 +49,7 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
 ## 5) Real CUDA run
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name memory_evolving_agent >> new_evolving_gpu_run.log 2>&1 &
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name memory_evolving_agent_gen2_itr20 --max-iterations 20 >> new_evolving_gpu_run_gen2_itr20_Jun_3.log 2>&1
 ```
 
 ```bash
