@@ -10,6 +10,7 @@ container execution:
 """
 
 import os
+import re
 import sys
 import aide
 import logging
@@ -115,7 +116,18 @@ class CheckpointFileLock:
             pass
 
 
-def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path):
+def _sort_result_key(key):
+    text = str(key)
+    match = re.fullmatch(r"L(\d+)P(\d+)", text)
+    if match:
+        return (0, int(match.group(1)), int(match.group(2)), text)
+    try:
+        return (1, 0, int(text), text)
+    except Exception:
+        return (2, 0, 0, text)
+
+
+def add_to_eval_results_file(level, problem_id, sample_id, eval_result, eval_file_path):
     """Add evaluation result to eval results file with timeout-protected file locking.
 
     Handles stale lock detection and cleanup to prevent permanent deadlock if container
@@ -138,8 +150,10 @@ def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path)
         else:
             eval_results = defaultdict(lambda: [])
 
+        result_key = f"L{level}P{problem_id}"
+
         # Append new result
-        eval_results[str(problem_id)].append(
+        eval_results[result_key].append(
             {
                 "sample_id": sample_id,
                 "compiled": eval_result.compiled,
@@ -150,52 +164,40 @@ def add_to_eval_results_file(problem_id, sample_id, eval_result, eval_file_path)
             }
         )
 
-        # Write updated results (sorted by numeric key)
-        sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
+        # Write updated results (sorted by composite level/problem key)
+        sorted_results = dict(sorted(eval_results.items(), key=lambda x: _sort_result_key(x[0])))
         with open(eval_file_path, "w") as f:
             json.dump(sorted_results, f, indent=4)
 
 
 class GPUMemoryReserver:
-    """Reserve a block of GPU memory while the run is active."""
-
-    def __init__(self, reserve_gb: float = 10.0) -> None:
-        self.reserve_gb = reserve_gb
-        self.reserve_bytes = int(reserve_gb * 1024**3)
-        self.dummy_tensor = None
+    def __init__(self, reserve_fraction: float = 0.90) -> None:
+        self.reserve_fraction = reserve_fraction
+        self.reserve_tensor = None
 
     def acquire(self) -> None:
-        """Allocate a large uint8 tensor on CUDA, if available."""
-        if self.dummy_tensor is not None:
+        if self.reserve_tensor is not None:
             return
         if not torch.cuda.is_available():
             return
 
         try:
-            self.dummy_tensor = torch.empty(
-                self.reserve_bytes,
-                dtype=torch.uint8,
-                device="cuda",
-            )
-            print(
-                f"GPU memory reserved: {self.reserve_gb:.1f} GB "
-                f"({self.reserve_bytes / 1e9:.1f} bytes)"
-            )
-        except RuntimeError as exc:
-            print(
-                "[GPUMemoryReserver] Warning: failed to reserve "
-                f"{self.reserve_bytes} bytes on CUDA: {exc}"
-            )
+            device = torch.device("cuda:0")
+            props = torch.cuda.get_device_properties(device)
+            target_bytes = int(props.total_memory * self.reserve_fraction)
+            already_reserved = torch.cuda.memory_reserved(device)
+            target_bytes = max(0, target_bytes - already_reserved)
+            if target_bytes <= 0:
+                return
+            self.reserve_tensor = torch.empty(target_bytes, dtype=torch.uint8, device=device)
+        except Exception:
+            self.reserve_tensor = None
 
     def release(self) -> None:
-        """Release the reserved block and clear the CUDA cache."""
-        if self.dummy_tensor is not None:
-            self.dummy_tensor = None
-
-        if not torch.cuda.is_available():
-            return
-
-        torch.cuda.empty_cache()
+        if self.reserve_tensor is not None:
+            self.reserve_tensor = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 def setup_integration_env(task_dir, level=1, problem_id=1, backend="cuda", precision="fp32", mock_eval=False):
@@ -295,7 +297,7 @@ def run_checkpoint_eval(
     """Evaluate the current best kernel at a checkpoint.
 
     Stores kernel in kernels/ subdirectory and appends result to aggregated
-    eval_results.json (keyed by problem_id). Supports forward-copying skipped
+    eval_results.json (keyed by level/problem composite key). Supports forward-copying skipped
     results from previous checkpoints.
 
     Returns:
@@ -349,9 +351,9 @@ def run_checkpoint_eval(
 
     # Handle skipped evaluation: try to forward-copy from previous checkpoint
     if skip_eval:
-        if best_node:
-            with open(kernel_path, "w") as f:
-                f.write(best_node.code)
+        # if best_node:
+        #     with open(kernel_path, "w") as f:
+        #         f.write(best_node.code)
 
         # Try to copy result from previous checkpoint
         if prev_checkpoint_eval_path and os.path.exists(prev_checkpoint_eval_path):
@@ -375,8 +377,8 @@ def run_checkpoint_eval(
         return prev_checkpoint_code, result_entry
 
     # Save kernel
-    with open(kernel_path, "w") as f:
-        f.write(best_node.code)
+    # with open(kernel_path, "w") as f:
+    #     f.write(best_node.code)
 
     # Run eval (using safe wrapper that records errors)
     if task_dir not in sys.path:
@@ -442,7 +444,7 @@ def safe_eval_kernel_against_ref(
 
     Returns:
         eval_result: Object with compiled, correctness, runtime, metadata fields.
-                    On error, returns failed result with error details in metadata.
+                On error, returns failed result with error details in metadata.
     """
     from kernelbench.eval import eval_kernel_against_ref
     import torch
@@ -710,6 +712,13 @@ INSTRUCTIONS FOR AGENT:
     try:
         from aide.utils.config import save_run
 
+        def exec_callback(*args, **kwargs):
+            gpu_reserver.release()  # Release reserved GPU memory before each node execution
+            try:
+                return exp.interpreter.run(*args, **kwargs)
+            finally:
+                gpu_reserver.acquire()  # Re-acquire GPU memory after node execution
+
         for i in range(max_steps):
             if stop_flag["stop"]:
                 print("Stop flag set: exiting AIDE loop, proceeding to final evaluation...")
@@ -721,7 +730,7 @@ INSTRUCTIONS FOR AGENT:
 
             print(f"\n--- Node {i+1}/{max_steps} (Elapsed: {elapsed_hours:.2f}h) ---")
             try:
-                exp.agent.step(exec_callback=exp.interpreter.run)
+                exp.agent.step(exec_callback=exec_callback)
                 save_run(exp.cfg, exp.journal)
             except Exception as e:
                 print(f"Node execution or save failed: {e}. Skipping this node...")
@@ -815,6 +824,7 @@ INSTRUCTIONS FOR AGENT:
 
         # Final cleanup and result extraction
         exp.interpreter.cleanup_session()
+        gpu_reserver.release()
 
         best_node = exp.journal.get_best_node(only_good=False)
 
@@ -853,7 +863,7 @@ INSTRUCTIONS FOR AGENT:
                     runtime_stats={"mean": 1.0, "std": 0.0},
                 )
                 eval_file_path = os.path.join(args.results_dir, "eval_results.json")
-                add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
+                add_to_eval_results_file(args.level, args.problem_id, 0, eval_result, eval_file_path)
                 print(f"Saved mock evaluation results to {eval_file_path}")
             else:
                 import torch
@@ -873,7 +883,7 @@ INSTRUCTIONS FOR AGENT:
 
                 if eval_result:
                     eval_file_path = os.path.join(args.results_dir, "eval_results.json")
-                    add_to_eval_results_file(args.problem_id, 0, eval_result, eval_file_path)
+                    add_to_eval_results_file(args.level, args.problem_id, 0, eval_result, eval_file_path)
                     print(f"Saved evaluation results to {eval_file_path}")
                     if eval_result.compiled and eval_result.correctness:
                         print(f"✓ Final evaluation: PASSED (speedup={getattr(eval_result, 'speedup', 'N/A')})")

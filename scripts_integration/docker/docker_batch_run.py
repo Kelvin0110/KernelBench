@@ -10,6 +10,7 @@ Usage:
 """
 
 import os
+import csv
 import re
 import sys
 import json
@@ -26,6 +27,7 @@ from pydra import Config, REQUIRED
 import pydra
 from kernelbench.dataset import construct_kernelbench_dataset
 from tqdm import tqdm
+from typing import Any
 
 # Docker image names and Dockerfile paths (relative to repo root)
 IMAGE_NAME = "kernelbench-aide"
@@ -47,6 +49,7 @@ class DockerBatchConfig(Config):
         self.level = REQUIRED
         self.num_workers = 2
         self.gpus = "0"  # Comma-separated GPU IDs
+        self.subset_csv = None  # Optional CSV with level/problem_id rows
         self.subset = (None, None)  # (start_id, end_id)
         self.problem_ids = None  # List of specific problem IDs
         self.max_problems = 0  # Optional cap on number of problems to run
@@ -81,6 +84,19 @@ class DockerBatchConfig(Config):
         self.num_drafts = 5         # Number of initial draft solutions in the search tree
         # Checkpoint evaluation
         self.checkpoint_distance = 0  # Evaluate best kernel every N nodes; 0 = disabled
+
+
+def _load_subset_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if not row:
+                continue
+            level = int(row["level"])
+            problem_id = int(row["problem_id"])
+            rows.append({"level": level, "problem_id": problem_id, **row})
+    return rows
 
 
 def _parse_problem_ids(value):
@@ -120,6 +136,21 @@ def _parse_subset(value):
     start = int(parts[0]) if len(parts) > 0 and parts[0] not in (None, "", "None", "null") else None
     end = int(parts[1]) if len(parts) > 1 and parts[1] not in (None, "", "None", "null") else None
     return (start, end)
+
+
+def _problem_key(level: int, problem_id: int | str) -> str:
+    return f"L{int(level)}P{int(problem_id)}"
+
+
+def _sort_result_key(key: Any) -> tuple[int, int, int, str]:
+    text = str(key)
+    match = re.fullmatch(r"L(\d+)P(\d+)", text)
+    if match:
+        return (0, int(match.group(1)), int(match.group(2)), text)
+    try:
+        return (1, 0, int(text), text)
+    except Exception:
+        return (2, 0, 0, text)
 
 
 def cleanup_containers():
@@ -434,17 +465,14 @@ def get_completed_problems(run_dir):
     try:
         with open(eval_file) as f:
             data = json.load(f)
-        for pid_str in data.keys():
-            try:
-                completed.add(int(pid_str))
-            except ValueError:
-                pass
+        for key in data.keys():
+            completed.add(str(key))
     except Exception as e:
         print(f"Warning: Failed to read {eval_file}: {e}")
     return completed
 
 
-def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
+def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None, backend_override: str | None = None):
     """Launch a Docker container for a single problem and wait for completion."""
     if is_shutting_down:
         if pbar:
@@ -512,7 +540,7 @@ def run_container(problem_id, level, config, gpu_id, run_dir, pbar=None):
         "CODE_MODEL": config.code_model,
         "FEEDBACK_MODEL": config.feedback_model,
         "RUN_NAME": config.run_name,
-        "BACKEND": config.backend,
+        "BACKEND": backend_override or config.backend,
         "PRECISION": config.precision,
         "RESULTS_DIR": "/app/run",  # Base results directory (mounted volume)
         "MOCK_EVAL": "1" if config.mock else "0",
@@ -590,7 +618,7 @@ def aggregate_results(run_dir, level):
             print(f"Warning: Failed to read {flat_eval}: {e}")
 
     # Overwrite the original flat eval_results.json with aggregated/sorted results
-    sorted_results = dict(sorted(aggregated.items(), key=lambda x: int(x[0])))
+    sorted_results = dict(sorted(aggregated.items(), key=lambda x: _sort_result_key(x[0])))
     with open(flat_eval, "w") as f:
         json.dump(sorted_results, f, indent=4)
     output_file = flat_eval
@@ -608,7 +636,7 @@ def aggregate_results(run_dir, level):
             compiled = "compiled" if r.get("compiled") else "compile_fail"
             runtime = r.get("runtime", -1)
             runtime_str = f"{runtime:.1f}ms" if runtime > 0 else "N/A"
-            print(f"  P{pid_str}: {status} ({compiled}, {runtime_str})")
+            print(f"  {pid_str}: {status} ({compiled}, {runtime_str})")
             if r.get("correctness"):
                 correct_count += 1
 
@@ -663,21 +691,36 @@ def main(config: DockerBatchConfig):
 
     requested_problem_ids = _parse_problem_ids(config.problem_ids)
     subset_start, subset_end = _parse_subset(config.subset)
+    subset_csv_path = Path(config.subset_csv) if config.subset_csv else None
     max_problems = int(config.max_problems or 0)
 
     # Determine which problems to run
     if requested_problem_ids is not None:
-        problems_to_run = requested_problem_ids
+        problems_to_run = [
+            {"level": int(config.level), "problem_id": int(problem_id), "backend": config.backend}
+            for problem_id in requested_problem_ids
+        ]
+    elif subset_csv_path is not None:
+        if not subset_csv_path.is_file():
+            raise FileNotFoundError(f"Subset CSV not found: {subset_csv_path}")
+        problems_to_run = _load_subset_rows(subset_csv_path)
     else:
         dataset = construct_kernelbench_dataset(level=config.level, source="local")
         all_ids = dataset.get_problem_ids()
 
         if subset_start is None and subset_end is None:
-            problems_to_run = all_ids
+            problems_to_run = [
+                {"level": int(config.level), "problem_id": int(problem_id), "backend": config.backend}
+                for problem_id in all_ids
+            ]
         else:
             start = subset_start if subset_start is not None else min(all_ids)
             end = subset_end if subset_end is not None else max(all_ids)
-            problems_to_run = [p for p in all_ids if start <= p <= end]
+            problems_to_run = [
+                {"level": int(config.level), "problem_id": int(problem_id), "backend": config.backend}
+                for problem_id in all_ids
+                if start <= problem_id <= end
+            ]
 
     if max_problems > 0:
         problems_to_run = problems_to_run[:max_problems]
@@ -714,8 +757,14 @@ def main(config: DockerBatchConfig):
     completed = get_completed_problems(run_dir)
     print(f"Already completed: {len(completed)} problems: {sorted(completed)}")
 
-    pending = [p for p in problems_to_run if p not in completed]
-    print(f"Pending: {len(pending)} problems, including: {sorted(pending)}")
+    pending = [
+        job for job in problems_to_run
+        if _problem_key(job["level"], job["problem_id"]) not in completed
+    ]
+    print(
+        f"Pending: {len(pending)} problems, including: "
+        f"{[_problem_key(job['level'], job['problem_id']) for job in pending]}"
+    )
 
     if not pending:
         print("All problems completed!")
@@ -728,8 +777,8 @@ def main(config: DockerBatchConfig):
 
     # Fill the work queue
     problem_queue = queue.Queue()
-    for pid in pending:
-        problem_queue.put(pid)
+    for job in pending:
+        problem_queue.put(job)
 
     pbar = tqdm(
         total=len(pending),
@@ -744,9 +793,13 @@ def main(config: DockerBatchConfig):
         gpu_id = gpus[worker_id % len(gpus)]
         while not is_shutting_down:
             try:
-                problem_id = problem_queue.get(block=True, timeout=1.0)
+                job = problem_queue.get(block=True, timeout=1.0)
             except queue.Empty:
                 break  # No more problems
+
+            level = int(job["level"])
+            problem_id = int(job["problem_id"])
+            backend = str(job.get("backend") or config.backend)
 
             # Back-pressure: wait if host iowait is above the pause threshold
             while io_monitor.is_paused() and not is_shutting_down:
@@ -766,7 +819,8 @@ def main(config: DockerBatchConfig):
                 last_start_time[0] = time.time()
 
             run_container(
-                problem_id, config.level, config, gpu_id, run_dir, pbar,
+                problem_id, level, config, gpu_id, run_dir, pbar,
+                backend_override=backend,
             )
             problem_queue.task_done()
 

@@ -164,3 +164,20 @@ nohup uv run python scripts_integration/docker/docker_batch_run.py \
   build_image=False \
   > docker_level_1_selected.log 2>&1
 ```
+
+### Run a mixed-level subset from a CSV file:
+
+```bash
+nohup uv run python scripts_integration/docker/docker_batch_run.py \
+  run_name=aide_subset_gpt_oss_120b_step50 \
+  level=1 \
+  num_workers=2 \
+  gpus="0,1" \
+  subset_csv=subset_selection/selected_problems_50.csv \
+  steps=50 \
+  hours=6.5 \
+  build_image=True \
+  checkpoint_distance=1 \
+  gpu_memory_fraction=0.9 \
+  >> aide_subset_gpt_oss_120b_step50.log 2>&1
+```
