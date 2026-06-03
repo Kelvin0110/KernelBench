@@ -1,6 +1,6 @@
 # KernelBench Integration: New Evolving Agent
 
-This directory containing the "Inner Loop" and "Outer Loop" implementation for integrating KernelBench with the `Self-Evolving-Agent` framework. It leverages the generic evolution abstractions in `evolving_common` while specializing them for CUDA kernel optimization.
+This directory contains the Gen3 KernelBench integration: staged prompts, L1 skill catalog, and L0 compaction. It uses `Self-Evolving-Agent/evolving_common_gen3` (not Gen2 `evolving_common`).
 
 ## 1. Key Files & Responsibilities
 
@@ -33,8 +33,8 @@ This integration relies on shared components located in the `Self-Evolving-Agent
 - **[Self-Evolving-Agent/kernelbench/config.py](../../Self-Evolving-Agent/kernelbench/config.py)**: Defines `KBGovernorConfig`, which controls hyperparameters like `max_iterations`, `temperature`, and `promotion` thresholds.
 - **[Self-Evolving-Agent/kernelbench/schemas.py](../../Self-Evolving-Agent/kernelbench/schemas.py)**: Defines `KBEvalResult` and `KBGovernorResult` for structured data exchange between the governor and the orchestrator.
 
-### `evolving_common` Helpers
-The `KBGovernor` leverages these reusable modules from `Self-Evolving-Agent/evolving_common/`:
+### `evolving_common_gen3` Helpers
+The `KBGovernor` leverages these modules from `Self-Evolving-Agent/evolving_common_gen3/`:
 - **`llm_client`**: Handles structured NVIDIA/OpenAI-compatible API calls with retry logic.
   - Exposes assistant `content` and `reasoning` in metadata for downstream logging.
   - Supports a dedicated extractor-model path (`call_extractor_with_meta`) used to retrieve relevant L1 memories before each coder call.
@@ -49,18 +49,32 @@ The `KBGovernor` leverages these reusable modules from `Self-Evolving-Agent/evol
 
 ---
 
-## 3. Workflow & Data Flow
+## 3. Workflow & Data Flow (Gen3 per iteration)
 
 1. **Initialization**: `evolve_kb_batch.py` reads the problem subset and initializes a `KBGovernor` for each task.
-2. **L1 Selection**: If structured L1 entries exist, the governor runs an extractor model stage to select the most relevant entries (configurable max count).
-3. **Context Building**: The governor prepares one system prompt + one user prompt using selected L1 entries and structured L0 history.
-4. **Generation**: `llm_client` receives the prompt and generates a candidate `ModelNew` class.
-5. **Evaluation**: `KBGovernor` executes the code via KernelBench's evaluation engine.
-6. **Reflection**: The iteration's results are summarized, updating **L1** while retaining L0 history for future rounds.
-7. **Persistence**: `run_recorder` saves snapshots of the code and metrics to `results/evolving_logs/<run_name>/`.
-  - Includes iteration-level terminal output logs for evaluation/execution results.
-8. **Aggregation**: Once the batch finishes, `evolve_kb_batch.py` flattens the results into a level-first `eval_results.json` for standard analysis.
-  - Run summaries include both `best_speedup_overall` and `best_runtime_overall`.
+2. **Action selection** (`action_selector`): Task + L0 summary + last 3 attempts in full detail. No L1. Returns `propose_new` / `debug_current` / `refine_current`.
+3. **L1 skill picker** (`l1_skill_picker`): Catalog of all skill titles; load full content for selected IDs only.
+4. **Action coder prompt**: Task, iteration context, latest eval, L0 last 5–10 full + archived summaries, selected L1 skills, action-specific guidelines.
+5. **L0 unfold preflight** (`coder_preflight`, up to `l0_unfold_max_attempts`): Coder model may request full archived rounds via JSON; prompt is updated before the final code pass.
+6. **Final coder** (`coder`): One fenced Python `ModelNew` implementation. Backbone reasoning is stored from `assistant_reasoning` in LLM metadata (not `<reasoning>` tags).
+7. **Evaluation** and **L0→L1 promotion** (unchanged semantics).
+8. **Aggregation**: Batch-level `eval_results_level_X.json` as before.
+
+### Gen3 config flags (`KBGovernorConfig`)
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `enable_action_selector` | `true` | Staged loop vs legacy single prompt |
+| `action_selector_recent_l0_full` | `3` | Full L0 attempts shown to action selector |
+| `action_coder_l0_full_recent` | `8` | Full L0 attempts in coder prompt |
+| `enable_l0_unfold` | `true` | Coder preflight unfold passes |
+| `l0_unfold_max_attempts` | `3` | Max preflight rounds per iteration |
+
+### Environment (`Self-Evolving-Agent/.env.example`)
+
+- `NVIDIA_ACTION_SELECTOR_MODEL` — action selection stage
+- `NVIDIA_EXTRACTOR_MODEL` — L1 skill picker
+- `NVIDIA_CODER_MODEL` — preflight + final code
 
 ---
 

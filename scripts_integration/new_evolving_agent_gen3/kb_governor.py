@@ -26,22 +26,44 @@ from evolving_common_gen3.benchmark_memory import fresh_l0_for_problem, l0_entri
 from evolving_common_gen3.execution import evaluate_in_subprocess
 from evolving_common_gen3.governor import maybe_promote_l0_to_l1, normalize_extracted_python
 from evolving_common_gen3.governor.base import BaseEvolvingGovernor
-from evolving_common_gen3.governor.code_extract import parse_selected_entry_ids
+from evolving_common_gen3.governor.code_extract import parse_selected_entry_ids, parse_unfold_round_ids
 from evolving_common_gen3.governor.gpu_reserver import GPUMemoryReserver
-from evolving_common_gen3.governor.util import extract_optional_tag, get_fallback_action
+from evolving_common_gen3.governor.util import (
+    extract_optional_tag,
+    get_fallback_action,
+    parse_action_selector_response,
+)
+from evolving_common_gen3.l0_context import (
+    build_l0_archived_catalog,
+    build_l0_global_summary,
+    build_l0_recent_full,
+    build_l0_unfolded_full,
+    group_l0_attempts,
+)
 from evolving_common_gen3.llm_client import (
+    call_action_selector_with_meta,
     call_coder_with_meta,
     call_extractor_with_meta,
+    get_action_selector_model_id,
     resolve_nvidia_model_id,
 )
-from evolving_common_gen3.memory_manager import append_l0, format_l0_for_prompt, read_l1, read_l1_jsonl
+from evolving_common_gen3.memory_manager import append_l0, read_l1, read_l1_jsonl
 from evolving_common_gen3.metrics_holder import BestMetricsHolder
 from evolving_common_gen3.prompt_context import (
+    ACTION_SELECTOR_SYSTEM_PROMPT,
     ALLOWED_CODER_ACTIONS,
     BASE_EVOLVING_CODER_SYSTEM_PROMPT,
+    CODER_PREFLIGHT_SYSTEM_PROMPT,
     DEFAULT_EXTRACTOR_SYSTEM_PROMPT,
+    GEN3_CODER_FINAL_SYSTEM_PROMPT,
     SUMMARIZER_SYSTEM_PROMPT,
+    build_action_coder_user_prompt,
+    build_action_selector_user_message,
+    build_coder_final_user_appendix,
+    build_coder_preflight_user_appendix,
     build_extractor_user_message,
+    build_l1_skill_catalog,
+    build_selected_l1_skills_section,
     build_summarizer_user_message,
     build_user_prompt_with_memory,
     format_l0_for_coder_prompt,
@@ -77,6 +99,16 @@ except Exception:
 
 
 CODER_SYSTEM_PROMPT = f"""You are an expert GPU kernel engineer solving kernel code optimization tasks.
+
+{GEN3_CODER_FINAL_SYSTEM_PROMPT}
+
+KernelBench rules:
+1. The code block must define ModelNew that implements the same behavior as the reference architecture.
+2. Use the requested backend style in the task context.
+3. Prioritize correctness first, then maximize speedup.
+"""
+
+LEGACY_CODER_SYSTEM_PROMPT = f"""You are an expert GPU kernel engineer solving kernel code optimization tasks.
 
 {BASE_EVOLVING_CODER_SYSTEM_PROMPT}
 
@@ -229,6 +261,32 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
     def _format_l0_for_coder_prompt(self, l0: list[dict[str, str]]) -> str:
         return format_l0_for_coder_prompt(l0, max_entries=10)
 
+    def _closing_instruction(self) -> str:
+        return (
+            f"KernelBench Level {self.config.level}, Problem {self.config.problem_id}. "
+            "Return exactly one fenced Python implementation defining ModelNew."
+        )
+
+    def _previous_attempt_artifacts(
+        self,
+        records: list[KBIterationRecord],
+    ) -> tuple[str | None, str | None]:
+        if not records:
+            return None, None
+        latest = records[-1]
+        code = (latest.candidate_code or "").strip()
+        if not code or code == "# extraction_failed":
+            return None, None
+        terminal = latest.evaluation.terminal_output or latest.evaluation.error_message
+        return code, terminal
+
+    def _append_reasoning_from_meta(self, l0: list, meta: dict[str, Any] | None) -> None:
+        if not meta:
+            return
+        reasoning = meta.get("assistant_reasoning")
+        if isinstance(reasoning, str) and reasoning.strip():
+            append_l0(l0, "system", f"coder_reasoning_full={reasoning.strip()}")
+
     def _build_extractor_messages(
         self,
         *,
@@ -236,6 +294,8 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         l1_entries: list[dict[str, str]],
         iteration_context: str,
         latest_eval_feedback: str,
+        selected_action: str | None = None,
+        l1_catalog: str | None = None,
     ) -> list[dict[str, str]]:
         user_prompt = build_extractor_user_message(
             task_prompt=task_prompt,
@@ -243,6 +303,8 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             iteration_context=iteration_context,
             latest_eval_feedback=latest_eval_feedback,
             max_memories=self.config.extractor_max_memories,
+            selected_action=selected_action,
+            l1_catalog=l1_catalog,
         )
         return [
             {"role": "system", "content": EXTRACTOR_SYSTEM_PROMPT},
@@ -265,8 +327,15 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
     def _extract_optional_tag(raw_text: str | None, tag_name: str) -> str | None:
         return extract_optional_tag(raw_text, tag_name)
 
-    def _fallback_action(self, *, attempt: int, records: list[KBIterationRecord]) -> str:
-        is_last_correct = bool(records and records[-1].evaluation.correct)
+    def _fallback_action(
+        self,
+        *,
+        attempt: int,
+        records: list[KBIterationRecord],
+        is_last_correct: bool | None = None,
+    ) -> str:
+        if is_last_correct is None:
+            is_last_correct = bool(records and records[-1].evaluation.correct)
         return get_fallback_action(attempt, records, is_last_correct=is_last_correct)
 
     def _fallback_reasoning(self, raw_text: str | None, action: str) -> str:
@@ -406,6 +475,223 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
     def _handle_fatal_error(self, error: Exception) -> bool:
         return isinstance(error, (MemoryError, SystemError))
 
+    def _run_staged_llm_pipeline(
+        self,
+        *,
+        attempt: int,
+        task_prompt: str,
+        l0: list,
+        l1_path: Path,
+        records: list[KBIterationRecord],
+        iteration_context: str,
+        latest_eval_feedback: str,
+        recorder: BenchmarkRunRecorder,
+    ) -> tuple[str | None, dict[str, Any] | None, list[dict[str, str]], str]:
+        """
+        Gen3 flow: action_selector -> l1_skill_picker -> action prompt -> preflight unfold -> coder.
+        Returns (raw, meta, coder_messages, action_norm).
+        """
+        l0_groups = group_l0_attempts(l0)
+        l0_summary = build_l0_global_summary(l0_groups)
+        l0_recent_selector = build_l0_recent_full(
+            l0_groups,
+            self.config.action_selector_recent_l0_full,
+        )
+
+        action_norm: str | None = None
+        selector_rationale: str | None = None
+        if self.config.enable_action_selector:
+            selector_messages = [
+                {"role": "system", "content": ACTION_SELECTOR_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": build_action_selector_user_message(
+                        task_section=task_prompt,
+                        l0_summary=l0_summary,
+                        l0_recent_full_last_n=l0_recent_selector,
+                    ),
+                },
+            ]
+            selector_model = (
+                resolve_nvidia_model_id(self.config.action_selector_model)
+                if self.config.action_selector_model
+                else get_action_selector_model_id()
+            )
+            selector_raw, _stok, selector_meta = call_action_selector_with_meta(
+                selector_messages,
+                max_tokens=self.config.action_selector_max_tokens,
+                timeout_sec=self.config.action_selector_timeout_sec,
+                model_id=selector_model,
+            )
+            recorder.record_llm_turn(
+                iteration=attempt,
+                phase="action_selector",
+                messages=selector_messages,
+                assistant_text=selector_raw,
+                extra=selector_meta,
+            )
+            action_norm, selector_rationale = parse_action_selector_response(selector_raw)
+
+        is_last_correct = bool(records and records[-1].evaluation.correct)
+        if not action_norm or action_norm not in ALLOWED_CODER_ACTIONS:
+            action_norm = self._fallback_action(
+                attempt=attempt,
+                records=records,
+                is_last_correct=is_last_correct,
+            )
+        if selector_rationale:
+            append_l0(l0, "system", f"action_selector_rationale={selector_rationale[:500]}")
+
+        l1_entries = read_l1_jsonl(l1_path)
+        l1_catalog = build_l1_skill_catalog(l1_entries)
+        selected_l1_entries: list[dict[str, str]] = []
+        if self.config.enable_l1_extractor and l1_entries:
+            max_entries = max(1, int(self.config.extractor_max_memories))
+            fallback_selected = l1_entries[-max_entries:]
+            extractor_messages = self._build_extractor_messages(
+                task_prompt=task_prompt,
+                l1_entries=l1_entries,
+                iteration_context=iteration_context,
+                latest_eval_feedback=latest_eval_feedback,
+                selected_action=action_norm,
+                l1_catalog=l1_catalog,
+            )
+            try:
+                extractor_model_id = (
+                    resolve_nvidia_model_id(self.config.extractor_model)
+                    if self.config.extractor_model
+                    else None
+                )
+                extractor_raw, _etok, extractor_meta = call_extractor_with_meta(
+                    extractor_messages,
+                    max_tokens=self.config.extractor_max_tokens,
+                    timeout_sec=self.config.extractor_timeout_sec,
+                    model_id=extractor_model_id,
+                )
+                recorder.record_llm_turn(
+                    iteration=attempt,
+                    phase="l1_skill_picker",
+                    messages=extractor_messages,
+                    assistant_text=extractor_raw,
+                    extra=extractor_meta,
+                )
+                selected_ids = self._parse_selected_entry_ids(
+                    extractor_raw,
+                    valid_ids={entry.get("entry_id", "") for entry in l1_entries},
+                )
+                if selected_ids:
+                    by_id = {
+                        str(entry.get("entry_id", "")): entry
+                        for entry in l1_entries
+                        if entry.get("entry_id")
+                    }
+                    selected_l1_entries = [
+                        by_id[entry_id]
+                        for entry_id in selected_ids
+                        if entry_id in by_id
+                    ][:max_entries]
+            except Exception as exc:
+                append_l0(
+                    l0,
+                    "terminal",
+                    f"l1_skill_picker_error: {type(exc).__name__}: {exc}",
+                )
+            if not selected_l1_entries:
+                selected_l1_entries = fallback_selected
+
+        l0_recent_coder = build_l0_recent_full(
+            l0_groups,
+            self.config.action_coder_l0_full_recent,
+        )
+        archived_catalog, archived_pairs = build_l0_archived_catalog(
+            l0_groups,
+            exclude_recent=self.config.action_coder_l0_full_recent,
+        )
+        archived_summary = archived_catalog
+
+        prev_code, prev_terminal = self._previous_attempt_artifacts(records)
+        user_prompt = build_action_coder_user_prompt(
+            action=action_norm,
+            task_section=task_prompt,
+            iteration_context=iteration_context,
+            latest_eval_feedback=latest_eval_feedback,
+            l0_recent_full=l0_recent_coder,
+            l0_archived_summary=archived_summary,
+            l1_catalog=l1_catalog,
+            selected_l1_skills=build_selected_l1_skills_section(selected_l1_entries),
+            closing_instruction=self._closing_instruction(),
+            previous_code=prev_code,
+            previous_terminal=prev_terminal,
+        )
+
+        valid_round_ids = {rid for rid, _ in archived_pairs}
+        unfolded_ids: list[str] = []
+        if (
+            self.config.enable_l0_unfold
+            and valid_round_ids
+            and self.config.l0_unfold_max_attempts > 0
+        ):
+            for unfold_attempt in range(1, self.config.l0_unfold_max_attempts + 1):
+                remaining = self.config.l0_unfold_max_attempts - unfold_attempt + 1
+                preflight_user = user_prompt + build_coder_preflight_user_appendix(
+                    l0_archived_catalog=archived_catalog,
+                    already_unfolded=unfolded_ids,
+                    remaining_attempts=remaining,
+                )
+                preflight_messages = [
+                    {"role": "system", "content": CODER_PREFLIGHT_SYSTEM_PROMPT},
+                    {"role": "user", "content": preflight_user},
+                ]
+                preflight_raw, _ptok, preflight_meta = call_coder_with_meta(
+                    preflight_messages,
+                    max_tokens=min(1024, self.config.coder_max_tokens),
+                    timeout_sec=self.config.coder_timeout_sec,
+                )
+                recorder.record_llm_turn(
+                    iteration=attempt,
+                    phase="coder_preflight",
+                    messages=preflight_messages,
+                    assistant_text=preflight_raw,
+                    extra=preflight_meta,
+                )
+                new_ids = parse_unfold_round_ids(
+                    preflight_raw,
+                    valid_round_ids=valid_round_ids - set(unfolded_ids),
+                    max_rounds=self.config.l0_unfold_max_rounds_per_attempt,
+                )
+                if not new_ids:
+                    break
+                for rid in new_ids:
+                    if rid not in unfolded_ids:
+                        unfolded_ids.append(rid)
+                unfolded_block = build_l0_unfolded_full(l0_groups, unfolded_ids)
+                user_prompt = build_action_coder_user_prompt(
+                    action=action_norm,
+                    task_section=task_prompt,
+                    iteration_context=iteration_context,
+                    latest_eval_feedback=latest_eval_feedback,
+                    l0_recent_full=l0_recent_coder,
+                    l0_archived_summary=archived_summary,
+                    l1_catalog=l1_catalog,
+                    selected_l1_skills=build_selected_l1_skills_section(selected_l1_entries),
+                    closing_instruction=self._closing_instruction(),
+                    previous_code=prev_code,
+                    previous_terminal=prev_terminal,
+                    unfolded_l0=unfolded_block,
+                )
+
+        user_prompt = user_prompt + build_coder_final_user_appendix()
+        coder_messages = [
+            {"role": "system", "content": CODER_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+        raw, _tokens, coder_meta = call_coder_with_meta(
+            coder_messages,
+            max_tokens=self.config.coder_max_tokens,
+            timeout_sec=self.config.coder_timeout_sec,
+        )
+        return raw, coder_meta, coder_messages, action_norm
+
     def run(self, *, task_prompt: str) -> KBGovernorResult:
         run_dir = Path(self.config.results_root) / self.config.run_name
         workspace_dir = (
@@ -454,7 +740,6 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             for attempt in range(1, self.config.max_iterations + 1):
                 holder.set_iteration(attempt)
                 l1_text = read_l1(l1_path)
-                l0_text = self._format_l0_for_coder_prompt(l0)
                 iteration_context = self._build_iteration_context(
                     attempt=attempt,
                     best_speedup=best_speedup,
@@ -462,86 +747,121 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     best_compiled=best_compiled,
                 )
                 latest_eval_feedback = self._latest_eval_feedback(records)
-                selected_l1_entries: list[dict[str, str]] | None = None
-
-                l1_entries = read_l1_jsonl(l1_path)
-                if self.config.enable_l1_extractor and l1_entries:
-                    max_entries = max(1, int(self.config.extractor_max_memories))
-                    fallback_selected = l1_entries[-max_entries:]
-                    extractor_messages = self._build_extractor_messages(
-                        task_prompt=task_prompt,
-                        l1_entries=l1_entries,
-                        iteration_context=iteration_context,
-                        latest_eval_feedback=latest_eval_feedback,
-                    )
-                    try:
-                        extractor_model_id = (
-                            resolve_nvidia_model_id(self.config.extractor_model)
-                            if self.config.extractor_model
-                            else None
-                        )
-                        extractor_raw, _extractor_tokens, extractor_meta = call_extractor_with_meta(
-                            extractor_messages,
-                            max_tokens=self.config.extractor_max_tokens,
-                            timeout_sec=self.config.extractor_timeout_sec,
-                            model_id=extractor_model_id,
-                        )
-                        recorder.record_llm_turn(
-                            iteration=attempt,
-                            phase="extractor",
-                            messages=extractor_messages,
-                            assistant_text=extractor_raw,
-                            extra=extractor_meta,
-                        )
-                        selected_ids = self._parse_selected_entry_ids(
-                            extractor_raw,
-                            valid_ids={entry.get("entry_id", "") for entry in l1_entries},
-                        )
-                        if selected_ids:
-                            by_id = {
-                                str(entry.get("entry_id", "")): entry
-                                for entry in l1_entries
-                                if entry.get("entry_id")
-                            }
-                            selected_l1_entries = [
-                                by_id[entry_id]
-                                for entry_id in selected_ids
-                                if entry_id in by_id
-                            ][:max_entries]
-                    except Exception as exc:
-                        append_l0(
-                            l0,
-                            "terminal",
-                            f"extractor_selection_error: {type(exc).__name__}: {exc}",
-                        )
-
-                    if not selected_l1_entries:
-                        selected_l1_entries = fallback_selected
-
-                l1_for_prompt = l1_text
-                if selected_l1_entries:
-                    l1_for_prompt = "(Extractor-selected L1 entries are provided in the section below.)"
-
-                coder_prompt = self._get_coder_prompt(
-                    task_prompt,
-                    l1_for_prompt,
-                    l0_text,
-                    selected_l1_entries=selected_l1_entries,
-                    allowed_actions=ALLOWED_CODER_ACTIONS,
-                    iteration_context=iteration_context,
-                    latest_eval_feedback=latest_eval_feedback,
+                action_norm = self._fallback_action(
+                    attempt=attempt,
+                    records=records,
+                    is_last_correct=bool(records and records[-1].evaluation.correct),
                 )
-                coder_messages = [
-                    {"role": "system", "content": CODER_SYSTEM_PROMPT},
-                    {"role": "user", "content": coder_prompt},
-                ]
 
                 try:
-                    raw, _tokens, coder_meta = call_coder_with_meta(
-                        coder_messages,
-                        max_tokens=self.config.coder_max_tokens,
-                        timeout_sec=self.config.coder_timeout_sec,
-                    )
+                    if self.config.enable_action_selector:
+                        raw, coder_meta, coder_messages, action_norm = (
+                            self._run_staged_llm_pipeline(
+                                attempt=attempt,
+                                task_prompt=task_prompt,
+                                l0=l0,
+                                l1_path=l1_path,
+                                records=records,
+                                iteration_context=iteration_context,
+                                latest_eval_feedback=latest_eval_feedback,
+                                recorder=recorder,
+                            )
+                        )
+                    else:
+                        l0_text = self._format_l0_for_coder_prompt(l0)
+                        selected_l1_entries: list[dict[str, str]] | None = None
+                        l1_entries = read_l1_jsonl(l1_path)
+                        if self.config.enable_l1_extractor and l1_entries:
+                            max_entries = max(1, int(self.config.extractor_max_memories))
+                            fallback_selected = l1_entries[-max_entries:]
+                            extractor_messages = self._build_extractor_messages(
+                                task_prompt=task_prompt,
+                                l1_entries=l1_entries,
+                                iteration_context=iteration_context,
+                                latest_eval_feedback=latest_eval_feedback,
+                            )
+                            try:
+                                extractor_model_id = (
+                                    resolve_nvidia_model_id(self.config.extractor_model)
+                                    if self.config.extractor_model
+                                    else None
+                                )
+                                extractor_raw, _extractor_tokens, extractor_meta = (
+                                    call_extractor_with_meta(
+                                        extractor_messages,
+                                        max_tokens=self.config.extractor_max_tokens,
+                                        timeout_sec=self.config.extractor_timeout_sec,
+                                        model_id=extractor_model_id,
+                                    )
+                                )
+                                recorder.record_llm_turn(
+                                    iteration=attempt,
+                                    phase="l1_skill_picker",
+                                    messages=extractor_messages,
+                                    assistant_text=extractor_raw,
+                                    extra=extractor_meta,
+                                )
+                                selected_ids = self._parse_selected_entry_ids(
+                                    extractor_raw,
+                                    valid_ids={
+                                        entry.get("entry_id", "")
+                                        for entry in l1_entries
+                                    },
+                                )
+                                if selected_ids:
+                                    by_id = {
+                                        str(entry.get("entry_id", "")): entry
+                                        for entry in l1_entries
+                                        if entry.get("entry_id")
+                                    }
+                                    selected_l1_entries = [
+                                        by_id[entry_id]
+                                        for entry_id in selected_ids
+                                        if entry_id in by_id
+                                    ][:max_entries]
+                            except Exception as exc:
+                                append_l0(
+                                    l0,
+                                    "terminal",
+                                    f"l1_skill_picker_error: {type(exc).__name__}: {exc}",
+                                )
+                            if not selected_l1_entries:
+                                selected_l1_entries = fallback_selected
+
+                        l1_for_prompt = l1_text
+                        if selected_l1_entries:
+                            l1_for_prompt = (
+                                "(Selected L1 skills are in the section below.)"
+                            )
+                        coder_prompt = self._get_coder_prompt(
+                            task_prompt,
+                            l1_for_prompt,
+                            l0_text,
+                            selected_l1_entries=selected_l1_entries,
+                            allowed_actions=ALLOWED_CODER_ACTIONS,
+                            iteration_context=iteration_context,
+                            latest_eval_feedback=latest_eval_feedback,
+                        )
+                        coder_messages = [
+                            {"role": "system", "content": LEGACY_CODER_SYSTEM_PROMPT},
+                            {"role": "user", "content": coder_prompt},
+                        ]
+                        raw, _tokens, coder_meta = call_coder_with_meta(
+                            coder_messages,
+                            max_tokens=self.config.coder_max_tokens,
+                            timeout_sec=self.config.coder_timeout_sec,
+                        )
+                        action_text = self._extract_optional_tag(raw, "action")
+                        if action_text:
+                            action_norm = action_text.strip().lower()
+                        if action_norm not in ALLOWED_CODER_ACTIONS:
+                            action_norm = self._fallback_action(
+                                attempt=attempt,
+                                records=records,
+                                is_last_correct=bool(
+                                    records and records[-1].evaluation.correct
+                                ),
+                            )
                 except Exception as exc:
                     fatal_error_count += 1
                     err = f"coder_call_error: {type(exc).__name__}: {exc}"
@@ -593,19 +913,8 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 if hypothesis_text:
                     append_l0(l0, "system", f"coder_hypothesis={hypothesis_text}")
 
-                action_text = self._extract_optional_tag(raw, "action")
-                if not action_text:
-                    action_text = self._fallback_action(attempt=attempt, records=records)
-
-                action_norm = action_text.strip().lower()
-                if action_norm not in ALLOWED_CODER_ACTIONS:
-                    action_norm = self._fallback_action(attempt=attempt, records=records)
                 append_l0(l0, "system", f"coder_action={action_norm}")
-
-                reasoning_text = self._extract_optional_tag(raw, "reasoning")
-                if not reasoning_text:
-                    reasoning_text = self._fallback_reasoning(raw, action_norm)
-                append_l0(l0, "system", f"coder_reasoning={reasoning_text}")
+                self._append_reasoning_from_meta(l0, coder_meta)
 
                 code, extract_err = normalize_extracted_python(raw)
                 if extract_err or not code:

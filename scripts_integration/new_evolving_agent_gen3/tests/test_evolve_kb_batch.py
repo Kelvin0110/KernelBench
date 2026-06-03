@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from scripts_integration.new_evolving_agent import evolve_kb_batch
+from scripts_integration.new_evolving_agent_gen3 import evolve_kb_batch
 
 
 class _DummyGovernorResult:
