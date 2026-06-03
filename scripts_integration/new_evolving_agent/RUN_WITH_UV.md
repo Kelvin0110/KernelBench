@@ -65,13 +65,13 @@ If a batch stops partway through (for example `coder_call_error: RateLimitError`
 3. Re-run with `--resume` (no new timestamp is appended). Problems before `--start-problem` are left unchanged; from that index through the end, prior records are replaced and per-problem workspaces are cleared before re-run.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
-  --run-name memory_evolving_agent_gen2_itr20_2026_06_03_14_05 \
-  --subset-csv subset_selection/selected_problems_50.csv \
+  --run-name memory_evolving_agent_gen2_itr20_2026_06_02_16_54 \
   --max-problems 50 \
   --max-iterations 20 \
-  --start-problem 21
+  --start-problem 35 \
+  >> new_evolving_gpu_run_gen2_itr20_Jun_3.log 2>&1
 ```
 
 Dry-run resume (validate indexing only):
@@ -79,7 +79,7 @@ Dry-run resume (validate indexing only):
 ```bash
 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
-  --run-name memory_evolving_agent_gen2_itr20_2026_06_03_14_05 \
+  --run-name memory_evolving_agent_gen2_itr20_2026_06_02_16_54 \
   --subset-csv subset_selection/selected_problems_50.csv \
   --max-problems 50 \
   --start-problem 21 \
