@@ -1,13 +1,12 @@
 # Project Progress & Development Ledger
 
-## Current Phase: Scoped Implementation
-- **Active Goal**: Complete the `scripts_integration/new_evolving_agent` integration path with evolving_common-driven governor loop, recorder-backed metrics, subset batch orchestration, and GPU memory reservation around evaluation.
+## Current Phase: Gen3 KernelBench Evolving Agent
+- **Active Goal**: Run and refine `scripts_integration/new_evolving_agent_gen3` with `evolving_common_gen3` staged loop (action_selector → l1_skill_picker → coder), round-native L0, and round/L1 summarizers.
 - **Critical Reminders**:
-  - Keep `eval_results.json` in level-first shape: `{level: {problem_id: [entries]}}`.
-  - Preserve runtime fields (`runtime`, `runtime_stats`) for downstream analysis.
-  - Handle optional integration dependencies gracefully (LLM/memory helpers may be unavailable locally).
-  - Ensure new integrations use `evolving_common` helpers (`BestMetricsHolder`, `BenchmarkRunRecorder`, memory/prompt helpers) instead of duplicating local logic.
-  - Hoard and release GPU memory only through `evolving_common.governor.gpu_reserver.GPUMemoryReserver` when wrapping eval execution.
+  - Use **`evolving_common_gen3`** (not Gen2 `evolving_common`) for new KernelBench evolving work.
+  - L0 is **`list[L0Round]`** per problem (`finalize_l0_round` once per iteration); prompts use `round_summary` for archived rounds.
+  - L1 promotion uses `format_l0_for_l1_promotion` and `promote_every_n_rounds` (default 2); KernelBench keeps L0 after promotion (`clear_l0_after_promotion=False`).
+  - Keep `eval_results.json` level-first; preserve `runtime` / `runtime_stats`; GPU eval via `GPUMemoryReserver`.
 
 ---
 
@@ -414,4 +413,17 @@
   - Updated [`scripts_integration/docker/docker_single_run.py`](scripts_integration/docker/docker_single_run.py) to use a held `GPUMemoryReserver` tensor during active runs and release it during cleanup instead of only warming the cache.
   - Added [`scripts_integration/docker/RUN_WITH_UV.md`](scripts_integration/docker/RUN_WITH_UV.md) with the current `uv run` batch commands for GPT-OSS, Kimi Thinking, checkpointed runs, and subset examples.
 - **Impact**: Docker runs now preserve file ownership on mounted volumes, can be limited to a smaller problem slice without editing code, and keep GPU reservation semantics aligned with the shared evolving-agent helper.
+- **Status**: Completed
+
+### 2026-06-03 - Cursor Agent
+- **Feature**: Gen3 round-native L0 storage and per-round LLM summaries.
+- **Implementation**:
+  - `Self-Evolving-Agent/evolving_common_gen3/memory_manager.py`: `L0Round`, `finalize_l0_round`, `format_l0_for_l1_promotion`, `should_promote_l0_rounds`.
+  - `evolving_common_gen3/l0_context.py`: prompt views from rounds; archived catalog uses `round_summary`.
+  - `evolving_common_gen3/governor/l0_round_summary.py` + `prompt_context.py`: `L0_ROUND_SUMMARIZER_*` prompts.
+  - `evolving_common_gen3/governor/promotion.py`: round-based L1 promotion input.
+  - `scripts_integration/new_evolving_agent_gen3/kb_governor.py`: single finalize per iteration; removed diagnosis/hypothesis L0 appends.
+  - `kernelbench/config.py`: `enable_l0_round_summary`, `promote_every_n_rounds`, excerpt caps.
+  - Tests: `Self-Evolving-Agent/tests/test_l0_rounds.py`; updated `test_gen3_prompt_context.py`.
+- **Impact**: L0 compaction in prompts is LLM-backed per round; L1 summarizer receives structured round payloads instead of flat entry logs.
 - **Status**: Completed

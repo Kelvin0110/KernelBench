@@ -56,6 +56,16 @@ def test_governor_run_returns_best_metrics(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr(governor, 'maybe_promote_l0_to_l1', _fake_promote)
 
+    def _fake_round_summarize(rnd, **_kwargs):
+        from evolving_common_gen3.l0_context import format_round_summary_fallback
+        from evolving_common_gen3.memory_manager import set_l0_round_summary
+
+        text = format_round_summary_fallback(rnd)
+        set_l0_round_summary(rnd, text)
+        return text
+
+    monkeypatch.setattr(governor, 'maybe_summarize_l0_round', _fake_round_summarize)
+
     cfg = governor.KBGovernorConfig(
         problem_id='100',
         reference_code='print("ref")',
@@ -63,7 +73,7 @@ def test_governor_run_returns_best_metrics(tmp_path: Path, monkeypatch) -> None:
         run_name='new-agent-test',
         results_root=tmp_path,
         max_iterations=1,
-        promote_entry_threshold=99,
+        promote_every_n_rounds=99,
         isolate_evaluation_process=False,
         enable_action_selector=False,
         enable_l0_unfold=False,

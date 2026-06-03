@@ -25,6 +25,7 @@ if str(_SELF_EVOLVING_ROOT) not in sys.path:
 from evolving_common_gen3.benchmark_memory import fresh_l0_for_problem, l0_entries_to_json_serializable
 from evolving_common_gen3.execution import evaluate_in_subprocess
 from evolving_common_gen3.governor import maybe_promote_l0_to_l1, normalize_extracted_python
+from evolving_common_gen3.governor.l0_round_summary import maybe_summarize_l0_round
 from evolving_common_gen3.governor.base import BaseEvolvingGovernor
 from evolving_common_gen3.governor.code_extract import parse_selected_entry_ids, parse_unfold_round_ids
 from evolving_common_gen3.governor.gpu_reserver import GPUMemoryReserver
@@ -38,7 +39,6 @@ from evolving_common_gen3.l0_context import (
     build_l0_global_summary,
     build_l0_recent_full,
     build_l0_unfolded_full,
-    group_l0_attempts,
 )
 from evolving_common_gen3.llm_client import (
     call_action_selector_with_meta,
@@ -47,7 +47,7 @@ from evolving_common_gen3.llm_client import (
     get_action_selector_model_id,
     resolve_nvidia_model_id,
 )
-from evolving_common_gen3.memory_manager import append_l0, read_l1, read_l1_jsonl
+from evolving_common_gen3.memory_manager import L0Round, finalize_l0_round, read_l1, read_l1_jsonl
 from evolving_common_gen3.metrics_holder import BestMetricsHolder
 from evolving_common_gen3.prompt_context import (
     ACTION_SELECTOR_SYSTEM_PROMPT,
@@ -200,7 +200,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
     def __init__(self, config: KBGovernorConfig) -> None:
         super().__init__(max_iterations=config.max_iterations)
         self.config = config
-        self._last_promoted_count = 0
+        self._last_promoted_round_count = 0
         self.reserver = GPUMemoryReserver(reserve_gb=46.0)  #  49140MiB for NVIDIA RTX A6000
         self.reserver.acquire()
 
@@ -280,12 +280,49 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         terminal = latest.evaluation.terminal_output or latest.evaluation.error_message
         return code, terminal
 
-    def _append_reasoning_from_meta(self, l0: list, meta: dict[str, Any] | None) -> None:
-        if not meta:
-            return
-        reasoning = meta.get("assistant_reasoning")
-        if isinstance(reasoning, str) and reasoning.strip():
-            append_l0(l0, "system", f"coder_reasoning_full={reasoning.strip()}")
+    def _finalize_iteration_l0(
+        self,
+        l0: list[L0Round],
+        *,
+        attempt: int,
+        action_norm: str,
+        selector_rationale: str | None,
+        coder_meta: dict[str, Any] | None,
+        code: str | None,
+        terminal_lines: list[str],
+        metrics_iteration: dict[str, Any],
+        recorder: BenchmarkRunRecorder,
+    ) -> L0Round:
+        reasoning_full: str | None = None
+        if coder_meta:
+            reasoning = coder_meta.get("assistant_reasoning")
+            if isinstance(reasoning, str) and reasoning.strip():
+                reasoning_full = reasoning.strip()
+        rnd = finalize_l0_round(
+            l0,
+            attempt=attempt,
+            action=action_norm,
+            action_selector_rationale=selector_rationale,
+            reasoning_full=reasoning_full,
+            code=code,
+            terminal=terminal_lines,
+            metrics=metrics_iteration,
+        )
+        maybe_summarize_l0_round(
+            rnd,
+            enable=self.config.enable_l0_round_summary,
+            max_tokens=self.config.l0_round_summary_max_tokens,
+            timeout_sec=self.config.l0_round_summary_timeout_sec,
+            code_excerpt_chars=self.config.l0_round_code_excerpt_chars,
+            on_round=lambda msgs, text, meta: recorder.record_llm_turn(
+                iteration=attempt,
+                phase="l0_round_summarizer",
+                messages=msgs,
+                assistant_text=text,
+                extra=meta,
+            ),
+        )
+        return rnd
 
     def _build_extractor_messages(
         self,
@@ -486,15 +523,21 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         iteration_context: str,
         latest_eval_feedback: str,
         recorder: BenchmarkRunRecorder,
-    ) -> tuple[str | None, dict[str, Any] | None, list[dict[str, str]], str]:
+    ) -> tuple[
+        str | None,
+        dict[str, Any] | None,
+        list[dict[str, str]],
+        str,
+        str | None,
+        str | None,
+    ]:
         """
         Gen3 flow: action_selector -> l1_skill_picker -> action prompt -> preflight unfold -> coder.
-        Returns (raw, meta, coder_messages, action_norm).
+        Returns (raw, meta, coder_messages, action_norm, selector_rationale).
         """
-        l0_groups = group_l0_attempts(l0)
-        l0_summary = build_l0_global_summary(l0_groups)
+        l0_summary = build_l0_global_summary(l0)
         l0_recent_selector = build_l0_recent_full(
-            l0_groups,
+            l0,
             self.config.action_selector_recent_l0_full,
         )
 
@@ -539,9 +582,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 records=records,
                 is_last_correct=is_last_correct,
             )
-        if selector_rationale:
-            append_l0(l0, "system", f"action_selector_rationale={selector_rationale[:500]}")
-
+        l1_picker_error: str | None = None
         l1_entries = read_l1_jsonl(l1_path)
         l1_catalog = build_l1_skill_catalog(l1_entries)
         selected_l1_entries: list[dict[str, str]] = []
@@ -591,20 +632,16 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                         if entry_id in by_id
                     ][:max_entries]
             except Exception as exc:
-                append_l0(
-                    l0,
-                    "terminal",
-                    f"l1_skill_picker_error: {type(exc).__name__}: {exc}",
-                )
+                l1_picker_error = f"l1_skill_picker_error: {type(exc).__name__}: {exc}"
             if not selected_l1_entries:
                 selected_l1_entries = fallback_selected
 
         l0_recent_coder = build_l0_recent_full(
-            l0_groups,
+            l0,
             self.config.action_coder_l0_full_recent,
         )
         archived_catalog, archived_pairs = build_l0_archived_catalog(
-            l0_groups,
+            l0,
             exclude_recent=self.config.action_coder_l0_full_recent,
         )
         archived_summary = archived_catalog
@@ -664,7 +701,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 for rid in new_ids:
                     if rid not in unfolded_ids:
                         unfolded_ids.append(rid)
-                unfolded_block = build_l0_unfolded_full(l0_groups, unfolded_ids)
+                unfolded_block = build_l0_unfolded_full(l0, unfolded_ids)
                 user_prompt = build_action_coder_user_prompt(
                     action=action_norm,
                     task_section=task_prompt,
@@ -690,7 +727,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             max_tokens=self.config.coder_max_tokens,
             timeout_sec=self.config.coder_timeout_sec,
         )
-        return raw, coder_meta, coder_messages, action_norm
+        return raw, coder_meta, coder_messages, action_norm, selector_rationale, l1_picker_error
 
     def run(self, *, task_prompt: str) -> KBGovernorResult:
         run_dir = Path(self.config.results_root) / self.config.run_name
@@ -752,20 +789,29 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     records=records,
                     is_last_correct=bool(records and records[-1].evaluation.correct),
                 )
+                selector_rationale: str | None = None
+                l1_picker_error: str | None = None
+                coder_meta: dict[str, Any] | None = None
+                coder_messages: list[dict[str, str]] = []
 
                 try:
                     if self.config.enable_action_selector:
-                        raw, coder_meta, coder_messages, action_norm = (
-                            self._run_staged_llm_pipeline(
-                                attempt=attempt,
-                                task_prompt=task_prompt,
-                                l0=l0,
-                                l1_path=l1_path,
-                                records=records,
-                                iteration_context=iteration_context,
-                                latest_eval_feedback=latest_eval_feedback,
-                                recorder=recorder,
-                            )
+                        (
+                            raw,
+                            coder_meta,
+                            coder_messages,
+                            action_norm,
+                            selector_rationale,
+                            l1_picker_error,
+                        ) = self._run_staged_llm_pipeline(
+                            attempt=attempt,
+                            task_prompt=task_prompt,
+                            l0=l0,
+                            l1_path=l1_path,
+                            records=records,
+                            iteration_context=iteration_context,
+                            latest_eval_feedback=latest_eval_feedback,
+                            recorder=recorder,
                         )
                     else:
                         l0_text = self._format_l0_for_coder_prompt(l0)
@@ -820,10 +866,8 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                                         if entry_id in by_id
                                     ][:max_entries]
                             except Exception as exc:
-                                append_l0(
-                                    l0,
-                                    "terminal",
-                                    f"l1_skill_picker_error: {type(exc).__name__}: {exc}",
+                                l1_picker_error = (
+                                    f"l1_skill_picker_error: {type(exc).__name__}: {exc}"
                                 )
                             if not selected_l1_entries:
                                 selected_l1_entries = fallback_selected
@@ -865,7 +909,6 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 except Exception as exc:
                     fatal_error_count += 1
                     err = f"coder_call_error: {type(exc).__name__}: {exc}"
-                    append_l0(l0, "terminal", err)
                     metrics_iteration = {
                         "attempt": attempt,
                         "compiled": False,
@@ -873,6 +916,20 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                         "speedup": 0.0,
                         "error": err,
                     }
+                    terminal_lines = [err]
+                    if l1_picker_error:
+                        terminal_lines.insert(0, l1_picker_error)
+                    self._finalize_iteration_l0(
+                        l0,
+                        attempt=attempt,
+                        action_norm=action_norm,
+                        selector_rationale=selector_rationale,
+                        coder_meta=coder_meta,
+                        code=None,
+                        terminal_lines=terminal_lines,
+                        metrics_iteration=metrics_iteration,
+                        recorder=recorder,
+                    )
                     holder.update_iteration_metrics(metrics_iteration)
                     recorder.record_evaluation_terminal_output(
                         iteration=attempt,
@@ -905,22 +962,14 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     extra=coder_meta,
                 )
 
-                diagnosis_text = self._extract_optional_tag(raw, "diagnosis")
-                if diagnosis_text:
-                    append_l0(l0, "system", f"coder_diagnosis={diagnosis_text}")
-
-                hypothesis_text = self._extract_optional_tag(raw, "hypothesis")
-                if hypothesis_text:
-                    append_l0(l0, "system", f"coder_hypothesis={hypothesis_text}")
-
-                append_l0(l0, "system", f"coder_action={action_norm}")
-                self._append_reasoning_from_meta(l0, coder_meta)
-
                 code, extract_err = normalize_extracted_python(raw)
+                terminal_lines: list[str] = []
+                if l1_picker_error:
+                    terminal_lines.append(l1_picker_error)
                 if extract_err or not code:
                     extraction_error = extract_err or "no code extracted"
                     extract_terminal = f"extract_error={extraction_error}; raw={(raw or '')[:1000]}"
-                    append_l0(l0, "terminal", extract_terminal)
+                    terminal_lines.append(extract_terminal)
                     recorder.record_evaluation_terminal_output(
                         iteration=attempt,
                         phase="extract",
@@ -943,7 +992,6 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     )
                     records.append(record)
                 else:
-                    append_l0(l0, "code", code)
                     eval_result = self._evaluate_candidate(code, attempt=attempt)
                     runtime_value = (
                         float(eval_result.runtime)
@@ -968,7 +1016,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                             "KERNEL_BENCH_EVAL_TERMINAL_OUTPUT:\n"
                             f"{eval_result.terminal_output}\n"
                         )
-                    append_l0(l0, "terminal", terminal_log)
+                    terminal_lines.append(terminal_log)
                     recorder.record_evaluation_terminal_output(
                         iteration=attempt,
                         phase="evaluation",
@@ -1024,10 +1072,22 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 holder.update_iteration_metrics(metrics_iteration)
                 holder.update_best(metrics_best)
 
-                self._last_promoted_count = maybe_promote_l0_to_l1(
+                self._finalize_iteration_l0(
+                    l0,
+                    attempt=attempt,
+                    action_norm=action_norm,
+                    selector_rationale=selector_rationale,
+                    coder_meta=coder_meta,
+                    code=code if (code and not extract_err) else None,
+                    terminal_lines=terminal_lines,
+                    metrics_iteration=metrics_iteration,
+                    recorder=recorder,
+                )
+
+                self._last_promoted_round_count = maybe_promote_l0_to_l1(
                     l0,
                     l1_path=l1_path,
-                    entry_threshold=self.config.promote_entry_threshold,
+                    promote_every_n_rounds=self.config.promote_every_n_rounds,
                     token_budget=self.config.promote_token_budget,
                     summarizer_system_prompt=SUMMARIZER_SYSTEM_PROMPT,
                     build_summarizer_user_message=build_summarizer_user_message,
@@ -1043,7 +1103,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     on_summarizer_round=recorder.summarizer_callback(attempt),
                     on_l0_cleared_without_l1=recorder.flush_without_l1_callback(attempt),
                     clear_l0_after_promotion=False,
-                    last_promoted_count=self._last_promoted_count,
+                    last_promoted_round_count=self._last_promoted_round_count,
                 )
 
                 recorder.record_iteration_snapshot(
