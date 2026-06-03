@@ -6,6 +6,7 @@ import argparse
 import csv
 import json
 import os
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -129,6 +130,100 @@ def _level_eval_path(run_dir: Path, level: int) -> Path:
     return run_dir / f"eval_results_level_{level}.json"
 
 
+def _problem_key(level: int, problem_id: str) -> str:
+    return f"L{level}P{problem_id}"
+
+
+def _remove_run_entry(
+    runs: list[dict[str, Any]], *, level: int, problem_id: str
+) -> list[dict[str, Any]]:
+    pid = str(problem_id)
+    return [
+        entry
+        for entry in runs
+        if not (
+            isinstance(entry, dict)
+            and int(entry.get("level", -1)) == level
+            and str(entry.get("problem_id")) == pid
+        )
+    ]
+
+
+def _remove_eval_entry(
+    eval_doc: dict[str, dict[str, list]], *, level: int, problem_id: str
+) -> None:
+    level_key = str(level)
+    pid_key = str(problem_id)
+    level_bucket = eval_doc.get(level_key)
+    if isinstance(level_bucket, dict) and pid_key in level_bucket:
+        del level_bucket[pid_key]
+
+
+def _clear_problem_workspace(run_dir: Path, *, level: int, problem_id: str) -> None:
+    workspace_dir = run_dir / "workspaces" / f"level_{level}_problem_{problem_id}"
+    if workspace_dir.is_dir():
+        shutil.rmtree(workspace_dir)
+
+
+def _remove_kernel_export(run_dir: Path, *, level: int, problem_id: str) -> None:
+    kernel_path = (
+        run_dir
+        / "kernels"
+        / f"level_{level}_problem_{problem_id}_sample_0_kernel.py"
+    )
+    if kernel_path.is_file():
+        kernel_path.unlink()
+
+
+def _purge_problem_state(
+    *,
+    run_dir: Path,
+    runs: list[dict[str, Any]],
+    eval_doc: dict[str, dict[str, list]],
+    level_eval_docs: dict[int, dict[str, list]],
+    level: int,
+    problem_id: str,
+) -> list[dict[str, Any]]:
+    runs = _remove_run_entry(runs, level=level, problem_id=problem_id)
+    _remove_eval_entry(eval_doc, level=level, problem_id=problem_id)
+    level_bucket = level_eval_docs.get(level)
+    if isinstance(level_bucket, dict):
+        pid_key = str(problem_id)
+        if pid_key in level_bucket:
+            del level_bucket[pid_key]
+    _clear_problem_workspace(run_dir, level=level, problem_id=problem_id)
+    _remove_kernel_export(run_dir, level=level, problem_id=problem_id)
+    return runs
+
+
+def _warn_resume_config_mismatch(
+    *,
+    run_dir: Path,
+    subset_csv: Path,
+    max_problems: int,
+) -> None:
+    summary_path = run_dir / "run_summary.json"
+    if not summary_path.is_file():
+        return
+    prior = _read_json(summary_path, default={})
+    if not isinstance(prior, dict):
+        return
+    prior_subset = prior.get("subset_csv")
+    if prior_subset and str(prior_subset) != str(subset_csv):
+        print(
+            f"[batch] warning: resume subset_csv differs from prior run "
+            f"({prior_subset} vs {subset_csv})",
+            file=sys.stderr,
+        )
+    prior_attempted = prior.get("total_attempted")
+    if prior_attempted is not None and max_problems > 0 and int(prior_attempted) != max_problems:
+        print(
+            f"[batch] warning: resume --max-problems={max_problems} differs from "
+            f"prior total_attempted={prior_attempted}",
+            file=sys.stderr,
+        )
+
+
 def _extract_best_kernel_code(run_entry: dict[str, Any]) -> str | None:
     best_code = run_entry.get("best_code")
     if isinstance(best_code, str) and best_code.strip():
@@ -248,12 +343,31 @@ def main() -> int:
         action="store_true",
         help="Disable L1 memory for this run (no promotion, no extractor).",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume an existing run: use --run-name exactly (with timestamp suffix), "
+        "reuse L1/run_dir, and replace results from --start-problem onward.",
+    )
+    parser.add_argument(
+        "--start-problem",
+        type=int,
+        default=1,
+        help="1-based subset index (after --max-problems trim) to start re-running. "
+        "Only valid with --resume; earlier problems are kept unchanged.",
+    )
     args = parser.parse_args()
 
-    # Append UTC timestamp to run-name to avoid collisions and make runs unique.
-    # Format: YYYY_MM_DD_HH_MM (year_month_day_hour_minute)
-    now_str = datetime.now(timezone.utc).strftime("%Y_%m_%d_%H_%M")
-    args.run_name = f"{args.run_name}_{now_str}"
+    if args.start_problem < 1:
+        raise ValueError("--start-problem must be >= 1")
+    if args.start_problem > 1 and not args.resume:
+        raise ValueError("--start-problem requires --resume")
+
+    if not args.resume:
+        # Append UTC timestamp to run-name to avoid collisions and make runs unique.
+        # Format: YYYY_MM_DD_HH_MM (year_month_day_hour_minute)
+        now_str = datetime.now(timezone.utc).strftime("%Y_%m_%d_%H_%M")
+        args.run_name = f"{args.run_name}_{now_str}"
 
     _check_integration_dependencies(dry_run=args.dry_run)
 
@@ -271,8 +385,25 @@ def main() -> int:
     if args.max_problems > 0:
         rows = rows[: args.max_problems]
 
+    if args.start_problem > len(rows):
+        raise ValueError(
+            f"--start-problem {args.start_problem} exceeds subset size {len(rows)}"
+        )
+
     run_dir = Path(args.results_root) / args.run_name
-    run_dir.mkdir(parents=True, exist_ok=True)
+    if args.resume:
+        if not run_dir.is_dir():
+            raise FileNotFoundError(
+                f"Resume run directory not found: {run_dir}. "
+                "Pass --run-name with the full timestamped folder name."
+            )
+        _warn_resume_config_mismatch(
+            run_dir=run_dir,
+            subset_csv=subset_csv,
+            max_problems=args.max_problems,
+        )
+    else:
+        run_dir.mkdir(parents=True, exist_ok=True)
 
     shared_l1_path = run_dir / "shared_l1.txt"
     if not shared_l1_path.exists():
@@ -305,11 +436,27 @@ def main() -> int:
     for idx, row in enumerate(rows, start=1):
         level = int(row["level"])
         problem_id = str(int(row["problem_id"]))
-        key = f"L{level}P{problem_id}"
+        key = _problem_key(level, problem_id)
 
-        if key in completed_keys:
+        if args.resume and idx < args.start_problem:
+            print(f"[batch] resume: keep prior result for {key} (index {idx})")
+            continue
+
+        if not args.resume and key in completed_keys:
             print(f"[batch] skip completed {key}")
             continue
+
+        if args.resume and idx >= args.start_problem:
+            print(f"[batch] resume: replacing prior state for {key} (index {idx})")
+            runs = _purge_problem_state(
+                run_dir=run_dir,
+                runs=runs,
+                eval_doc=eval_doc,
+                level_eval_docs=level_eval_docs,
+                level=level,
+                problem_id=problem_id,
+            )
+            completed_keys.discard(key)
 
         row_backend = (row.get("backend") or "").strip().lower()
         backend = row_backend if row_backend else args.backend
@@ -377,18 +524,13 @@ def main() -> int:
         completed_keys.add(key)
         level_key = str(level)
         pid_key = str(problem_id)
+        eval_entry = _to_kernelbench_eval_entry(entry, level=level, problem_id=problem_id)
         eval_doc.setdefault(level_key, {})
-        eval_doc[level_key].setdefault(pid_key, [])
-        eval_doc[level_key][pid_key].append(
-            _to_kernelbench_eval_entry(entry, level=level, problem_id=problem_id)
-        )
+        eval_doc[level_key][pid_key] = [eval_entry]
 
         if level not in level_eval_docs:
             level_eval_docs[level] = _read_json(_level_eval_path(run_dir, level), default={})
-        level_eval_docs[level].setdefault(pid_key, [])
-        level_eval_docs[level][pid_key].append(
-            _to_kernelbench_eval_entry(entry, level=level, problem_id=problem_id)
-        )
+        level_eval_docs[level][pid_key] = [eval_entry]
 
         evolving_doc["runs"] = runs
         _write_json(evolving_runs_path, evolving_doc)
@@ -415,6 +557,9 @@ def main() -> int:
 
     summary = {
         "run_name": args.run_name,
+        "resume": bool(args.resume),
+        "start_problem": int(args.start_problem) if args.resume else None,
+        "resumed_from_run_dir": str(run_dir) if args.resume else None,
         "subset_csv": str(subset_csv),
         "dry_run": bool(args.dry_run),
         "cuda_available": bool(has_cuda),

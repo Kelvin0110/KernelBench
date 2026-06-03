@@ -15,7 +15,7 @@ This directory contains the Gen3 KernelBench integration: staged prompts, L1 ski
   - Processes a subset of KernelBench problems (from a CSV file).
   - Manages per-level execution (e.g., Level 1, Level 2) and aggregates results into standard KernelBench JSON formats (`eval_results_level_X.json`).
   - Uses exception-safe JSON serialization so evaluation metadata containing runtime exceptions cannot crash artifact persistence.
-  - Handles resume-on-failure logic by tracking progress in `evolving_runs.json`.
+  - Supports `--resume` with the full timestamped `--run-name` and `--start-problem` (1-based subset index): reuses shared L1, keeps earlier problems, replaces results from the start index onward (including failed entries such as rate-limit errors), and clears per-problem workspaces before re-run.
 
 - **[RUN_WITH_UV.md](RUN_WITH_UV.md)**: Standardized execution guide using the `uv` package manager for reproducible environments and dependency management.
 

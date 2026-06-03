@@ -120,6 +120,151 @@ def test_main_dry_run_writes_level_first_eval_results(tmp_path: Path, monkeypatc
     assert payload["2"]["5"][0]["metadata"]["level"] == 2
 
 
+def _seed_resume_run_dir(run_dir: Path, *, runs: list[dict]) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "shared_l1.txt").write_text("# shared l1\n", encoding="utf-8")
+    evolve_kb_batch._write_json(run_dir / "evolving_runs.json", {"runs": runs})
+
+
+def test_resume_does_not_append_timestamp(tmp_path: Path, monkeypatch) -> None:
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n1,200\n", encoding="utf-8")
+
+    run_name = "my_run_2020_01_01_00_00"
+    results_root = tmp_path / "results"
+    run_dir = results_root / run_name
+    _seed_resume_run_dir(
+        run_dir,
+        runs=[
+            {
+                "level": 1,
+                "problem_id": "100",
+                "error": "prior",
+                "timestamp_utc": "old",
+            }
+        ],
+    )
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--resume",
+            "--run-name",
+            run_name,
+            "--subset-csv",
+            str(subset_csv),
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--start-problem",
+            "2",
+            "--max-problems",
+            "2",
+        ],
+    )
+
+    assert evolve_kb_batch.main() == 0
+    assert (results_root / run_name).is_dir()
+    assert not list(results_root.glob(f"{run_name}_*"))
+
+
+def test_resume_replaces_from_start_problem(tmp_path: Path, monkeypatch) -> None:
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text(
+        "level,problem_id\n1,1\n1,2\n1,3\n",
+        encoding="utf-8",
+    )
+
+    run_name = "resume_replace_test"
+    results_root = tmp_path / "results"
+    run_dir = results_root / run_name
+    _seed_resume_run_dir(
+        run_dir,
+        runs=[
+            {
+                "level": 1,
+                "problem_id": "1",
+                "error": "ok_p1",
+                "timestamp_utc": "old1",
+            },
+            {
+                "level": 1,
+                "problem_id": "2",
+                "error": "coder_call_error: RateLimitError",
+                "timestamp_utc": "old2",
+            },
+            {
+                "level": 1,
+                "problem_id": "3",
+                "error": "ok_p3",
+                "timestamp_utc": "old3",
+            },
+        ],
+    )
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--resume",
+            "--run-name",
+            run_name,
+            "--subset-csv",
+            str(subset_csv),
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--start-problem",
+            "2",
+            "--max-problems",
+            "3",
+        ],
+    )
+
+    assert evolve_kb_batch.main() == 0
+
+    doc = json.loads((run_dir / "evolving_runs.json").read_text(encoding="utf-8"))
+    by_pid = {str(e["problem_id"]): e for e in doc["runs"]}
+    assert by_pid["1"]["error"] == "ok_p1"
+    assert by_pid["1"]["timestamp_utc"] == "old1"
+    assert "RateLimitError" not in (by_pid["2"].get("error") or "")
+    assert by_pid["2"]["error"] == "dry_run_no_gpu_execution"
+    assert by_pid["3"]["error"] == "dry_run_no_gpu_execution"
+    assert by_pid["3"]["timestamp_utc"] != "old3"
+
+
+def test_purge_problem_state_clears_workspace(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    workspace = run_dir / "workspaces" / "level_1_problem_100"
+    workspace.mkdir(parents=True)
+    marker = workspace / "stale.txt"
+    marker.write_text("stale", encoding="utf-8")
+
+    runs = [{"level": 1, "problem_id": "100", "error": "old"}]
+    eval_doc: dict = {"1": {"100": [{"sample_id": 0}]}}
+    level_eval_docs: dict = {1: {"100": [{"sample_id": 0}]}}
+
+    runs = evolve_kb_batch._purge_problem_state(
+        run_dir=run_dir,
+        runs=runs,
+        eval_doc=eval_doc,
+        level_eval_docs=level_eval_docs,
+        level=1,
+        problem_id="100",
+    )
+
+    assert runs == []
+    assert "100" not in eval_doc["1"]
+    assert "100" not in level_eval_docs[1]
+    assert not workspace.exists()
+
+
 def test_write_json_serializes_exception_objects(tmp_path: Path) -> None:
     output = tmp_path / "out.json"
     payload = {
