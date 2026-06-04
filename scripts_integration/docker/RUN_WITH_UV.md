@@ -176,7 +176,7 @@ nohup uv run python scripts_integration/docker/docker_batch_run.py \
   subset_csv=subset_selection/selected_problems_50.csv \
   steps=40 \
   hours=5.0 \
-  build_image=False \
+  build_image=True \
   checkpoint_distance=1 \
   gpu_memory_fraction=0.0 \
   >> aide_subset_gpt_oss_120b_step40.log 2>&1
