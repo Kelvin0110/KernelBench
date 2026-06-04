@@ -65,7 +65,7 @@ The `KBGovernor` leverages these modules from `Self-Evolving-Agent/evolving_comm
 | Phase | System prompt constant | User prompt builder |
 |-------|------------------------|---------------------|
 | `action_selector` | `ACTION_SELECTOR_SYSTEM_PROMPT` | `build_action_selector_user_message` — L0 only, no L1 |
-| `l1_skill_picker` | `DEFAULT_EXTRACTOR_SYSTEM_PROMPT` | `build_extractor_user_message` — skill IDs by title/trigger |
+| `l1_skill_picker` | `DEFAULT_EXTRACTOR_SYSTEM_PROMPT` | `build_extractor_user_message` — skill IDs by title, description, trigger |
 | `coder_preflight` | `CODER_PREFLIGHT_SYSTEM_PROMPT` | draft + `build_coder_preflight_user_appendix` |
 | `coder` | `CODER_SYSTEM_PROMPT` (= KernelBench rules + `GEN3_CODER_FINAL_SYSTEM_PROMPT` + `GEN3_MEMORY_PRIMER`) | `build_action_coder_user_prompt` + `build_coder_final_user_appendix` |
 | `l0_round_summarizer` | `L0_ROUND_SUMMARIZER_SYSTEM_PROMPT` | `build_l0_round_summarizer_user_message` — one attempt, prompt compaction only |
