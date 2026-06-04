@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import multiprocessing as mp
+import shutil
 import queue
 import re
 import sys
@@ -120,6 +121,32 @@ Output rules:
 """
 
 EXTRACTOR_SYSTEM_PROMPT = DEFAULT_EXTRACTOR_SYSTEM_PROMPT
+
+
+def _problem_build_name_prefix(level: int, problem_id: str | int) -> str:
+    return f"l{int(level)}_p{int(problem_id)}_"
+
+
+def _remove_build_dir(build_dir: Path) -> None:
+    if build_dir.exists():
+        shutil.rmtree(build_dir, ignore_errors=True)
+
+
+def cleanup_problem_build_artifacts(
+    results_root: Path | str,
+    run_name: str,
+    *,
+    level: int,
+    problem_id: str | int,
+) -> None:
+    """Remove KernelBench CUDA extension build dirs for one problem under a run."""
+    builds_dir = Path(results_root) / run_name / "builds"
+    if not builds_dir.is_dir():
+        return
+    prefix = _problem_build_name_prefix(level, problem_id)
+    for path in list(builds_dir.iterdir()):
+        if path.is_dir() and path.name.startswith(prefix):
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def _run_kernelbench_eval(payload: dict[str, Any]) -> dict[str, Any]:
@@ -498,6 +525,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 eval_payload = _run_kernelbench_eval(payload)
         finally:
             self.reserver.acquire()
+            _remove_build_dir(build_dir)
 
         return self._build_eval_result(eval_payload)
 
@@ -1137,6 +1165,12 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     "best_compiled": best_compiled,
                     "error": run_error,
                 }
+            )
+            cleanup_problem_build_artifacts(
+                self.config.results_root,
+                self.config.run_name,
+                level=self.config.level,
+                problem_id=self.config.problem_id,
             )
 
         return KBGovernorResult(

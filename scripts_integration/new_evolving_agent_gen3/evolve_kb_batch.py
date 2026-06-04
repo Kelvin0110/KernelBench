@@ -23,6 +23,7 @@ from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 from scripts_integration.new_evolving_agent_gen3.kb_governor import (
     KBGovernorConfig,
+    cleanup_problem_build_artifacts,
     governor_result_to_dict,
     safe_run_kb_governor,
 )
@@ -193,6 +194,12 @@ def _purge_problem_state(
             del level_bucket[pid_key]
     _clear_problem_workspace(run_dir, level=level, problem_id=problem_id)
     _remove_kernel_export(run_dir, level=level, problem_id=problem_id)
+    cleanup_problem_build_artifacts(
+        run_dir.parent,
+        run_dir.name,
+        level=level,
+        problem_id=problem_id,
+    )
     return runs
 
 
@@ -536,6 +543,13 @@ def main() -> int:
         _write_json(evolving_runs_path, evolving_doc)
         _write_json(eval_path, eval_doc)
         _write_json(_level_eval_path(run_dir, level), level_eval_docs[level])
+
+        cleanup_problem_build_artifacts(
+            args.results_root,
+            args.run_name,
+            level=level,
+            problem_id=problem_id,
+        )
 
     successful = [e for e in runs if e.get("best_correct")]
     best_overall = 0.0
