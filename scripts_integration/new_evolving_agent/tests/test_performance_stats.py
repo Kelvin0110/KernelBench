@@ -7,7 +7,9 @@ from pathlib import Path
 from kernelbench.performance_stats import (
     align_series_for_comparison,
     compute_fastp_from_records,
+    format_result_key,
     parse_fastp_values,
+    parse_result_key,
 )
 
 
@@ -19,6 +21,12 @@ def _load_generate_run_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_format_and_parse_result_key() -> None:
+    assert format_result_key(2, 10) == "L2P10"
+    assert parse_result_key("L2P10") == (2, 10)
+    assert parse_result_key("10") == (None, 10)
 
 
 def test_parse_fastp_values_dedup_and_sorted() -> None:

@@ -25,6 +25,7 @@ import fcntl
 from collections import defaultdict
 
 from kernelbench.dataset import construct_kernelbench_dataset
+from kernelbench.performance_stats import format_result_key, parse_result_key
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 
 
@@ -148,7 +149,7 @@ def add_to_eval_results_file(level, problem_id, sample_id, eval_result, eval_fil
         else:
             eval_results = defaultdict(lambda: [])
 
-        result_key = f"L{level}P{problem_id}"
+        result_key = format_result_key(level, problem_id)
 
         # Append new result
         eval_results[result_key].append(
@@ -303,7 +304,7 @@ def run_checkpoint_eval(
     Returns:
         (new_prev_code, problem_result_dict) — new_prev_code is the best kernel
         code at this checkpoint, problem_result_dict is the entry to append to
-        eval_results.json[str(problem_id)].
+        eval_results.json[L{level}P{problem_id}] (composite key; legacy pid-only supported on read).
     """
     from kernelbench.eval import check_metadata_serializable_all_types
     import torch
@@ -337,6 +338,8 @@ def run_checkpoint_eval(
 
     # Build result entry (schema matches final eval_results.json)
     result_entry = {
+        "level": args.level,
+        "problem_id": args.problem_id,
         "sample_id": 0,
         "compiled": False,
         "correctness": False,
@@ -360,9 +363,11 @@ def run_checkpoint_eval(
             try:
                 with open(prev_checkpoint_eval_path) as f:
                     prev_eval_results = json.load(f)
-                    problem_id_str = str(args.problem_id)
-                    if problem_id_str in prev_eval_results and prev_eval_results[problem_id_str]:
-                        prev_result = prev_eval_results[problem_id_str][0]
+                    result_key = format_result_key(args.level, args.problem_id)
+                    legacy_key = str(args.problem_id)
+                    prev_entries = prev_eval_results.get(result_key) or prev_eval_results.get(legacy_key)
+                    if prev_entries:
+                        prev_result = prev_entries[0]
                         result_entry.update({
                             "compiled": prev_result.get("compiled"),
                             "correctness": prev_result.get("correctness"),
@@ -765,7 +770,7 @@ INSTRUCTIONS FOR AGENT:
                     prev_checkpoint_eval_path=prev_checkpoint_eval_path,
                 )
 
-                # Append result to aggregated eval_results.json (keyed by problem_id)
+                # Append result to aggregated eval_results.json (composite L{level}P{pid} key)
                 # Apply checkpoint-level lock to synchronize multi-container access
                 checkpoint_lock_file = os.path.join(checkpoint_node_dir, ".checkpoint.lock")
 
@@ -776,32 +781,50 @@ INSTRUCTIONS FOR AGENT:
                         with open(eval_results_path) as f:
                             eval_results = json.load(f)
 
-                    problem_id_str = str(args.problem_id)
-                    if problem_id_str not in eval_results:
-                        eval_results[problem_id_str] = []
-                    eval_results[problem_id_str].append(result_entry)
+                    result_key = format_result_key(args.level, args.problem_id)
+                    if result_key not in eval_results:
+                        eval_results[result_key] = []
+                    eval_results[result_key].append(result_entry)
 
-                    # Sort results by numeric problem id (matches add_to_eval_results_file behavior)
-                    sorted_results = dict(sorted(eval_results.items(), key=lambda x: int(x[0])))
+                    sorted_results = dict(
+                        sorted(eval_results.items(), key=lambda x: _sort_result_key(x[0]))
+                    )
                     with open(eval_results_path, "w") as f:
                         json.dump(sorted_results, f, indent=2)
 
-                    # Build checkpoint_summary.json from all problem entries in sorted_results
+                    # Build checkpoint_summary.json from all entries (level from key or entry)
                     problems_list = []
-                    for pid_str, results in sorted_results.items():
-                        if results:
-                            r = results[-1]  # Latest entry for this problem_id
-                            problems_list.append({
-                                "level": args.level,
-                                "problem_id": int(pid_str),
-                                "eval_skipped": r.get("eval_skipped", False),
-                                "skip_reason": r.get("skip_reason"),
-                                "code_changed": r.get("code_changed_since_last_checkpoint", False),
-                                "compiled": r.get("compiled"),
-                                "correct": r.get("correctness"),
-                                "aide_metric": r.get("aide_metric"),
-                                "runtime_secs": r.get("runtime"),
-                            })
+                    for key_str, results in sorted_results.items():
+                        if not results:
+                            continue
+                        r = results[-1]
+                        level = r.get("level")
+                        problem_id = r.get("problem_id")
+                        parsed = parse_result_key(str(key_str))
+                        if parsed is not None:
+                            parsed_level, parsed_pid = parsed
+                            if level is None:
+                                level = parsed_level
+                            if problem_id is None:
+                                problem_id = parsed_pid
+                        if problem_id is None:
+                            try:
+                                problem_id = int(key_str)
+                            except Exception:
+                                continue
+                        if level is None:
+                            level = args.level
+                        problems_list.append({
+                            "level": int(level),
+                            "problem_id": int(problem_id),
+                            "eval_skipped": r.get("eval_skipped", False),
+                            "skip_reason": r.get("skip_reason"),
+                            "code_changed": r.get("code_changed_since_last_checkpoint", False),
+                            "compiled": r.get("compiled"),
+                            "correct": r.get("correctness"),
+                            "aide_metric": r.get("aide_metric"),
+                            "runtime_secs": r.get("runtime"),
+                        })
 
                     summary_doc = {
                         "checkpoint_node": i + 1,

@@ -146,6 +146,11 @@ def build_baseline_lookup(baseline_results: dict[str, Any], level: int) -> dict[
 _COMPOSITE_RESULT_KEY = re.compile(r"^L(\d+)P(\d+)$", re.IGNORECASE)
 
 
+def format_result_key(level: int, problem_id: int) -> str:
+    """Composite eval/checkpoint key used for subset runs (``L2P10``)."""
+    return f"L{level}P{problem_id}"
+
+
 def parse_result_key(key: str) -> tuple[int, int] | None:
     """Parse eval result keys: composite ``L2P10`` or plain problem id ``10``."""
     text = str(key).strip()
