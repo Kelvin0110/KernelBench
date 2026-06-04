@@ -143,6 +143,58 @@ def build_baseline_lookup(baseline_results: dict[str, Any], level: int) -> dict[
     return lookup
 
 
+_COMPOSITE_RESULT_KEY = re.compile(r"^L(\d+)P(\d+)$", re.IGNORECASE)
+
+
+def parse_result_key(key: str) -> tuple[int, int] | None:
+    """Parse eval result keys: composite ``L2P10`` or plain problem id ``10``."""
+    text = str(key).strip()
+    match = _COMPOSITE_RESULT_KEY.match(text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    try:
+        return None, int(text)
+    except Exception:
+        return None
+
+
+def load_subset_pairs(csv_path: Path) -> list[tuple[int, int]]:
+    """Ordered (level, problem_id) pairs from a subset CSV."""
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"Subset CSV not found: {csv_path}")
+
+    pairs: list[tuple[int, int]] = []
+    with csv_path.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if not isinstance(row, dict):
+                continue
+            try:
+                level = int(row.get("level", ""))
+                problem_id = int(row.get("problem_id", ""))
+            except Exception:
+                continue
+            pairs.append((level, problem_id))
+    return pairs
+
+
+def build_problem_id_level_map(pairs: list[tuple[int, int]]) -> tuple[dict[int, int], list[str]]:
+    """Map problem_id -> level; return warnings when pid appears at multiple levels."""
+    mapping: dict[int, int] = {}
+    warnings: list[str] = []
+    seen: dict[int, set[int]] = {}
+    for level, problem_id in pairs:
+        seen.setdefault(problem_id, set()).add(level)
+        mapping[problem_id] = level
+    for problem_id, levels in seen.items():
+        if len(levels) > 1:
+            warnings.append(
+                f"problem_id {problem_id} appears at multiple levels {sorted(levels)}; "
+                "checkpoint pid-only keys are ambiguous"
+            )
+    return mapping, warnings
+
+
 def load_subset_problem_ids_by_level(csv_path: Path) -> dict[int, set[int]]:
     if not csv_path.is_file():
         raise FileNotFoundError(f"Subset CSV not found: {csv_path}")
