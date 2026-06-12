@@ -73,7 +73,6 @@ def test_governor_run_returns_best_metrics(tmp_path: Path, monkeypatch) -> None:
         run_name='new-agent-test',
         results_root=tmp_path,
         max_iterations=1,
-        promote_every_n_rounds=99,
         isolate_evaluation_process=False,
         enable_action_selector=False,
         enable_l0_unfold=False,

@@ -48,7 +48,14 @@ from evolving_common_gen3.llm_client import (
     get_action_selector_model_id,
     resolve_nvidia_model_id,
 )
-from evolving_common_gen3.memory_manager import L0Round, finalize_l0_round, read_l1, read_l1_jsonl
+from evolving_common_gen3.memory_manager import (
+    L0Round,
+    PromotionTrigger,
+    finalize_l0_round,
+    l0_rounds_promotion_window,
+    read_l1,
+    read_l1_jsonl,
+)
 from evolving_common_gen3.metrics_holder import BestMetricsHolder
 from evolving_common_gen3.prompt_context import (
     ACTION_SELECTOR_SYSTEM_PROMPT,
@@ -255,6 +262,41 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 f"KernelBench Level {self.config.level}, Problem {self.config.problem_id}. "
                 "Return exactly one fenced Python implementation."
             ),
+        )
+
+    def _promote_gen3_window(
+        self,
+        l0: list[L0Round],
+        *,
+        l1_path: Path,
+        trigger: PromotionTrigger,
+        attempt: int,
+        recorder: BenchmarkRunRecorder,
+    ) -> None:
+        rounds_to_promote, end_exclusive = l0_rounds_promotion_window(
+            l0,
+            last_promoted_round_count=self._last_promoted_round_count,
+            trigger=trigger,
+        )
+        self._last_promoted_round_count = maybe_promote_l0_to_l1(
+            l0,
+            l1_path=l1_path,
+            rounds_to_promote=rounds_to_promote,
+            promotion_end_exclusive=end_exclusive,
+            summarizer_system_prompt=SUMMARIZER_SYSTEM_PROMPT,
+            build_summarizer_user_message=build_summarizer_user_message,
+            summarizer_max_tokens=self.config.summarizer_max_tokens,
+            summarizer_timeout_sec=self.config.summarizer_timeout_sec,
+            enable_promotion=self.config.enable_promotion,
+            should_write_l1=None,
+            catch_summarizer_errors=True,
+            verbose=self.config.verbose,
+            log_prefix="[kb-governor]",
+            source=f"Level {self.config.level} problem {self.config.problem_id}",
+            on_summarizer_round=recorder.summarizer_callback(attempt),
+            on_l0_cleared_without_l1=recorder.flush_without_l1_callback(attempt),
+            clear_l0_after_promotion=False,
+            last_promoted_round_count=self._last_promoted_round_count,
         )
 
     def _latest_eval_feedback(self, records: list[KBIterationRecord]) -> str:
@@ -1112,27 +1154,14 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     recorder=recorder,
                 )
 
-                self._last_promoted_round_count = maybe_promote_l0_to_l1(
-                    l0,
-                    l1_path=l1_path,
-                    promote_every_n_rounds=self.config.promote_every_n_rounds,
-                    token_budget=self.config.promote_token_budget,
-                    summarizer_system_prompt=SUMMARIZER_SYSTEM_PROMPT,
-                    build_summarizer_user_message=build_summarizer_user_message,
-                    summarizer_max_tokens=self.config.summarizer_max_tokens,
-                    summarizer_timeout_sec=self.config.summarizer_timeout_sec,
-                    enable_promotion=self.config.enable_promotion,
-                    catch_summarizer_errors=True,
-                    verbose=self.config.verbose,
-                    log_prefix="[kb-governor]",
-                    source=(
-                        f"Level {self.config.level} problem {self.config.problem_id}"
-                    ),
-                    on_summarizer_round=recorder.summarizer_callback(attempt),
-                    on_l0_cleared_without_l1=recorder.flush_without_l1_callback(attempt),
-                    clear_l0_after_promotion=False,
-                    last_promoted_round_count=self._last_promoted_round_count,
-                )
+                if action_norm == "propose_new":
+                    self._promote_gen3_window(
+                        l0,
+                        l1_path=l1_path,
+                        trigger="propose_new",
+                        attempt=attempt,
+                        recorder=recorder,
+                    )
 
                 recorder.record_iteration_snapshot(
                     iteration=attempt,
@@ -1154,6 +1183,15 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                         f"correct={eval_result.correct} compiled={eval_result.compiled} "
                         f"speedup={float(eval_result.speedup or 0.0):.4f} runtime=n/a"
                     )
+
+            if self.config.enable_promotion:
+                self._promote_gen3_window(
+                    l0,
+                    l1_path=l1_path,
+                    trigger="iteration_end",
+                    attempt=self.config.max_iterations,
+                    recorder=recorder,
+                )
 
         except Exception:
             run_error = traceback.format_exc()
