@@ -60,6 +60,7 @@ from evolving_common.memory_manager import (
     l0_rounds_promotion_window,
     read_l1,
     read_l1_jsonl,
+    read_recent_l1_jsonl,
 )
 from evolving_common.metrics_holder import BestMetricsHolder
 from evolving_common.prompt_context import (
@@ -320,7 +321,10 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         )
 
     def _format_l0_for_coder_prompt(self, l0: list[dict[str, str]]) -> str:
-        return format_l0_for_coder_prompt(l0, max_entries=10)
+        return format_l0_for_coder_prompt(
+            l0,
+            max_entries=self.config.action_coder_l0_full_recent,
+        )
 
     def _closing_instruction(self) -> str:
         return (
@@ -645,7 +649,10 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 is_last_correct=is_last_correct,
             )
         l1_picker_error: str | None = None
-        l1_entries = read_l1_jsonl(l1_path)
+        l1_entries = read_recent_l1_jsonl(
+            l1_path,
+            max_entries=self.config.l1_catalog_max_skills,
+        )
         l1_catalog = build_l1_skill_catalog(l1_entries)
         selected_l1_entries: list[dict[str, str]] = []
         if self.config.enable_l1_extractor and l1_entries:
@@ -878,7 +885,10 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     else:
                         l0_text = self._format_l0_for_coder_prompt(l0)
                         selected_l1_entries: list[dict[str, str]] | None = None
-                        l1_entries = read_l1_jsonl(l1_path)
+                        l1_entries = read_recent_l1_jsonl(
+                            l1_path,
+                            max_entries=self.config.l1_catalog_max_skills,
+                        )
                         if self.config.enable_l1_extractor and l1_entries:
                             max_entries = max(1, int(self.config.extractor_max_memories))
                             fallback_selected = l1_entries[-max_entries:]

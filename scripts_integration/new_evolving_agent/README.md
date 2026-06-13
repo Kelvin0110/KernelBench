@@ -82,8 +82,9 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `enable_action_selector` | `true` | Staged loop vs legacy single prompt |
-| `action_selector_recent_l0_full` | `3` | Full L0 attempts shown to action selector |
-| `action_coder_l0_full_recent` | `5` | Full L0 attempts in coder prompt |
+| `l1_catalog_max_skills` | `50` | Most recent L1 skills shown in extractor catalog (metadata only) |
+| `action_selector_recent_l0_full` | `15` | Full L0 attempts shown to action selector |
+| `action_coder_l0_full_recent` | `15` | Full L0 attempts in coder prompt |
 | `enable_l0_unfold` | `true` | Coder preflight unfold passes |
 | `l0_unfold_max_attempts` | `1` | Max preflight rounds per iteration |
 | `enable_l0_round_summary` | `true` | LLM summary after each round (fallback: deterministic line) |
