@@ -18,10 +18,13 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+SEA_ROOT = REPO_ROOT / "Self-Evolving-Agent"
+if str(SEA_ROOT) not in sys.path:
+    sys.path.insert(0, str(SEA_ROOT))
 
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
-from scripts_integration.new_evolving_agent.kb_governor import (
+from kernelbench_integration import (
     KBGovernorConfig,
     cleanup_problem_build_artifacts,
     governor_result_to_dict,

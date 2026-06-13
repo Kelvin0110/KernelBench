@@ -5,23 +5,16 @@ This directory contains the Gen3 KernelBench integration: staged prompts, L1 ski
 ## 1. Key Files & Responsibilities
 
 ### Core Integration
-- **[kb_governor.py](kb_governor.py)**: Implements the **Inner Loop** logic.
-  - Defines `KBGovernor`, which orchestrates the `Prompt -> Generate -> Evaluate -> Reflect` cycle for a *single* kernel optimization task.
-  - Interfaces with `kernelbench.eval` to run generated CUDA code and extract correctness/speedup metrics.
-  - Captures and persists per-iteration evaluation terminal output (stdout/stderr) into recorder artifacts.
-  - Manages the interaction with `llm_client`, `memory_manager`, and `run_recorder`.
-
-- **[evolve_kb_batch.py](evolve_kb_batch.py)**: Implements the **Outer Loop** (Batch Orchestrator).
-  - Processes a subset of KernelBench problems (from a CSV file).
-  - Manages per-level execution (e.g., Level 1, Level 2) and aggregates results into standard KernelBench JSON formats (`eval_results_level_X.json`).
-  - Uses exception-safe JSON serialization so evaluation metadata containing runtime exceptions cannot crash artifact persistence.
-  - Supports `--resume` with the full timestamped `--run-name` and `--start-problem` (1-based subset index): reuses shared L1, keeps earlier problems, replaces results from the start index onward (including failed entries such as rate-limit errors), and clears per-problem workspaces before re-run.
+- **[evolve_kb_batch.py](evolve_kb_batch.py)**: **Outer loop** — batch orchestrator (subset CSV, resume, result aggregation).
+- **Governor (inner loop)**: [`Self-Evolving-Agent/kernelbench_integration/`](../../Self-Evolving-Agent/kernelbench_integration/) — see [developer README](../../Self-Evolving-Agent/kernelbench_integration/README.md).
+  - `KBGovernor` runs Gen3 staged prompts + KernelBench subprocess eval for one problem.
+  - Deprecated shim: [kb_governor.py](kb_governor.py) re-exports `kernelbench_integration` with a warning.
 
 - **[RUN_WITH_UV.md](RUN_WITH_UV.md)**: Standardized execution guide using the `uv` package manager for reproducible environments and dependency management.
 
 ### Testing & Verification
-- **[test_kb_governor.py](test_kb_governor.py)**: Unit tests for `KBGovernor` logic, including dry-run modes and evaluation mocking.
-- **[test_evolve_kb_batch.py](test_evolve_kb_batch.py)**: Integration tests for the batch orchestrator, verifying CSV parsing and result aggregation.
+- Governor unit tests: [`Self-Evolving-Agent/tests/test_kb_governor.py`](../../Self-Evolving-Agent/tests/test_kb_governor.py)
+- **[tests/test_evolve_kb_batch.py](tests/test_evolve_kb_batch.py)**: Batch orchestrator integration tests.
 
 ---
 
@@ -30,8 +23,8 @@ This directory contains the Gen3 KernelBench integration: staged prompts, L1 ski
 This integration relies on shared components located in the `Self-Evolving-Agent/` submodule:
 
 ### Shared Models
-- **[Self-Evolving-Agent/kernelbench/config.py](../../Self-Evolving-Agent/kernelbench/config.py)**: Defines `KBGovernorConfig`, which controls hyperparameters like `max_iterations`, `temperature`, and `promotion` thresholds.
-- **[Self-Evolving-Agent/kernelbench/schemas.py](../../Self-Evolving-Agent/kernelbench/schemas.py)**: Defines `KBEvalResult` and `KBGovernorResult` for structured data exchange between the governor and the orchestrator.
+- **[Self-Evolving-Agent/kernelbench_integration/config.py](../../Self-Evolving-Agent/kernelbench_integration/config.py)**: `KBGovernorConfig`
+- **[Self-Evolving-Agent/kernelbench_integration/schemas.py](../../Self-Evolving-Agent/kernelbench_integration/schemas.py)**: `KBEvalResult`, `KBGovernorResult`
 
 ### `evolving_common` Helpers
 The `KBGovernor` leverages these modules from `Self-Evolving-Agent/evolving_common/`:
