@@ -24,6 +24,11 @@ if str(_SELF_EVOLVING_ROOT) not in sys.path:
     sys.path.append(str(_SELF_EVOLVING_ROOT))
 
 from evolving_common.benchmark_memory import fresh_l0_for_problem, l0_entries_to_json_serializable
+from evolving_common.eval_feedback import (
+    BEST_EVAL_FEEDBACK_EMPTY,
+    format_best_eval_feedback,
+    format_kernelbench_best_metrics,
+)
 from evolving_common.execution import evaluate_in_subprocess
 from evolving_common.governor import maybe_promote_l0_to_l1, normalize_extracted_python
 from evolving_common.governor.l0_round_summary import maybe_summarize_l0_round
@@ -247,7 +252,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         selected_l1_entries: list[dict[str, str]] | None = None,
         allowed_actions: list[str] | None = None,
         iteration_context: str | None = None,
-        latest_eval_feedback: str | None = None,
+        best_eval_feedback: str | None = None,
     ) -> str:
         return build_user_prompt_with_memory(
             task_section=task_prompt,
@@ -256,7 +261,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             selected_l1_entries=selected_l1_entries,
             allowed_actions=allowed_actions,
             iteration_context=iteration_context,
-            latest_eval_feedback=latest_eval_feedback,
+            best_eval_feedback=best_eval_feedback,
             task_heading="## Official KernelBench task prompt",
             closing_instruction=(
                 f"KernelBench Level {self.config.level}, Problem {self.config.problem_id}. "
@@ -297,19 +302,6 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             on_l0_cleared_without_l1=recorder.flush_without_l1_callback(attempt),
             clear_l0_after_promotion=False,
             last_promoted_round_count=self._last_promoted_round_count,
-        )
-
-    def _latest_eval_feedback(self, records: list[KBIterationRecord]) -> str:
-        if not records:
-            return "No prior evaluation feedback in this run."
-        latest = records[-1]
-        evaluation = latest.evaluation
-        code_preview = (latest.candidate_code or "").strip()
-        return (
-            f"attempt={latest.attempt}, compiled={evaluation.compiled}, "
-            f"correct={evaluation.correct}, speedup={float(evaluation.speedup or 0.0):.6f}, "
-            f"error={evaluation.error_message or 'none'}\n"
-            f"candidate_code:\n{code_preview}"
         )
 
     def _build_iteration_context(
@@ -399,7 +391,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         task_prompt: str,
         l1_entries: list[dict[str, str]],
         iteration_context: str,
-        latest_eval_feedback: str,
+        best_eval_feedback: str,
         selected_action: str | None = None,
         l1_catalog: str | None = None,
     ) -> list[dict[str, str]]:
@@ -407,7 +399,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             task_prompt=task_prompt,
             l1_entries=l1_entries,
             iteration_context=iteration_context,
-            latest_eval_feedback=latest_eval_feedback,
+            best_eval_feedback=best_eval_feedback,
             max_memories=self.config.extractor_max_memories,
             selected_action=selected_action,
             l1_catalog=l1_catalog,
@@ -591,7 +583,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         l1_path: Path,
         records: list[KBIterationRecord],
         iteration_context: str,
-        latest_eval_feedback: str,
+        best_eval_feedback: str,
         recorder: BenchmarkRunRecorder,
     ) -> tuple[
         str | None,
@@ -663,7 +655,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                 task_prompt=task_prompt,
                 l1_entries=l1_entries,
                 iteration_context=iteration_context,
-                latest_eval_feedback=latest_eval_feedback,
+                best_eval_feedback=best_eval_feedback,
                 selected_action=action_norm,
                 l1_catalog=l1_catalog,
             )
@@ -721,7 +713,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             action=action_norm,
             task_section=task_prompt,
             iteration_context=iteration_context,
-            latest_eval_feedback=latest_eval_feedback,
+            best_eval_feedback=best_eval_feedback,
             l0_recent_full=l0_recent_coder,
             l0_archived_summary=archived_summary,
             l1_catalog=l1_catalog,
@@ -776,7 +768,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     action=action_norm,
                     task_section=task_prompt,
                     iteration_context=iteration_context,
-                    latest_eval_feedback=latest_eval_feedback,
+                    best_eval_feedback=best_eval_feedback,
                     l0_recent_full=l0_recent_coder,
                     l0_archived_summary=archived_summary,
                     l1_catalog=l1_catalog,
@@ -839,6 +831,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         best_runtime = -1.0
         best_runtime_stats: dict[str, Any] = {}
         best_metadata: dict[str, Any] = {}
+        best_eval_feedback = BEST_EVAL_FEEDBACK_EMPTY
         run_error: str | None = None
         fatal_error_count = 0
 
@@ -853,7 +846,6 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     best_correct=best_correct,
                     best_compiled=best_compiled,
                 )
-                latest_eval_feedback = self._latest_eval_feedback(records)
                 action_norm = self._fallback_action(
                     attempt=attempt,
                     records=records,
@@ -880,7 +872,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                             l1_path=l1_path,
                             records=records,
                             iteration_context=iteration_context,
-                            latest_eval_feedback=latest_eval_feedback,
+                            best_eval_feedback=best_eval_feedback,
                             recorder=recorder,
                         )
                     else:
@@ -894,7 +886,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                                 task_prompt=task_prompt,
                                 l1_entries=l1_entries,
                                 iteration_context=iteration_context,
-                                latest_eval_feedback=latest_eval_feedback,
+                                best_eval_feedback=best_eval_feedback,
                             )
                             try:
                                 extractor_model_id = (
@@ -954,7 +946,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                             selected_l1_entries=selected_l1_entries,
                             allowed_actions=ALLOWED_CODER_ACTIONS,
                             iteration_context=iteration_context,
-                            latest_eval_feedback=latest_eval_feedback,
+                            best_eval_feedback=best_eval_feedback,
                         )
                         coder_messages = [
                             {"role": "system", "content": LEGACY_CODER_SYSTEM_PROMPT},
@@ -1119,6 +1111,17 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                         best_metadata = dict(eval_result.metadata)
                         best_code_path = workspace_dir / f"best_iter_{attempt}.py"
                         best_code_path.write_text(code, encoding="utf-8")
+                        best_eval_feedback = format_best_eval_feedback(
+                            attempt=attempt,
+                            metrics_line=format_kernelbench_best_metrics(
+                                compiled=bool(eval_result.compiled),
+                                correct=bool(eval_result.correct),
+                                speedup=speedup,
+                                error_message=eval_result.error_message,
+                            ),
+                            evaluation_output=terminal_log,
+                            candidate_code=code,
+                        )
 
                 metrics_iteration = {
                     "attempt": attempt,
