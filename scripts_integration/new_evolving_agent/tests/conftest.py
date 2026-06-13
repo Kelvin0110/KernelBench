@@ -21,8 +21,8 @@ sys.modules.setdefault('kernelbench', _kb_pkg)
 sys.modules.setdefault('kernelbench.dataset', _kb_dataset)
 sys.modules.setdefault('kernelbench.prompt_constructor_toml', _kb_prompt)
 
-_kb_governor = ModuleType('scripts_integration.new_evolving_agent_gen3.kb_governor')
+_kb_governor = ModuleType('scripts_integration.new_evolving_agent.kb_governor')
 _kb_governor.KBGovernorConfig = MagicMock
 _kb_governor.governor_result_to_dict = lambda result: dict(result)
 _kb_governor.safe_run_kb_governor = MagicMock()
-sys.modules.setdefault('scripts_integration.new_evolving_agent_gen3.kb_governor', _kb_governor)
+sys.modules.setdefault('scripts_integration.new_evolving_agent.kb_governor', _kb_governor)

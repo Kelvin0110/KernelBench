@@ -49,11 +49,11 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
 ## 5) Real CUDA run
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent_gen3/evolve_kb_batch.py --run-name memory_evolving_agent_gen3_itr40 --max-iterations 40 >> new_evolving_gpu_run_gen3_itr40_Jun_4.log 2>&1
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name memory_evolving_agent_gen3_itr40 --max-iterations 40 >> new_evolving_gpu_run_gen3_itr40_Jun_4.log 2>&1
 ```
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent_gen3/evolve_kb_batch.py --run-name debug_memory_evolving_agent_gen3 --max-problems 2 --max-iterations 5 >> debug_memory_evolving_agent_gen3.log 2>&1
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name debug_memory_evolving_agent_gen3 --max-problems 2 --max-iterations 5 >> debug_memory_evolving_agent_gen3.log 2>&1
 ```
 
 ## 6) Resume after failure (429, rate limits, etc.)
@@ -65,7 +65,7 @@ If a batch stops partway through (for example `coder_call_error: RateLimitError`
 3. Re-run with `--resume` (no new timestamp is appended). Problems before `--start-problem` are left unchanged; from that index through the end, prior records are replaced and per-problem workspaces are cleared before re-run.
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent_gen3/evolve_kb_batch.py \
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
   --run-name memory_evolving_agent_gen3_itr10_2026_06_03_11_30 \
   --max-problems 50 \
@@ -77,7 +77,7 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 Dry-run resume (validate indexing only):
 
 ```bash
-uv run python scripts_integration/new_evolving_agent_gen3/evolve_kb_batch.py \
+uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
   --run-name memory_evolving_agent_gen3_itr10_2026_06_03_11_30 \
   --subset-csv subset_selection/selected_problems_50.csv \

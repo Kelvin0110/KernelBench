@@ -21,7 +21,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
-from scripts_integration.new_evolving_agent_gen3.kb_governor import (
+from scripts_integration.new_evolving_agent.kb_governor import (
     KBGovernorConfig,
     cleanup_problem_build_artifacts,
     governor_result_to_dict,

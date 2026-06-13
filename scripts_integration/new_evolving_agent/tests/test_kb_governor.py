@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts_integration.new_evolving_agent_gen3 import kb_governor as governor
+from scripts_integration.new_evolving_agent import kb_governor as governor
 
 
 class _FakeEvalResult:
