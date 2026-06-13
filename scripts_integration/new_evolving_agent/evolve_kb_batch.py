@@ -275,18 +275,15 @@ def _summarize_per_level_runs(runs: list[dict[str, Any]]) -> dict[str, dict[str,
         bucket["completed"] += 1
         if entry.get("best_correct"):
             bucket["correct"] += 1
-        bucket["best_speedup"] = max(
-            float(bucket["best_speedup"]),
-            float(entry.get("best_speedup", 0.0) or 0.0),
-        )
-        runtime = entry.get("runtime")
         try:
-            runtime_f = float(runtime)
+            runtime_f = float(entry.get("runtime"))
         except Exception:
             runtime_f = -1.0
-        if runtime_f >= 0:
-            current = bucket.get("best_runtime")
-            bucket["best_runtime"] = runtime_f if current is None else min(float(current), runtime_f)
+        if entry.get("best_correct") and runtime_f >= 0:
+            current_best = bucket.get("best_runtime")
+            if current_best is None or runtime_f < float(current_best):
+                bucket["best_runtime"] = runtime_f
+                bucket["best_speedup"] = float(entry.get("best_speedup", 0.0) or 0.0)
     return per_level
 
 
@@ -352,6 +349,12 @@ def main() -> int:
         "--no-l1",
         action="store_true",
         help="Disable L1 memory for this run (no promotion, no extractor).",
+    )
+    parser.add_argument(
+        "--baseline-timing-file",
+        type=str,
+        default=None,
+        help="Fixed baseline timing JSON for speedup (default: results/timing/SONG_CPU2_A6000x2/baseline_time_torch.json)",
     )
     parser.add_argument(
         "--resume",
@@ -517,6 +520,9 @@ def main() -> int:
                 results_root=Path(args.results_root),
                 reference_code=problem.code,
                 run_recorder_time_sample_interval_sec=args.time_sample_interval_sec,
+                baseline_timing_file=Path(args.baseline_timing_file)
+                if args.baseline_timing_file
+                else None,
                 verbose=True,
             )
             result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
@@ -556,21 +562,25 @@ def main() -> int:
 
     successful = [e for e in runs if e.get("best_correct")]
     best_overall = 0.0
-    if successful:
-        best_overall = max(float(e.get("best_speedup", 0.0)) for e in successful)
-
     best_runtime_overall: float | None = None
     runtime_candidates: list[float] = []
-    for entry in runs:
-        runtime = entry.get("runtime")
+    for entry in successful:
         try:
-            runtime_f = float(runtime)
+            runtime_f = float(entry.get("runtime"))
         except Exception:
             continue
         if runtime_f >= 0:
             runtime_candidates.append(runtime_f)
     if runtime_candidates:
         best_runtime_overall = min(runtime_candidates)
+        for entry in successful:
+            try:
+                runtime_f = float(entry.get("runtime"))
+            except Exception:
+                continue
+            if runtime_f == best_runtime_overall:
+                best_overall = float(entry.get("best_speedup", 0.0) or 0.0)
+                break
 
     summary = {
         "run_name": args.run_name,
