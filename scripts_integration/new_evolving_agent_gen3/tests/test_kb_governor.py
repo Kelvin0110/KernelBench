@@ -57,8 +57,8 @@ def test_governor_run_returns_best_metrics(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(governor, 'maybe_promote_l0_to_l1', _fake_promote)
 
     def _fake_round_summarize(rnd, **_kwargs):
-        from evolving_common_gen3.l0_context import format_round_summary_fallback
-        from evolving_common_gen3.memory_manager import set_l0_round_summary
+        from evolving_common.l0_context import format_round_summary_fallback
+        from evolving_common.memory_manager import set_l0_round_summary
 
         text = format_round_summary_fallback(rnd)
         set_l0_round_summary(rnd, text)

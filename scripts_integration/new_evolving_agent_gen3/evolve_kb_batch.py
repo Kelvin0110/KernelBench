@@ -297,9 +297,9 @@ def _check_integration_dependencies(*, dry_run: bool) -> None:
             missing.append("kernelbench package")
 
     try:
-        __import__("evolving_common_gen3")
+        __import__("evolving_common")
     except Exception:
-        missing.append("Self-Evolving-Agent/evolving_common_gen3")
+        missing.append("Self-Evolving-Agent/evolving_common")
 
     if missing:
         raise RuntimeError(

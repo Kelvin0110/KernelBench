@@ -1,6 +1,6 @@
 # KernelBench Integration: New Evolving Agent
 
-This directory contains the Gen3 KernelBench integration: staged prompts, L1 skill catalog, and L0 compaction. It uses `Self-Evolving-Agent/evolving_common_gen3` (not Gen2 `evolving_common`).
+This directory contains the Gen3 KernelBench integration: staged prompts, L1 skill catalog, and L0 compaction. It uses `Self-Evolving-Agent/evolving_common`.
 
 ## 1. Key Files & Responsibilities
 
@@ -33,8 +33,8 @@ This integration relies on shared components located in the `Self-Evolving-Agent
 - **[Self-Evolving-Agent/kernelbench/config.py](../../Self-Evolving-Agent/kernelbench/config.py)**: Defines `KBGovernorConfig`, which controls hyperparameters like `max_iterations`, `temperature`, and `promotion` thresholds.
 - **[Self-Evolving-Agent/kernelbench/schemas.py](../../Self-Evolving-Agent/kernelbench/schemas.py)**: Defines `KBEvalResult` and `KBGovernorResult` for structured data exchange between the governor and the orchestrator.
 
-### `evolving_common_gen3` Helpers
-The `KBGovernor` leverages these modules from `Self-Evolving-Agent/evolving_common_gen3/`:
+### `evolving_common` Helpers
+The `KBGovernor` leverages these modules from `Self-Evolving-Agent/evolving_common/`:
 - **`llm_client`**: Handles structured NVIDIA/OpenAI-compatible API calls with retry logic.
   - Exposes assistant `content` and `reasoning` in metadata for downstream logging.
   - Supports a dedicated extractor-model path (`call_extractor_with_meta`) used to retrieve relevant L1 memories before each coder call.

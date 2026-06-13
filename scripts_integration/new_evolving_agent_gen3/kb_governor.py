@@ -23,32 +23,32 @@ if str(_SELF_EVOLVING_ROOT) not in sys.path:
     # Keep root package precedence for KernelBench dataset/eval imports.
     sys.path.append(str(_SELF_EVOLVING_ROOT))
 
-from evolving_common_gen3.benchmark_memory import fresh_l0_for_problem, l0_entries_to_json_serializable
-from evolving_common_gen3.execution import evaluate_in_subprocess
-from evolving_common_gen3.governor import maybe_promote_l0_to_l1, normalize_extracted_python
-from evolving_common_gen3.governor.l0_round_summary import maybe_summarize_l0_round
-from evolving_common_gen3.governor.base import BaseEvolvingGovernor
-from evolving_common_gen3.governor.code_extract import parse_selected_entry_ids, parse_unfold_round_ids
-from evolving_common_gen3.governor.gpu_reserver import GPUMemoryReserver
-from evolving_common_gen3.governor.util import (
+from evolving_common.benchmark_memory import fresh_l0_for_problem, l0_entries_to_json_serializable
+from evolving_common.execution import evaluate_in_subprocess
+from evolving_common.governor import maybe_promote_l0_to_l1, normalize_extracted_python
+from evolving_common.governor.l0_round_summary import maybe_summarize_l0_round
+from evolving_common.governor.base import BaseEvolvingGovernor
+from evolving_common.governor.code_extract import parse_selected_entry_ids, parse_unfold_round_ids
+from evolving_common.governor.gpu_reserver import GPUMemoryReserver
+from evolving_common.governor.util import (
     extract_optional_tag,
     get_fallback_action,
     parse_action_selector_response,
 )
-from evolving_common_gen3.l0_context import (
+from evolving_common.l0_context import (
     build_l0_archived_catalog,
     build_l0_global_summary,
     build_l0_recent_full,
     build_l0_unfolded_full,
 )
-from evolving_common_gen3.llm_client import (
+from evolving_common.llm_client import (
     call_action_selector_with_meta,
     call_coder_with_meta,
     call_extractor_with_meta,
     get_action_selector_model_id,
     resolve_nvidia_model_id,
 )
-from evolving_common_gen3.memory_manager import (
+from evolving_common.memory_manager import (
     L0Round,
     PromotionTrigger,
     finalize_l0_round,
@@ -56,8 +56,8 @@ from evolving_common_gen3.memory_manager import (
     read_l1,
     read_l1_jsonl,
 )
-from evolving_common_gen3.metrics_holder import BestMetricsHolder
-from evolving_common_gen3.prompt_context import (
+from evolving_common.metrics_holder import BestMetricsHolder
+from evolving_common.prompt_context import (
     ACTION_SELECTOR_SYSTEM_PROMPT,
     ALLOWED_CODER_ACTIONS,
     BASE_EVOLVING_CODER_SYSTEM_PROMPT,
@@ -76,7 +76,7 @@ from evolving_common_gen3.prompt_context import (
     build_user_prompt_with_memory,
     format_l0_for_coder_prompt,
 )
-from evolving_common_gen3.run_recorder import BenchmarkRunRecorder, RunRecorderConfig
+from evolving_common.run_recorder import BenchmarkRunRecorder, RunRecorderConfig
 
 
 def _load_module_from_file(file_path: Path, module_name: str):
@@ -229,7 +229,7 @@ def _kernelbench_eval_worker(payload: dict[str, Any], out_queue: Any) -> None:
 
 
 class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
-    """KernelBench governor that plugs into evolving_common_gen3 memory/prompt/logging utilities."""
+    """KernelBench governor that plugs into evolving_common memory/prompt/logging utilities."""
 
     def __init__(self, config: KBGovernorConfig) -> None:
         super().__init__(max_iterations=config.max_iterations)
