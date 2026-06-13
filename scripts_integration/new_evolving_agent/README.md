@@ -85,9 +85,10 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `l1_catalog_max_skills` | `50` | Most recent L1 skills shown in extractor catalog (metadata only) |
 | `action_selector_recent_l0_full` | `15` | Full L0 attempts shown to action selector |
 | `action_coder_l0_full_recent` | `15` | Full L0 attempts in coder prompt |
-| `enable_l0_unfold` | `true` | Coder preflight unfold passes |
+| `context_management` | `truncation` | `truncation`: latest N raw L0 rounds only; `folding`: archived summaries, round summaries, and unfold preflight |
+| `enable_l0_unfold` | `true` | Coder preflight unfold passes (folding mode only) |
 | `l0_unfold_max_attempts` | `1` | Max preflight rounds per iteration |
-| `enable_l0_round_summary` | `true` | LLM summary after each round (fallback: deterministic line) |
+| `enable_l0_round_summary` | `true` | LLM summary after each round (folding mode only; fallback: deterministic line) |
 | `l0_round_summary_max_tokens` | `512` | Max tokens for round summarizer |
 | `promote_every_n_rounds` | `2` | L1 promotion after this many new rounds since last promotion |
 | `promote_token_budget` | `4000` | Alternate promotion trigger on serialized round payload size |

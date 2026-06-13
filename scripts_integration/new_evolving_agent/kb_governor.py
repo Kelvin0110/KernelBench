@@ -24,6 +24,7 @@ if str(_SELF_EVOLVING_ROOT) not in sys.path:
     sys.path.append(str(_SELF_EVOLVING_ROOT))
 
 from evolving_common.benchmark_memory import fresh_l0_for_problem, l0_entries_to_json_serializable
+from evolving_common.context_management import use_l0_folding
 from evolving_common.eval_feedback import (
     BEST_EVAL_FEEDBACK_EMPTY,
     format_best_eval_feedback,
@@ -375,7 +376,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         )
         maybe_summarize_l0_round(
             rnd,
-            enable=self.config.enable_l0_round_summary,
+            enable=self.config.enable_l0_round_summary and use_l0_folding(self.config.context_management),
             max_tokens=self.config.l0_round_summary_max_tokens,
             timeout_sec=self.config.l0_round_summary_timeout_sec,
             code_excerpt_chars=self.config.l0_round_code_excerpt_chars,
@@ -601,7 +602,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
         Gen3 flow: action_selector -> l1_skill_picker -> action prompt -> preflight unfold -> coder.
         Returns (raw, meta, coder_messages, action_norm, selector_rationale).
         """
-        l0_summary = build_l0_global_summary(l0)
+        l0_summary = build_l0_global_summary(l0) if use_l0_folding(self.config.context_management) else ""
         l0_recent_selector = build_l0_recent_full(
             l0,
             self.config.action_selector_recent_l0_full,
@@ -618,6 +619,7 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                         task_section=task_prompt,
                         l0_summary=l0_summary,
                         l0_recent_full_last_n=l0_recent_selector,
+                        context_management=self.config.context_management,
                     ),
                 },
             ]
@@ -709,11 +711,15 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             l0,
             self.config.action_coder_l0_full_recent,
         )
-        archived_catalog, archived_pairs = build_l0_archived_catalog(
-            l0,
-            exclude_recent=self.config.action_coder_l0_full_recent,
-        )
+        archived_catalog = "(no archived rounds — all history is in recent full section)"
+        archived_pairs: list[tuple[str, str]] = []
         archived_summary = archived_catalog
+        if use_l0_folding(self.config.context_management):
+            archived_catalog, archived_pairs = build_l0_archived_catalog(
+                l0,
+                exclude_recent=self.config.action_coder_l0_full_recent,
+            )
+            archived_summary = archived_catalog
 
         prev_code, prev_terminal = self._previous_attempt_artifacts(records)
         user_prompt = build_action_coder_user_prompt(
@@ -723,17 +729,18 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
             best_eval_feedback=best_eval_feedback,
             l0_recent_full=l0_recent_coder,
             l0_archived_summary=archived_summary,
-            l1_catalog=l1_catalog,
             selected_l1_skills=build_selected_l1_skills_section(selected_l1_entries),
             closing_instruction=self._closing_instruction(),
             previous_code=prev_code,
             previous_terminal=prev_terminal,
+            context_management=self.config.context_management,
         )
 
         valid_round_ids = {rid for rid, _ in archived_pairs}
         unfolded_ids: list[str] = []
         if (
-            self.config.enable_l0_unfold
+            use_l0_folding(self.config.context_management)
+            and self.config.enable_l0_unfold
             and valid_round_ids
             and self.config.l0_unfold_max_attempts > 0
         ):
@@ -778,15 +785,21 @@ class KBGovernor(BaseEvolvingGovernor[KBEvalResult]):
                     best_eval_feedback=best_eval_feedback,
                     l0_recent_full=l0_recent_coder,
                     l0_archived_summary=archived_summary,
-                    l1_catalog=l1_catalog,
                     selected_l1_skills=build_selected_l1_skills_section(selected_l1_entries),
                     closing_instruction=self._closing_instruction(),
                     previous_code=prev_code,
                     previous_terminal=prev_terminal,
                     unfolded_l0=unfolded_block,
+                    context_management=self.config.context_management,
                 )
 
-        user_prompt = user_prompt + build_coder_final_user_appendix()
+        user_prompt = user_prompt + build_coder_final_user_appendix(
+            after_preflight=(
+                use_l0_folding(self.config.context_management)
+                and self.config.enable_l0_unfold
+                and self.config.l0_unfold_max_attempts > 0
+            ),
+        )
         coder_messages = [
             {"role": "system", "content": CODER_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
