@@ -1,10 +1,16 @@
+import importlib.util
 import sys
 import os
+from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../Self-Evolving-Agent')))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SEA_ROOT = REPO_ROOT / "Self-Evolving-Agent"
+SRC_ROOT = REPO_ROOT / "src"
+for path in (str(SEA_ROOT), str(REPO_ROOT), str(SRC_ROOT)):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 if 'torch' not in sys.modules:
     _torch = ModuleType('torch')
@@ -20,6 +26,21 @@ _kb_prompt.get_prompt_for_backend = MagicMock()
 sys.modules.setdefault('kernelbench', _kb_pkg)
 sys.modules.setdefault('kernelbench.dataset', _kb_dataset)
 sys.modules.setdefault('kernelbench.prompt_constructor_toml', _kb_prompt)
+
+if "kernelbench.performance_stats" not in sys.modules:
+    score_path = SRC_ROOT / "kernelbench" / "score.py"
+    score_spec = importlib.util.spec_from_file_location("kernelbench.score", score_path)
+    if score_spec and score_spec.loader:
+        score_mod = importlib.util.module_from_spec(score_spec)
+        sys.modules["kernelbench.score"] = score_mod
+        score_spec.loader.exec_module(score_mod)
+
+    perf_path = SRC_ROOT / "kernelbench" / "performance_stats.py"
+    spec = importlib.util.spec_from_file_location("kernelbench.performance_stats", perf_path)
+    if spec and spec.loader:
+        perf_mod = importlib.util.module_from_spec(spec)
+        sys.modules["kernelbench.performance_stats"] = perf_mod
+        spec.loader.exec_module(perf_mod)
 
 _kb_governor = ModuleType('scripts_integration.new_evolving_agent.kb_governor')
 _kb_governor.KBGovernorConfig = MagicMock
