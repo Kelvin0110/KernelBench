@@ -183,3 +183,23 @@ nohup uv run python scripts_integration/docker/docker_batch_run.py \
 ```
 
 > Remark: gpu_memory_fraction set to be non 0 since initialize CUDA inside parent process leads to duplication of GPU memory usage. Hence, gpu reserver cannot be used in the aide setting.
+
+# Merge and update the results run log
+## Preview first
+```bash
+python scripts_integration/docker/update_run_from_source.py \
+  --target-run aide_subset_gpt_oss_120b_step40_new_problem_set \
+  --source-run aide_subset_gpt_oss_120b_step40_L1P58 \
+  --source-problem-id 58 \
+  --target-problem-id 38 \
+  --dry-run
+```
+
+## Apply
+```bash
+python scripts_integration/docker/update_run_from_source.py \
+  --target-run aide_subset_gpt_oss_120b_step40_new_problem_set \
+  --source-run aide_subset_gpt_oss_120b_step40_L1P58 \
+  --source-problem-id 58 \
+  --target-problem-id 38
+```

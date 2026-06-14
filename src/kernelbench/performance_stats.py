@@ -69,6 +69,14 @@ def median(values: list[float]) -> float:
     return float(np.median(values)) if values else 0.0
 
 
+def geometric_mean(values: list[float]) -> float:
+    """Geometric mean of strictly positive speedup values."""
+    positive = [v for v in values if v > 0]
+    if not positive:
+        return 0.0
+    return float(np.prod(positive) ** (1.0 / len(positive)))
+
+
 def parse_fastp_values(raw: str | None) -> list[float]:
     if not raw:
         return list(DEFAULT_FAST_P_THRESHOLDS)
