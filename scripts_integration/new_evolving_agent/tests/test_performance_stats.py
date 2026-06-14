@@ -22,6 +22,41 @@ def _load_generate_run_module():
     return module
 
 
+def _load_generate_aide_module():
+    repo_root = Path(__file__).resolve().parents[3]
+    script_path = repo_root / "Self-Evolving-Agent" / "visualizations" / "kernelbench" / "server" / "generate_aide_integration_stats.py"
+    spec = importlib.util.spec_from_file_location("generate_aide_integration_stats", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_records_for_current_fastp_gate_unchanged_code() -> None:
+    module = _load_generate_aide_module()
+    records = [
+        {
+            "level": 1,
+            "problem_id": 1,
+            "baseline_runtime": 10.0,
+            "runtime": 25.1,
+            "correct": True,
+            "code_changed_since_last_checkpoint": False,
+        },
+        {
+            "level": 1,
+            "problem_id": 2,
+            "baseline_runtime": 10.0,
+            "runtime": 5.0,
+            "correct": True,
+            "code_changed_since_last_checkpoint": True,
+        },
+    ]
+    gated = module._records_for_current_fastp(records)
+    assert gated[0]["correct"] is False
+    assert gated[1]["correct"] is True
+
+
 def test_parse_fastp_values_dedup_and_sorted() -> None:
     values = parse_fastp_values("1.0,0.8,1.0,0.5")
     assert values == [0.5, 0.8, 1.0]
