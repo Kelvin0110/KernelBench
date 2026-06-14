@@ -77,6 +77,27 @@ def geometric_mean(values: list[float]) -> float:
     return float(np.prod(positive) ** (1.0 / len(positive)))
 
 
+def aggregate_speedups(
+    speedups: list[float],
+    correct_flags: list[bool],
+) -> dict[str, float]:
+    """Aggregate speedups over correct samples only.
+
+    Failed/incorrect problems are excluded from mean and median. Geometric mean
+    further requires speedup > 0 (matching ``geometric_mean_speed_ratio_correct_only``).
+    """
+    if len(speedups) != len(correct_flags):
+        raise ValueError("speedups and correct_flags must have the same length")
+
+    correct_speedups = [float(s) for s, ok in zip(speedups, correct_flags) if ok]
+    positive_correct = [s for s in correct_speedups if s > 0]
+    return {
+        "mean": mean(correct_speedups),
+        "median": median(correct_speedups),
+        "geometric_mean": geometric_mean(positive_correct),
+    }
+
+
 def parse_fastp_values(raw: str | None) -> list[float]:
     if not raw:
         return list(DEFAULT_FAST_P_THRESHOLDS)

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from kernelbench.performance_stats import (
     align_series_for_comparison,
+    aggregate_speedups,
     compute_fastp_from_records,
     parse_fastp_values,
 )
@@ -24,6 +25,17 @@ def _load_generate_run_module():
 def test_parse_fastp_values_dedup_and_sorted() -> None:
     values = parse_fastp_values("1.0,0.8,1.0,0.5")
     assert values == [0.5, 0.8, 1.0]
+
+
+def test_aggregate_speedups_uses_correct_samples_only() -> None:
+    speedups = [2.0, 0.0, 4.0, 0.0]
+    correct_flags = [True, False, True, True]
+
+    agg = aggregate_speedups(speedups, correct_flags)
+
+    assert agg["mean"] == 2.0
+    assert agg["median"] == 2.0
+    assert agg["geometric_mean"] == (2.0 * 4.0) ** 0.5
 
 
 def test_compute_fastp_from_records_supports_best_runtime_mode() -> None:
