@@ -49,11 +49,13 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
 ## 5) Real CUDA run
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name memory_evolving_agent_gen3_itr40 --max-iterations 40 >> new_evolving_gpu_run_gen3_itr40_Jun_4.log 2>&1
+CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name memory_evolving_agent_base_itr50_old_prompt --max-iterations 50 >> new_evolving_gpu_run_base_itr50_Jun_17.log 2>&1
+
+CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name memory_evolving_agent_base_itr20_new_prompt --max-iterations 20 >> new_evolving_gpu_run_base_itr20_new_prompt_Jun_15.log 2>&1
 ```
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name debug_memory_evolving_agent_gen3 --max-problems 2 --max-iterations 5 >> debug_memory_evolving_agent_gen3.log 2>&1
+CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py --run-name debug_memory_evolving_agent_base --max-problems 2 --max-iterations 5 >> debug_memory_evolving_agent_base.log 2>&1
 ```
 
 ## 6) Resume after failure (429, rate limits, etc.)
