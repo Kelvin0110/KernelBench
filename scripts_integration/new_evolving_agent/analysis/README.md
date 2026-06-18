@@ -84,3 +84,23 @@ The output maps each run name to checkpoint rows with `fast_p` values at the sel
 uv run python Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py --run-name <RUN_NAME>
 uv run python Self-Evolving-Agent/visualizations/kernelbench/server/generate_aide_integration_stats.py --layout subset_run --run-name <AIDE_RUN_NAME>
 ```
+
+### `aggregate_action_selector_counts.py`
+
+Counts how often each evolving agent chose `propose_new`, `refine_current`, or `debug_current` in the **action_selector** phase.
+
+- Reads `runs_evolving/<run>/workspaces/<workspace>/chat_history.jsonl`.
+- Parses `assistant_text` JSON from rows with `phase == "action_selector"`.
+- Reports per-problem counts and run-level totals.
+
+Edit `EVOLVING_RUN_NAMES` at the top of the script to choose which runs to include.
+
+**Usage:**
+
+```bash
+uv run python scripts_integration/new_evolving_agent/analysis/aggregate_action_selector_counts.py
+```
+
+**Output:**
+
+- `scripts_integration/new_evolving_agent/analysis/aggregated_action_selector_counts.json`

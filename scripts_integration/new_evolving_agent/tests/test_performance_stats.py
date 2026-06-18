@@ -57,6 +57,33 @@ def test_records_for_current_fastp_gate_unchanged_code() -> None:
     assert gated[1]["correct"] is True
 
 
+def test_extract_action_from_truncated_selector_json() -> None:
+    module = _load_aggregate_action_selector_module()
+    truncated = (
+        '{"action":"refine_current","rationale":"The last three attempts did not improve '
+        "the best speedup (3.333x). The current a"
+    )
+    action, method = module._extract_action_from_text(truncated)
+    assert action == "refine_current"
+    assert method == "regex"
+
+
+def _load_aggregate_action_selector_module():
+    repo_root = Path(__file__).resolve().parents[3]
+    script_path = (
+        repo_root
+        / "scripts_integration"
+        / "new_evolving_agent"
+        / "analysis"
+        / "aggregate_action_selector_counts.py"
+    )
+    spec = importlib.util.spec_from_file_location("aggregate_action_selector_counts", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_parse_fastp_values_dedup_and_sorted() -> None:
     values = parse_fastp_values("1.0,0.8,1.0,0.5")
     assert values == [0.5, 0.8, 1.0]
