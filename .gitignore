@@ -27,6 +27,7 @@ workspaces/
 integration_test_task*/
 run_integration/*
 runs_evolving/*
+scripts_integration/new_evolving_agent/analysis/*.json
 
 aide/
 eval_log/
