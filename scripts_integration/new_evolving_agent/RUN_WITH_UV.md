@@ -46,6 +46,81 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --dry-run
 ```
 
+## 4.1) Skill refinement add-on (opt-in)
+
+Skill refinement is **off by default**. Pass `--enable-skill-refinement` to enable the
+SkillRevise-style inline diagnosis/revision loop (requires the Gen3 staged path with L1;
+this is the default). Refined skill versions are written to `shared_l1.jsonl` and
+mirrored in `skill_revisions.txt` next to the journal.
+
+### Unit tests (no GPU / no API key)
+
+From repository root:
+
+```bash
+uv run python -m pytest Self-Evolving-Agent/tests/test_skill_refinement.py -q
+uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py::test_main_dry_run_accepts_skill_refinement_flag -q
+```
+
+### Dry run with the flag (CLI plumbing only)
+
+Validates that `--enable-skill-refinement` is accepted; does **not** call the LLM or
+run skill refinement (dry-run skips GPU eval and governor execution).
+
+```bash
+uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name skill_refinement_dryrun \
+  --subset-csv subset_selection/selected_problems_50.csv \
+  --max-problems 1 \
+  --max-iterations 3 \
+  --enable-skill-refinement \
+  --skill-refinement-max-rounds 3 \
+  --backend cuda \
+  --precision fp32 \
+  --dry-run
+```
+
+### Small real CUDA run with skill refinement
+
+Use a short iteration budget first; refinement consumes main iterations inline (up to
+`--skill-refinement-max-rounds` per trigger, default 3).
+
+```bash
+export NVIDIA_API_KEY="your-key-here"
+
+CUDA_VISIBLE_DEVICES=0 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name skill_refinement_smoke \
+  --subset-csv subset_selection/selected_problems_50.csv \
+  --max-problems 1 \
+  --max-iterations 10 \
+  --enable-skill-refinement \
+  --skill-refinement-max-rounds 3 \
+  --backend cuda \
+  --precision fp32
+```
+
+Background example:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name skill_refinement_itr20 \
+  --subset-csv subset_selection/selected_problems_50.csv \
+  --max-problems 5 \
+  --max-iterations 20 \
+  --enable-skill-refinement \
+  --skill-refinement-max-rounds 3 \
+  >> skill_refinement_itr20.log 2>&1
+```
+
+After a real run, check:
+
+- `runs_evolving/<run_name>_*/shared_l1.jsonl` — versioned entries (`parent_id`, `version`, `status`)
+- `runs_evolving/<run_name>_*/skill_revisions.txt` — human-readable revision log
+- `workspaces/level_*_problem_*/chat_history.jsonl` — `skill_diagnosis` / `skill_revision` LLM turns
+
+Resume works the same as §6; add `--enable-skill-refinement` to the resume command if
+the original run used it.
+
 ## 5) Real CUDA run
 
 ```bash
@@ -93,6 +168,8 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
 Run artifacts are written to `runs_evolving/<run_name>/`:
 
 - `shared_l1.txt`
+- `shared_l1.jsonl` (structured L1 catalog; versioned when skill refinement is enabled)
+- `skill_revisions.txt` (present when `--enable-skill-refinement` wrote refined versions)
 - `eval_results.json` (level-first shape: `{level: {problem_id: [entries]}}`)
 - `eval_results_level_<level>.json`
 - `evolving_runs.json`
