@@ -86,30 +86,24 @@ Use a short iteration budget first; refinement consumes main iterations inline (
 `--skill-refinement-max-rounds` per trigger, default 3).
 
 ```bash
-export NVIDIA_API_KEY="your-key-here"
-
-CUDA_VISIBLE_DEVICES=0 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name skill_refinement_smoke \
-  --subset-csv subset_selection/selected_problems_50.csv \
-  --max-problems 1 \
-  --max-iterations 10 \
-  --enable-skill-refinement \
-  --skill-refinement-max-rounds 3 \
-  --backend cuda \
-  --precision fp32
-```
-
-Background example:
-
-```bash
-CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name skill_refinement_itr20 \
-  --subset-csv subset_selection/selected_problems_50.csv \
+CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_skill_refinement_smoke \
   --max-problems 5 \
   --max-iterations 20 \
   --enable-skill-refinement \
   --skill-refinement-max-rounds 3 \
-  >> skill_refinement_itr20.log 2>&1
+  >> base_agent_with_skill_refinement_smoke.log 2>&1 &
+```
+
+### Full run
+
+```bash
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_skill_refinement_itr20 \
+  --max-iterations 20 \
+  --enable-skill-refinement \
+  --skill-refinement-max-rounds 3 \
+  >> base_agent_with_skill_refinement_itr20.log 2>&1
 ```
 
 After a real run, check:
