@@ -85,6 +85,56 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `l0_round_summary_max_tokens` | `512` | Max tokens for round summarizer |
 | `promote_every_n_rounds` | `2` | L1 promotion after this many new rounds since last promotion |
 | `promote_token_budget` | `4000` | Alternate promotion trigger on serialized round payload size |
+| `enable_skill_refinement` | `false` | Opt-in SkillRevise-style skill refinement add-on (see §3.1). When off, the loop is unchanged |
+| `skill_refinement_max_rounds` | `3` | Max inline refinement rounds per trigger |
+| `skill_refinement_model` | `None` | Model spec for diagnosis/revision (defaults to the summarizer model) |
+| `skill_refinement_max_tokens` | `8192` | Max tokens for the revision call (diagnosis uses `min(this, 4096)`) |
+| `skill_refinement_timeout_sec` | `90.0` | Per-call timeout for diagnosis/revision |
+
+### 3.1 Skill Refinement add-on (opt-in, SkillRevise-style)
+
+Enable with `--enable-skill-refinement` (CLI) or `enable_skill_refinement=True` (config).
+**Disabled by default**; when off, the controller is a no-op and the loop behaves
+exactly as before. Refinement only runs on the Gen3 staged path with L1 enabled.
+
+**Trigger.** After an evaluated iteration that *used* one or more L1 skills but made
+**no progress** (it neither became a new best nor improved over the prior best —
+subsuming both "failed to fix the bug" and "failed to improve"), refinement begins.
+It will not start on the final iteration (no room to use the refined skills next).
+
+**Diagnosis (V/A/K).** An LLM produces a structured `Diagnosis`:
+- *Verification Specification* — the observable requirements (output contract,
+  shapes, correctness assertions, target metric + direction).
+- *Failure Attribution* — failed checks, root causes, and which skill(s) contributed.
+- *Preservation Constraints* — what already works and must not be broken.
+
+The diagnosis also returns `skill_defect` and `blamed_skill_ids`. If no provided
+skill is at fault, the controller **abstains** (no revision, loop continues normally).
+
+**Revision + pinning.** Each *blamed* skill is revised individually into a new
+version. The refined set (blamed skills replaced, unblamed kept) is **pinned**: the
+next iteration reuses it and **skips the L1 picker** (`forced_l1_entries`). This
+repeats inline for up to `skill_refinement_max_rounds` (default 3), each round
+consuming one main iteration (counts within `max_iterations`).
+
+**Finalize (utility-gated lazy deletion).** The window ends when the attempt becomes
+a new best, the diagnosis abstains, or the round budget is exhausted. The best
+version per skill chain is kept **active**; the rest are marked **superseded**.
+Selection is correctness-first, then metric, honoring `lower_is_better` so it
+generalizes to MLE-Bench metrics (KernelBench uses speedup, higher-better). Ties
+keep the original, so a refinement only wins by strictly improving.
+
+**Versioned catalog.** Refined versions are appended to `shared_l1.jsonl` with
+`parent_id`, `version`, `status` (`active|superseded|deleted`), `refinement_round`,
+`refinement_meta` (`bug_solved`, `metric_before/after`, `metric_delta_pct`,
+`lower_is_better`), and a `revision_trace`. `read_recent_l1_jsonl` returns only
+`active` versions, so superseded skills are never re-selected (lazy deletion: kept
+on disk for auditing). A human-readable mirror of each revision is appended to
+`skill_revisions.txt` next to the journal.
+
+Prompts: `SKILL_DIAGNOSIS_SYSTEM_PROMPT`, `SKILL_REVISION_SYSTEM_PROMPT`; engine in
+[`evolving_common/governor/skill_refinement.py`](../../Self-Evolving-Agent/evolving_common/governor/skill_refinement.py)
+(`RefinementController`). Tests: [`test_skill_refinement.py`](../../Self-Evolving-Agent/tests/test_skill_refinement.py).
 
 ### L0 round schema (Gen3)
 

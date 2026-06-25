@@ -120,6 +120,37 @@ def test_main_dry_run_writes_level_first_eval_results(tmp_path: Path, monkeypatc
     assert payload["2"]["5"][0]["metadata"]["level"] == 2
 
 
+def test_main_dry_run_accepts_skill_refinement_flag(tmp_path: Path, monkeypatch) -> None:
+    """The skill-refinement CLI flags are accepted and default off (dry-run smoke)."""
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n", encoding="utf-8")
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+
+    results_root = tmp_path / "results"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--subset-csv",
+            str(subset_csv),
+            "--run-name",
+            "skill_refine_flag",
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--max-problems",
+            "1",
+            "--enable-skill-refinement",
+            "--skill-refinement-max-rounds",
+            "2",
+        ],
+    )
+
+    assert evolve_kb_batch.main() == 0
+
+
 def _seed_resume_run_dir(run_dir: Path, *, runs: list[dict]) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "shared_l1.txt").write_text("# shared l1\n", encoding="utf-8")

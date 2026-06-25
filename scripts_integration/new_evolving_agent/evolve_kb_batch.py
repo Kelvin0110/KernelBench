@@ -351,6 +351,20 @@ def main() -> int:
         help="Disable L1 memory for this run (no promotion, no extractor).",
     )
     parser.add_argument(
+        "--enable-skill-refinement",
+        action="store_true",
+        help="Enable the SkillRevise-style skill refinement add-on. When a skill "
+        "fails to debug or improve the solution, the agent diagnoses and refines "
+        "the blamed skills inline (default: disabled).",
+    )
+    parser.add_argument(
+        "--skill-refinement-max-rounds",
+        type=int,
+        default=3,
+        help="Maximum number of inline skill-refinement rounds per trigger "
+        "(only used with --enable-skill-refinement).",
+    )
+    parser.add_argument(
         "--baseline-timing-file",
         type=str,
         default=None,
@@ -523,6 +537,8 @@ def main() -> int:
                 baseline_timing_file=Path(args.baseline_timing_file)
                 if args.baseline_timing_file
                 else None,
+                enable_skill_refinement=bool(args.enable_skill_refinement),
+                skill_refinement_max_rounds=int(args.skill_refinement_max_rounds),
                 verbose=True,
             )
             result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
