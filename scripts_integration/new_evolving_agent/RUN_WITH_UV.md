@@ -87,23 +87,23 @@ Use a short iteration budget first; refinement consumes main iterations inline (
 
 ```bash
 CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_skill_refinement_smoke \
+  --run-name base_agent_with_skill_refinement_ver2_smoke \
   --max-problems 5 \
   --max-iterations 20 \
   --enable-skill-refinement \
   --skill-refinement-max-rounds 3 \
-  >> base_agent_with_skill_refinement_smoke.log 2>&1 &
+  >> base_agent_with_skill_refinement_ver2_smoke.log 2>&1 &
 ```
 
 ### Full run
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_skill_refinement_itr20 \
-  --max-iterations 20 \
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_skill_refinement_ver2_itr50 \
+  --max-iterations 50 \
   --enable-skill-refinement \
   --skill-refinement-max-rounds 3 \
-  >> base_agent_with_skill_refinement_itr20.log 2>&1
+  >> base_agent_with_skill_refinement_ver2_itr50_Jun_27.log 2>&1
 ```
 
 After a real run, check:
@@ -135,30 +135,27 @@ uv run python -m pytest Self-Evolving-Agent/tests/test_kb_skill_memory.py -q
 uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py::test_main_dry_run_accepts_skill_deletion_flags -q
 ```
 
-### Dry run (CLI plumbing only)
-
-```bash
-uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name skill_deletion_dryrun \
-  --subset-csv subset_selection/selected_problems_50.csv \
-  --max-problems 1 \
-  --max-iterations 3 \
-  --enable-l1-skill-deletion \
-  --l1-skill-consecutive-unused-delete-after 50 \
-  --dry-run
-```
-
 ### Small real CUDA run — skill deletion only (no `--enable-skill-refinement`)
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name kb_skill_deletion_smoke \
+CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_skill_deletion_smoke \
   --max-problems 5 \
   --max-iterations 20 \
   --enable-l1-skill-deletion \
-  --l1-skill-consecutive-unused-delete-after 50 \
-  --l1-skill-deletion-grace-iterations 50 \
-  >> kb_skill_deletion_smoke.log 2>&1 &
+  --enable-l1-skill-unit-tests \
+  >> base_agent_with_skill_deletion_smoke.log 2>&1 &
+```
+
+### Full run
+
+```bash
+CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_skill_deletion_itr20 \
+  --max-iterations 20 \
+  --enable-l1-skill-deletion \
+  --enable-l1-skill-unit-tests \
+  >> base_agent_with_skill_deletion_itr20_Jun_28.log 2>&1
 ```
 
 To disable deletion (legacy capped extractor catalog):
