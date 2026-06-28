@@ -427,3 +427,18 @@
   - Tests: `Self-Evolving-Agent/tests/test_l0_rounds.py`; updated `test_gen3_prompt_context.py`.
 - **Impact**: L0 compaction in prompts is LLM-backed per round; L1 summarizer receives structured round payloads instead of flat entry logs.
 - **Status**: Completed
+
+### 2026-06-27 - Cursor Agent
+- **Feature**: KernelBench integration for newtdes L1 skill deletion + unit tests; skill-refinement improvements.
+- **Upstream (newtdes, Self-Evolving-Agent submodule, commits `2a9e16e`–`e4b35a3`)**:
+  - **Executable unit tests**: LLM prompts for `skill_impl.py` / `test_skill_impl.py`; `l1_skill_unit_test_run_timeout_sec` on Gen3 path; refactored `skill_unit_test.py` with artifact storage under `l1_skill_artifacts/<entry_id>/`.
+  - **MLE visualizer**: `visualizations/mlebench/server/skill_memory.py` + UI panel (skills, deletions, usage, artifact sources).
+- **KernelBench wiring**:
+  - `scripts_integration/new_evolving_agent/evolve_kb_batch.py`: CLI flags for `--enable-l1-skill-deletion`, unused-streak thresholds, unit-test toggles/timeouts (default deletion on; no skill refinement unless `--enable-skill-refinement`).
+  - `kernelbench_integration/config.py`: added `l1_skill_unit_test_run_timeout_sec`; governor passes full config into `run_gen3_coder_turn` via `model_dump()`.
+  - `visualizations/kernelbench/server/skill_memory.py` + `app.py` endpoint `GET /api/runs/{run_name}/skill-memory`; **Run L1 Skill Memory** panel in `index.html`.
+- **Skill refinement (Kelvin, prior commits)**: abstain cooldown, explicit finalize reasons, L0 diagnosis/revision storage, metrics-aware execution output in prompts.
+- **Docs**: `README.md` §3.2, `RUN_WITH_UV.md` §4.2 (skill-deletion-only CUDA example), `visualizations/kernelbench/README.md`.
+- **Tests**: `test_kb_skill_memory.py`, `test_main_dry_run_accepts_skill_deletion_flags`.
+- **Impact**: KernelBench batch runs use the same catalog-hygiene stack as MLE-Bench; visualizer surfaces deletions and unit-test artifacts per run. Skill refinement remains opt-in and composes independently.
+- **Status**: Completed
