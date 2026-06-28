@@ -115,6 +115,71 @@ After a real run, check:
 Resume works the same as §6; add `--enable-skill-refinement` to the resume command if
 the original run used it.
 
+## 4.2) L1 skill deletion & unit tests (default on, no skill refinement)
+
+Skill deletion and executable unit tests are **enabled by default** on the Gen3 path
+when L1 is on. They are independent of `--enable-skill-refinement` — use the
+commands below when you want catalog hygiene **without** the SkillRevise refinement loop.
+
+Policies (see `evolving_common/governor/skill_deletion.py`):
+- Unused-streak GC after `l1_skill_consecutive_unused_delete_after` global iterations
+- Optional LLM-generated `skill_impl.py` / `test_skill_impl.py` under
+  `l1_skill_artifacts/<entry_id>/` with subprocess validation
+
+### Unit tests (no GPU)
+
+```bash
+uv run python -m pytest Self-Evolving-Agent/tests/test_skill_deletion.py -q
+uv run python -m pytest Self-Evolving-Agent/tests/test_skill_unit_test.py -q
+uv run python -m pytest Self-Evolving-Agent/tests/test_kb_skill_memory.py -q
+uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py::test_main_dry_run_accepts_skill_deletion_flags -q
+```
+
+### Dry run (CLI plumbing only)
+
+```bash
+uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name skill_deletion_dryrun \
+  --subset-csv subset_selection/selected_problems_50.csv \
+  --max-problems 1 \
+  --max-iterations 3 \
+  --enable-l1-skill-deletion \
+  --l1-skill-consecutive-unused-delete-after 50 \
+  --dry-run
+```
+
+### Small real CUDA run — skill deletion only (no `--enable-skill-refinement`)
+
+```bash
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name kb_skill_deletion_smoke \
+  --max-problems 5 \
+  --max-iterations 20 \
+  --enable-l1-skill-deletion \
+  --l1-skill-consecutive-unused-delete-after 50 \
+  --l1-skill-deletion-grace-iterations 50 \
+  >> kb_skill_deletion_smoke.log 2>&1 &
+```
+
+To disable deletion (legacy capped extractor catalog):
+
+```bash
+uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name kb_no_skill_deletion \
+  --max-problems 2 \
+  --max-iterations 10 \
+  --no-enable-l1-skill-deletion \
+  ...
+```
+
+After a real run, inspect under `runs_evolving/<run_name>/`:
+- `l1_skill_usage.json` — usage streaks per skill
+- `l1_skill_deletions.jsonl` — deletion audit events
+- `l1_skill_artifacts/<entry_id>/` — generated unit-test sources
+
+Open the KernelBench visualizer (`visualizations/kernelbench`) and select the run to
+view the **Run L1 Skill Memory** panel (skills, deletions, usage ledger).
+
 ## 5) Real CUDA run
 
 ```bash
@@ -164,6 +229,9 @@ Run artifacts are written to `runs_evolving/<run_name>/`:
 - `shared_l1.txt`
 - `shared_l1.jsonl` (structured L1 catalog; versioned when skill refinement is enabled)
 - `skill_revisions.txt` (present when `--enable-skill-refinement` wrote refined versions)
+- `l1_skill_usage.json` (when L1 skill deletion is enabled — default)
+- `l1_skill_deletions.jsonl` (deletion audit log)
+- `l1_skill_artifacts/<entry_id>/` (executable unit-test sources when unit tests are enabled)
 - `eval_results.json` (level-first shape: `{level: {problem_id: [entries]}}`)
 - `eval_results_level_<level>.json`
 - `evolving_runs.json`

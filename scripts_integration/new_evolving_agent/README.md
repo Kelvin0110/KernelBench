@@ -90,6 +90,14 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `skill_refinement_model` | `None` | Model spec for diagnosis/revision (defaults to the summarizer model) |
 | `skill_refinement_max_tokens` | `8192` | Max tokens for the revision call (diagnosis uses `min(this, 4096)`) |
 | `skill_refinement_timeout_sec` | `90.0` | Per-call timeout for diagnosis/revision |
+| `enable_l1_skill_deletion` | `true` | L1 skill deletion + full active catalog for extractor (see §3.2) |
+| `l1_skill_consecutive_unused_delete_after` | `50` | Unused-streak threshold before deletion |
+| `l1_skill_deletion_grace_iterations` | `50` | Grace iterations before unused-streak policy applies |
+| `enable_l1_skill_unit_tests` | `true` | LLM executable unit tests on new L1 skills |
+| `l1_skill_delete_on_unit_test_fail` | `true` | Delete skills that fail unit tests |
+| `l1_skill_unit_test_max_tokens` | `8192` | Max tokens for unit-test LLM calls |
+| `l1_skill_unit_test_timeout_sec` | `60.0` | LLM timeout for unit-test generation |
+| `l1_skill_unit_test_run_timeout_sec` | `120.0` | Subprocess timeout for running generated tests |
 
 ### 3.1 Skill Refinement add-on (opt-in, SkillRevise-style)
 
@@ -135,6 +143,40 @@ on disk for auditing). A human-readable mirror of each revision is appended to
 Prompts: `SKILL_DIAGNOSIS_SYSTEM_PROMPT`, `SKILL_REVISION_SYSTEM_PROMPT`; engine in
 [`evolving_common/governor/skill_refinement.py`](../../Self-Evolving-Agent/evolving_common/governor/skill_refinement.py)
 (`RefinementController`). Tests: [`test_skill_refinement.py`](../../Self-Evolving-Agent/tests/test_skill_refinement.py).
+
+### 3.2 L1 skill deletion & unit tests (default on)
+
+newtdes's catalog-hygiene stack runs automatically on the Gen3 path when L1 is enabled.
+**Skill refinement** (`§3.1`) is a separate opt-in add-on; the two features compose
+independently.
+
+**Deletion policies** (see `evolving_common/governor/skill_deletion.py`):
+- **Consecutive-unused GC**: after a skill is unused for
+  `l1_skill_consecutive_unused_delete_after` global iterations (default 50, with
+  `l1_skill_deletion_grace_iterations` grace for new skills), it is marked `deleted`.
+- **Unit-test GC** (when `enable_l1_skill_unit_tests`): newly promoted skills get
+  LLM-generated `skill_impl.py` / `test_skill_impl.py` under
+  `l1_skill_artifacts/<entry_id>/`. Failures can delete the skill when
+  `l1_skill_delete_on_unit_test_fail` is true.
+
+**Extractor catalog**: when deletion is **on**, the picker sees all active skills;
+when **off** (`--no-enable-l1-skill-deletion`), the catalog is capped to the most
+recent active skills (legacy).
+
+**Artifacts** (under `runs_evolving/<run_name>/`):
+- `l1_skill_usage.json` — per-skill usage streaks and global iteration counter
+- `l1_skill_deletions.jsonl` — audit log (`reason`, `detail`, `global_iteration`)
+- `l1_skill_artifacts/<entry_id>/` — executable unit-test sources
+
+CLI flags (also on `KBGovernorConfig`): `--enable-l1-skill-deletion` /
+`--no-enable-l1-skill-deletion`, `--l1-skill-consecutive-unused-delete-after`,
+`--l1-skill-deletion-grace-iterations`, `--enable-l1-skill-unit-tests` /
+`--no-enable-l1-skill-unit-tests`, `--l1-skill-delete-on-unit-test-fail`,
+`--l1-skill-unit-test-max-tokens`, `--l1-skill-unit-test-timeout-sec`,
+`--l1-skill-unit-test-run-timeout-sec`.
+
+Visualizer: KernelBench UI **Run L1 Skill Memory** panel (skills / deletions / usage)
+via `GET /api/runs/{run_name}/skill-memory`.
 
 ### L0 round schema (Gen3)
 
