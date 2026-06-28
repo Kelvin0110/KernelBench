@@ -30,6 +30,14 @@ from kernelbench_integration import (
     governor_result_to_dict,
     safe_run_kb_governor,
 )
+from evolving_common.memory_manager import (
+    DEFAULT_ENABLE_L1_SKILL_UNIT_TESTS,
+    DEFAULT_L1_SKILL_CONSECUTIVE_UNUSED_DELETE_AFTER,
+    DEFAULT_L1_SKILL_DELETE_ON_UNIT_TEST_FAIL,
+    DEFAULT_L1_SKILL_DELETION_GRACE_ITERATIONS,
+    DEFAULT_L1_SKILL_UNIT_TEST_MAX_TOKENS,
+    DEFAULT_L1_SKILL_UNIT_TEST_RUN_TIMEOUT_SEC,
+)
 
 
 def _load_subset_rows(path: Path) -> list[dict[str, Any]]:
@@ -365,6 +373,57 @@ def main() -> int:
         "(only used with --enable-skill-refinement).",
     )
     parser.add_argument(
+        "--enable-l1-skill-deletion",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable L1 skill deletion (unused-streak GC and optional unit-test GC). "
+        "When disabled (--no-enable-l1-skill-deletion), the extractor catalog is capped "
+        "to the most recent active skills (legacy behavior).",
+    )
+    parser.add_argument(
+        "--l1-skill-consecutive-unused-delete-after",
+        type=int,
+        default=DEFAULT_L1_SKILL_CONSECUTIVE_UNUSED_DELETE_AFTER,
+        help="Delete active skills unused for this many consecutive global iterations "
+        "(only when --enable-l1-skill-deletion).",
+    )
+    parser.add_argument(
+        "--l1-skill-deletion-grace-iterations",
+        type=int,
+        default=DEFAULT_L1_SKILL_DELETION_GRACE_ITERATIONS,
+        help="Grace period before consecutive-unused deletion applies to new skills.",
+    )
+    parser.add_argument(
+        "--enable-l1-skill-unit-tests",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_ENABLE_L1_SKILL_UNIT_TESTS,
+        help="Run LLM-generated executable unit tests on newly appended L1 skills.",
+    )
+    parser.add_argument(
+        "--l1-skill-delete-on-unit-test-fail",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_L1_SKILL_DELETE_ON_UNIT_TEST_FAIL,
+        help="Mark skills deleted when post-append unit tests fail.",
+    )
+    parser.add_argument(
+        "--l1-skill-unit-test-max-tokens",
+        type=int,
+        default=DEFAULT_L1_SKILL_UNIT_TEST_MAX_TOKENS,
+        help="Max tokens for LLM unit-test artifact generation.",
+    )
+    parser.add_argument(
+        "--l1-skill-unit-test-timeout-sec",
+        type=float,
+        default=60.0,
+        help="Per-call LLM timeout for unit-test generation/validation.",
+    )
+    parser.add_argument(
+        "--l1-skill-unit-test-run-timeout-sec",
+        type=float,
+        default=DEFAULT_L1_SKILL_UNIT_TEST_RUN_TIMEOUT_SEC,
+        help="Subprocess timeout when executing generated skill_impl.py tests.",
+    )
+    parser.add_argument(
         "--baseline-timing-file",
         type=str,
         default=None,
@@ -539,6 +598,16 @@ def main() -> int:
                 else None,
                 enable_skill_refinement=bool(args.enable_skill_refinement),
                 skill_refinement_max_rounds=int(args.skill_refinement_max_rounds),
+                enable_l1_skill_deletion=bool(args.enable_l1_skill_deletion),
+                l1_skill_consecutive_unused_delete_after=int(
+                    args.l1_skill_consecutive_unused_delete_after
+                ),
+                l1_skill_deletion_grace_iterations=int(args.l1_skill_deletion_grace_iterations),
+                enable_l1_skill_unit_tests=bool(args.enable_l1_skill_unit_tests),
+                l1_skill_delete_on_unit_test_fail=bool(args.l1_skill_delete_on_unit_test_fail),
+                l1_skill_unit_test_max_tokens=int(args.l1_skill_unit_test_max_tokens),
+                l1_skill_unit_test_timeout_sec=float(args.l1_skill_unit_test_timeout_sec),
+                l1_skill_unit_test_run_timeout_sec=float(args.l1_skill_unit_test_run_timeout_sec),
                 verbose=True,
             )
             result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
