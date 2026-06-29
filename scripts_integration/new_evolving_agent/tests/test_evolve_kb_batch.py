@@ -173,7 +173,7 @@ def test_main_dry_run_accepts_skill_deletion_flags(tmp_path: Path, monkeypatch) 
             str(results_root),
             "--max-problems",
             "1",
-            "--enable-l1-skill-deletion",
+            "--skill-deletion",
             "--l1-skill-consecutive-unused-delete-after",
             "40",
             "--no-enable-l1-skill-unit-tests",
@@ -181,6 +181,63 @@ def test_main_dry_run_accepts_skill_deletion_flags(tmp_path: Path, monkeypatch) 
     )
 
     assert evolve_kb_batch.main() == 0
+
+
+def test_main_dry_run_accepts_skill_merging_and_timing(tmp_path: Path, monkeypatch) -> None:
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n1,200\n", encoding="utf-8")
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+
+    results_root = tmp_path / "results"
+    run_name = "skill_merge_timing"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--subset-csv",
+            str(subset_csv),
+            "--run-name",
+            run_name,
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--max-problems",
+            "2",
+            "--skill-deletion",
+            "--skill-merging",
+            "--skill-merge-similarity",
+            "0.85",
+            "--skill-merge-interval",
+            "25",
+        ],
+    )
+
+    assert evolve_kb_batch.main() == 0
+
+    matching_runs = sorted(p for p in results_root.glob(f"{run_name}*") if p.is_dir())
+    assert matching_runs
+    run_dir = matching_runs[-1]
+    summary = json.loads((run_dir / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["skill_merging"] is True
+    assert summary["skill_merge_similarity"] == 0.85
+    assert summary["skill_merge_interval"] == 25
+    assert summary["batch_timing_jsonl"]
+    assert summary["total_wall_time_sec"] >= 0.0
+    assert summary["problems_timed_this_session"] == 2
+
+    timing_lines = (run_dir / "batch_timing.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    assert len(timing_lines) == 2
+    first = json.loads(timing_lines[0])
+    assert "wall_time_sec" in first
+    assert first["subset_index"] == 1
+
+    runs_doc = json.loads((run_dir / "evolving_runs.json").read_text(encoding="utf-8"))
+    for entry in runs_doc["runs"]:
+        assert "wall_time_sec" in entry
+        assert "started_at_utc" in entry
+        assert "finished_at_utc" in entry
 
 
 def _seed_resume_run_dir(run_dir: Path, *, runs: list[dict]) -> None:
