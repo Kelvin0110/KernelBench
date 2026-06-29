@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,8 @@ from evolving_common.memory_manager import (
     DEFAULT_L1_SKILL_DELETION_GRACE_ITERATIONS,
     DEFAULT_L1_SKILL_UNIT_TEST_MAX_TOKENS,
     DEFAULT_L1_SKILL_UNIT_TEST_RUN_TIMEOUT_SEC,
+    DEFAULT_SKILL_MERGE_INTERVAL,
+    DEFAULT_SKILL_MERGE_SIMILARITY,
 )
 
 
@@ -71,6 +74,32 @@ def _write_json(path: Path, payload: dict | list) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, default=_json_default)
+
+
+def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _sum_timing_wall_seconds(path: Path) -> float:
+    if not path.is_file():
+        return 0.0
+    total = 0.0
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            try:
+                total += float(obj.get("wall_time_sec", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                pass
+    return total
 
 
 def _to_kernelbench_eval_entry(run_entry: dict[str, Any], *, level: int, problem_id: str) -> dict[str, Any]:
@@ -373,19 +402,38 @@ def main() -> int:
         "(only used with --enable-skill-refinement).",
     )
     parser.add_argument(
-        "--enable-l1-skill-deletion",
+        "--skill-deletion",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable L1 skill deletion (unused-streak GC and optional unit-test GC). "
-        "When disabled (--no-enable-l1-skill-deletion), the extractor catalog is capped "
+        "When disabled (--no-skill-deletion), the extractor catalog is capped "
         "to the most recent active skills (legacy behavior).",
+    )
+    parser.add_argument(
+        "--skill-merging",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable L1 skill merging (embedding cluster + LLM merge). "
+        "Requires --skill-deletion (default: disabled).",
+    )
+    parser.add_argument(
+        "--skill-merge-similarity",
+        type=float,
+        default=DEFAULT_SKILL_MERGE_SIMILARITY,
+        help="Cosine similarity threshold for skill-merge clustering (default: 0.9).",
+    )
+    parser.add_argument(
+        "--skill-merge-interval",
+        type=int,
+        default=DEFAULT_SKILL_MERGE_INTERVAL,
+        help="Minimum global iterations between skill-merge passes (default: 50).",
     )
     parser.add_argument(
         "--l1-skill-consecutive-unused-delete-after",
         type=int,
         default=DEFAULT_L1_SKILL_CONSECUTIVE_UNUSED_DELETE_AFTER,
         help="Delete active skills unused for this many consecutive global iterations "
-        "(only when --enable-l1-skill-deletion).",
+        "(only when --skill-deletion).",
     )
     parser.add_argument(
         "--l1-skill-deletion-grace-iterations",
@@ -501,6 +549,11 @@ def main() -> int:
     eval_path = run_dir / "eval_results.json"
     evolving_runs_path = run_dir / "evolving_runs.json"
     summary_path = run_dir / "run_summary.json"
+    timing_path = run_dir / "batch_timing.jsonl"
+
+    batch_session_started_at = datetime.now(timezone.utc).isoformat()
+    batch_session_t0 = time.perf_counter()
+    problems_timed_this_session = 0
 
     evolving_doc_raw = _read_json(evolving_runs_path, default={"runs": []})
     if isinstance(evolving_doc_raw, list):
@@ -552,6 +605,9 @@ def main() -> int:
             f"backend={backend} precision={args.precision}"
         )
 
+        problem_t0 = time.perf_counter()
+        problem_started_at = datetime.now(timezone.utc).isoformat()
+
         if args.dry_run:
             entry = {
                 "level": level,
@@ -598,7 +654,10 @@ def main() -> int:
                 else None,
                 enable_skill_refinement=bool(args.enable_skill_refinement),
                 skill_refinement_max_rounds=int(args.skill_refinement_max_rounds),
-                enable_l1_skill_deletion=bool(args.enable_l1_skill_deletion),
+                skill_deletion=bool(args.skill_deletion),
+                skill_merging=bool(args.skill_merging),
+                skill_merge_similarity=float(args.skill_merge_similarity),
+                skill_merge_interval=int(args.skill_merge_interval),
                 l1_skill_consecutive_unused_delete_after=int(
                     args.l1_skill_consecutive_unused_delete_after
                 ),
@@ -613,6 +672,31 @@ def main() -> int:
             result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
             entry = governor_result_to_dict(result)
             entry["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
+
+        wall_time_sec = time.perf_counter() - problem_t0
+        problem_finished_at = datetime.now(timezone.utc).isoformat()
+        entry["subset_index"] = idx
+        entry["started_at_utc"] = problem_started_at
+        entry["finished_at_utc"] = problem_finished_at
+        entry["wall_time_sec"] = round(wall_time_sec, 3)
+        problems_timed_this_session += 1
+
+        problem_status = "dry_run" if args.dry_run else (
+            "error" if entry.get("error") else "ok"
+        )
+        _append_jsonl(
+            timing_path,
+            {
+                "level": level,
+                "problem_id": int(problem_id),
+                "subset_index": idx,
+                "started_at_utc": problem_started_at,
+                "finished_at_utc": problem_finished_at,
+                "wall_time_sec": round(wall_time_sec, 3),
+                "status": problem_status,
+            },
+        )
+        print(f"[batch] {key} done in {wall_time_sec:.1f}s ({idx}/{len(rows)})")
 
         export_code = _extract_best_kernel_code(entry)
         if export_code:
@@ -667,6 +751,9 @@ def main() -> int:
                 best_overall = float(entry.get("best_speedup", 0.0) or 0.0)
                 break
 
+    batch_session_wall_time_sec = time.perf_counter() - batch_session_t0
+    total_problem_wall_time_sec = _sum_timing_wall_seconds(timing_path)
+
     summary = {
         "run_name": args.run_name,
         "resume": bool(args.resume),
@@ -675,6 +762,10 @@ def main() -> int:
         "subset_csv": str(subset_csv),
         "dry_run": bool(args.dry_run),
         "cuda_available": bool(has_cuda),
+        "skill_deletion": bool(args.skill_deletion),
+        "skill_merging": bool(args.skill_merging),
+        "skill_merge_similarity": float(args.skill_merge_similarity),
+        "skill_merge_interval": int(args.skill_merge_interval),
         "total_attempted": len(rows),
         "total_completed": len(runs),
         "total_correct": len(successful),
@@ -683,6 +774,17 @@ def main() -> int:
         "per_level_summary": _summarize_per_level_runs(runs),
         "results_path": str(eval_path),
         "evolving_runs_path": str(evolving_runs_path),
+        "batch_timing_jsonl": str(timing_path),
+        "batch_started_at_utc": batch_session_started_at,
+        "batch_finished_at_utc": datetime.now(timezone.utc).isoformat(),
+        "batch_session_wall_time_sec": round(batch_session_wall_time_sec, 3),
+        "total_wall_time_sec": round(total_problem_wall_time_sec, 3),
+        "avg_wall_time_sec": (
+            round(total_problem_wall_time_sec / problems_timed_this_session, 3)
+            if problems_timed_this_session
+            else 0.0
+        ),
+        "problems_timed_this_session": problems_timed_this_session,
         "per_level_results": {
             str(level): str(_level_eval_path(run_dir, level))
             for level in sorted(level_eval_docs.keys())
@@ -691,6 +793,8 @@ def main() -> int:
     }
     _write_json(summary_path, summary)
 
+    print(f"[batch] total wall time: {batch_session_wall_time_sec:.1f}s "
+          f"(problems summed: {total_problem_wall_time_sec:.1f}s)")
     print("[batch] complete")
     print(json.dumps(summary, indent=2))
     return 0
