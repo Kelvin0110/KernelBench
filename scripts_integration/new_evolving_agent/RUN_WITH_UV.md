@@ -31,9 +31,9 @@ python -c "import evolving_common, kernelbench.prompt_constructor_toml; print('i
 python -c "import os; print('has_nvidia_api_key=', bool(os.getenv('NVIDIA_API_KEY')))"
 ```
 
-## 4) Dry run (no GPU eval / no LLM calls)
+## 4) Dry run / smoke test (no GPU eval / no LLM calls)
 
-This validates subset parsing and output artifact generation.
+Validates subset parsing, timing artifacts, and output generation.
 
 ```bash
 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
@@ -41,10 +41,16 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --subset-csv subset_selection/selected_problems_50.csv \
   --max-problems 2 \
   --max-iterations 2 \
+  --skill-deletion \
+  --skill-merging \
+  --skill-merge-similarity 0.9 \
   --backend cuda \
   --precision fp32 \
   --dry-run
 ```
+
+After dry-run, check `runs_evolving/<run_name>_*/batch_timing.jsonl` (per-problem wall times) and
+`run_summary.json` fields `total_wall_time_sec`, `batch_timing_jsonl`.
 
 ## 4.1) Skill refinement add-on (opt-in)
 
@@ -115,47 +121,83 @@ After a real run, check:
 Resume works the same as §6; add `--enable-skill-refinement` to the resume command if
 the original run used it.
 
-## 4.2) L1 skill deletion & unit tests (default on, no skill refinement)
+## 4.2) L1 skill deletion, merging & unit tests (default deletion on; merging off)
 
 Skill deletion and executable unit tests are **enabled by default** on the Gen3 path
-when L1 is on. They are independent of `--enable-skill-refinement` — use the
-commands below when you want catalog hygiene **without** the SkillRevise refinement loop.
+when L1 is on. Skill merging is **off by default** (`--skill-merging`). Both are
+independent of `--enable-skill-refinement`.
 
-Policies (see `evolving_common/governor/skill_deletion.py`):
+CLI flags (replacing legacy `--enable-l1-skill-deletion`):
+
+| Flag | Default | Role |
+|------|---------|------|
+| `--skill-deletion` / `--no-skill-deletion` | on | Unused-streak GC + full active catalog for extractor |
+| `--skill-merging` / `--no-skill-merging` | off | Embed → cluster → LLM merge (requires deletion) |
+| `--skill-merge-similarity` | `0.9` | Cosine similarity threshold for merge clustering |
+| `--skill-merge-interval` | `50` | Min global iterations between merge passes |
+
+Policies (see `evolving_common/governor/skill_deletion.py`, `skill_merge.py`):
 - Unused-streak GC after `l1_skill_consecutive_unused_delete_after` global iterations
 - Optional LLM-generated `skill_impl.py` / `test_skill_impl.py` under
   `l1_skill_artifacts/<entry_id>/` with subprocess validation
+- Merge artifacts: `l1_skill_merges.jsonl`, `l1_skill_embeddings.json`, `l1_skill_merge_state.json`
 
 ### Unit tests (no GPU)
 
 ```bash
 uv run python -m pytest Self-Evolving-Agent/tests/test_skill_deletion.py -q
-uv run python -m pytest Self-Evolving-Agent/tests/test_skill_unit_test.py -q
+uv run python -m pytest Self-Evolving-Agent/tests/test_skill_merge.py -q
 uv run python -m pytest Self-Evolving-Agent/tests/test_kb_skill_memory.py -q
-uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py::test_main_dry_run_accepts_skill_deletion_flags -q
+uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py -q
 ```
 
-### Small real CUDA run — skill deletion only (no `--enable-skill-refinement`)
+### Small real CUDA run — deletion + merging (no skill refinement)
 
 ```bash
 CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_skill_deletion_smoke \
+  --run-name kb_deletion_merge_smoke \
+  --subset-csv subset_selection/selected_problems_50.csv \
   --max-problems 5 \
   --max-iterations 20 \
-  --enable-l1-skill-deletion \
+  --skill-deletion \
+  --skill-merging \
+  --skill-merge-similarity 0.9 \
+  --skill-merge-interval 50 \
   --enable-l1-skill-unit-tests \
-  >> base_agent_with_skill_deletion_smoke.log 2>&1 &
+  >> kb_deletion_merge_smoke.log 2>&1 &
 ```
 
-### Full run
+### Full 50 problems — deletion + merging
 
 ```bash
-CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_skill_deletion_itr20 \
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name kb_deletion_merge_50_itr20 \
+  --subset-csv subset_selection/selected_problems_50.csv \
+  --max-problems 50 \
   --max-iterations 20 \
-  --enable-l1-skill-deletion \
+  --skill-deletion \
+  --skill-merging \
+  --skill-merge-similarity 0.9 \
+  --skill-merge-interval 50 \
   --enable-l1-skill-unit-tests \
-  >> base_agent_with_skill_deletion_itr20_Jun_28.log 2>&1
+  >> kb_deletion_merge_50_itr20.log 2>&1 &
+```
+
+### Full 50 problems — deletion + merging + skill refinement
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name kb_deletion_merge_refine_50_itr20 \
+  --subset-csv subset_selection/selected_problems_50.csv \
+  --max-problems 50 \
+  --max-iterations 20 \
+  --skill-deletion \
+  --skill-merging \
+  --skill-merge-similarity 0.9 \
+  --enable-skill-refinement \
+  --skill-refinement-max-rounds 3 \
+  --enable-l1-skill-unit-tests \
+  >> kb_deletion_merge_refine_50_itr20.log 2>&1 &
 ```
 
 To disable deletion (legacy capped extractor catalog):
@@ -165,17 +207,21 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name kb_no_skill_deletion \
   --max-problems 2 \
   --max-iterations 10 \
-  --no-enable-l1-skill-deletion \
+  --no-skill-deletion \
   ...
 ```
 
 After a real run, inspect under `runs_evolving/<run_name>/`:
+- `batch_timing.jsonl` — per-problem `wall_time_sec`, `started_at_utc`, `finished_at_utc`
+- `run_summary.json` — `total_wall_time_sec`, `avg_wall_time_sec`, merge/deletion flags
 - `l1_skill_usage.json` — usage streaks per skill
 - `l1_skill_deletions.jsonl` — deletion audit events
+- `l1_skill_merges.jsonl` — merge audit events (when `--skill-merging`)
 - `l1_skill_artifacts/<entry_id>/` — generated unit-test sources
 
 Open the KernelBench visualizer (`visualizations/kernelbench`) and select the run to
-view the **Run L1 Skill Memory** panel (skills, deletions, usage ledger).
+view the **Run L1 Skill Memory** panel (skills, merges, deletions, refinement version
+chains, usage ledger).
 
 ## 5) Real CUDA run
 

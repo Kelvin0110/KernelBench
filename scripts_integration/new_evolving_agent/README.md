@@ -90,7 +90,10 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `skill_refinement_model` | `None` | Model spec for diagnosis/revision (defaults to the summarizer model) |
 | `skill_refinement_max_tokens` | `8192` | Max tokens for the revision call (diagnosis uses `min(this, 4096)`) |
 | `skill_refinement_timeout_sec` | `90.0` | Per-call timeout for diagnosis/revision |
-| `enable_l1_skill_deletion` | `true` | L1 skill deletion + full active catalog for extractor (see §3.2) |
+| `skill_deletion` | `true` | L1 skill deletion + full active catalog for extractor (see §3.2) |
+| `skill_merging` | `false` | Embedding cluster + LLM merge (requires `skill_deletion`; see §3.2) |
+| `skill_merge_similarity` | `0.9` | Cosine similarity threshold for merge clustering |
+| `skill_merge_interval` | `50` | Min global iterations between merge passes |
 | `l1_skill_consecutive_unused_delete_after` | `50` | Unused-streak threshold before deletion |
 | `l1_skill_deletion_grace_iterations` | `50` | Grace iterations before unused-streak policy applies |
 | `enable_l1_skill_unit_tests` | `true` | LLM executable unit tests on new L1 skills |
@@ -160,23 +163,31 @@ independently.
   `l1_skill_delete_on_unit_test_fail` is true.
 
 **Extractor catalog**: when deletion is **on**, the picker sees all active skills;
-when **off** (`--no-enable-l1-skill-deletion`), the catalog is capped to the most
+when **off** (`--no-skill-deletion`), the catalog is capped to the most
 recent active skills (legacy).
 
+**Skill merging** (when `skill_merging` is on, requires `skill_deletion`): embed active
+skills, DBSCAN cluster by `skill_merge_similarity` (default 0.9), LLM-merge each
+cluster, unit-test gate, supersede sources. Controlled by `skill_merge_interval`
+(default 50 global iterations between passes).
+
 **Artifacts** (under `runs_evolving/<run_name>/`):
+- `batch_timing.jsonl` — per-problem wall times
 - `l1_skill_usage.json` — per-skill usage streaks and global iteration counter
-- `l1_skill_deletions.jsonl` — audit log (`reason`, `detail`, `global_iteration`)
+- `l1_skill_deletions.jsonl` — deletion audit log (`reason`, `detail`, `global_iteration`)
+- `l1_skill_merges.jsonl` — merge audit log (when merging enabled)
 - `l1_skill_artifacts/<entry_id>/` — executable unit-test sources
 
-CLI flags (also on `KBGovernorConfig`): `--enable-l1-skill-deletion` /
-`--no-enable-l1-skill-deletion`, `--l1-skill-consecutive-unused-delete-after`,
+CLI flags (also on `KBGovernorConfig`): `--skill-deletion` / `--no-skill-deletion`,
+`--skill-merging` / `--no-skill-merging`, `--skill-merge-similarity`,
+`--skill-merge-interval`, `--l1-skill-consecutive-unused-delete-after`,
 `--l1-skill-deletion-grace-iterations`, `--enable-l1-skill-unit-tests` /
 `--no-enable-l1-skill-unit-tests`, `--l1-skill-delete-on-unit-test-fail`,
 `--l1-skill-unit-test-max-tokens`, `--l1-skill-unit-test-timeout-sec`,
 `--l1-skill-unit-test-run-timeout-sec`.
 
-Visualizer: KernelBench UI **Run L1 Skill Memory** panel (skills / deletions / usage)
-via `GET /api/runs/{run_name}/skill-memory`.
+Visualizer: KernelBench UI **Run L1 Skill Memory** panel (skills / merges / deletions /
+refinement version chains / usage) via `GET /api/runs/{run_name}/skill-memory`.
 
 ### L0 round schema (Gen3)
 
