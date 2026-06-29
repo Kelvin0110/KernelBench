@@ -442,3 +442,15 @@
 - **Tests**: `test_kb_skill_memory.py`, `test_main_dry_run_accepts_skill_deletion_flags`.
 - **Impact**: KernelBench batch runs use the same catalog-hygiene stack as MLE-Bench; visualizer surfaces deletions and unit-test artifacts per run. Skill refinement remains opt-in and composes independently.
 - **Status**: Completed
+
+### 2026-06-28 - Cursor Agent
+- **Feature**: KernelBench skill-merge integration, batch timing, visualizer merge/refinement panels.
+- **Upstream (newtdes)**: `skill_merging`, embedding/DBSCAN merge pass, `l1_skill_merges.jsonl`; config rename `enable_l1_skill_deletion` → `skill_deletion`.
+- **Batch** (`evolve_kb_batch.py`):
+  - CLI: `--skill-deletion`, `--skill-merging`, `--skill-merge-similarity`, `--skill-merge-interval`.
+  - Per-problem timing in `batch_timing.jsonl` and `evolving_runs.json`; `run_summary.json` totals.
+- **Config** (`kernelbench_integration/config.py`, `gen3_stages.py`): `skill_merge_similarity`, `skill_merge_interval` threaded into `run_skill_merge_pass`.
+- **Visualizer** (`visualizations/kernelbench`): Merges tab, refinement version chains (`refinement_chains`), lineage tags (merged/refined), colored badges.
+- **Docs**: `RUN_WITH_UV.md` smoke + two full 50-problem examples (deletion+merge; deletion+merge+refinement).
+- **Tests**: `test_kb_skill_memory.py` (merge/refinement chains), `test_evolve_kb_batch.py` (merge flags + timing).
+- **Status**: Completed
