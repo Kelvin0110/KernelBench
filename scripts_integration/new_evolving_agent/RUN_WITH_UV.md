@@ -166,6 +166,34 @@ CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agen
   >> base_agent_with_deletion_merge_smoke.log 2>&1 &
 ```
 
+### Full 50 problems — deletion only
+
+```bash
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name kb_deletion_only_50_itr20 \
+  --subset-csv subset_selection/selected_problems_50.csv \
+  --max-problems 50 \
+  --max-iterations 20 \
+  --skill-deletion \
+  --no-skill-merging \
+  >> kb_deletion_only_50_itr20.log 2>&1 &
+```
+
+### Full 50 problems — merge only
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name kb_merge_only_50_itr20 \
+  --subset-csv subset_selection/selected_problems_50.csv \
+  --max-problems 50 \
+  --max-iterations 20 \
+  --no-skill-deletion \
+  --skill-merging \
+  --skill-merge-similarity 0.8 \
+  --skill-merge-interval 50 \
+  >> kb_merge_only_50_itr20.log 2>&1 &
+```
+
 ### Full 50 problems — deletion + merging
 
 #### (with unit test every itrs)

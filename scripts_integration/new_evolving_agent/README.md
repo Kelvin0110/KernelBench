@@ -91,7 +91,7 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `skill_refinement_max_tokens` | `8192` | Max tokens for the revision call (diagnosis uses `min(this, 4096)`) |
 | `skill_refinement_timeout_sec` | `90.0` | Per-call timeout for diagnosis/revision |
 | `skill_deletion` | `true` | L1 skill deletion + full active catalog for extractor (see §3.2) |
-| `skill_merging` | `false` | Embedding cluster + LLM merge (requires `skill_deletion`; see §3.2) |
+| `skill_merging` | `false` | Embedding cluster + LLM merge; independent of `skill_deletion` (shares global iter + full catalog when either is on; see §3.2) |
 | `skill_merge_similarity` | `0.9` | Cosine similarity threshold for merge clustering |
 | `skill_merge_interval` | `50` | Min global iterations between merge passes |
 | `l1_skill_consecutive_unused_delete_after` | `50` | Unused-streak threshold before deletion |
@@ -164,14 +164,23 @@ independently.
 - **Unit-test GC** (when `enable_l1_skill_unit_test_gc`): re-validate all active
   skills every governor iteration during the deletion pass (off by default).
 
-**Extractor catalog**: when deletion is **on**, the picker sees all active skills;
-when **off** (`--no-skill-deletion`), the catalog is capped to the most
-recent active skills (legacy).
+**Extractor catalog**: when **deletion or merging** is on, the picker sees all active
+skills; when **both are off** (`--no-skill-deletion --no-skill-merging`), the catalog
+is capped to the most recent active skills (legacy).
 
-**Skill merging** (when `skill_merging` is on, requires `skill_deletion`): embed active
-skills, DBSCAN cluster by `skill_merge_similarity` (default 0.9), LLM-merge each
-cluster, unit-test gate, supersede sources. Controlled by `skill_merge_interval`
-(default 50 global iterations between passes).
+**Skill merging** (when `skill_merging` is on): embed active skills, DBSCAN cluster
+by `skill_merge_similarity` (default 0.9), LLM-merge each cluster, unit-test gate,
+supersede sources. Controlled by `skill_merge_interval` (default 50 global iterations
+between passes). Can run without `--skill-deletion` for merge-only experiments.
+
+**Independent test modes** (Gen3 + L1 enabled):
+
+| Mode | CLI |
+|------|-----|
+| Deletion only | `--skill-deletion --no-skill-merging` |
+| Merge only | `--no-skill-deletion --skill-merging` |
+| Both | `--skill-deletion --skill-merging` |
+| Neither (legacy catalog) | `--no-skill-deletion --no-skill-merging` |
 
 **Artifacts** (under `runs_evolving/<run_name>/`):
 - `batch_timing.jsonl` — per-problem wall times
