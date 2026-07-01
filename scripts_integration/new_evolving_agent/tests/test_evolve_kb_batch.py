@@ -151,6 +151,77 @@ def test_main_dry_run_accepts_skill_refinement_flag(tmp_path: Path, monkeypatch)
     assert evolve_kb_batch.main() == 0
 
 
+def test_main_dry_run_accepts_skill_deletion_only_flags(tmp_path: Path, monkeypatch) -> None:
+    """Deletion-only: --skill-deletion without --skill-merging."""
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n", encoding="utf-8")
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+
+    results_root = tmp_path / "results"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--subset-csv",
+            str(subset_csv),
+            "--run-name",
+            "skill_deletion_only_flag",
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--max-problems",
+            "1",
+            "--skill-deletion",
+            "--no-skill-merging",
+            "--no-enable-l1-skill-unit-test-gc",
+        ],
+    )
+
+    assert evolve_kb_batch.main() == 0
+
+
+def test_main_dry_run_accepts_skill_merge_only_flags(tmp_path: Path, monkeypatch) -> None:
+    """Merge-only: --skill-merging without --skill-deletion."""
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n", encoding="utf-8")
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+
+    results_root = tmp_path / "results"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--subset-csv",
+            str(subset_csv),
+            "--run-name",
+            "skill_merge_only_flag",
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--max-problems",
+            "1",
+            "--no-skill-deletion",
+            "--skill-merging",
+            "--skill-merge-similarity",
+            "0.85",
+            "--skill-merge-interval",
+            "25",
+        ],
+    )
+
+    assert evolve_kb_batch.main() == 0
+
+    matching_runs = sorted(p for p in results_root.glob("skill_merge_only_flag*") if p.is_dir())
+    assert matching_runs
+    summary = json.loads((matching_runs[-1] / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["skill_deletion"] is False
+    assert summary["skill_merging"] is True
+
+
 def test_main_dry_run_accepts_skill_deletion_flags(tmp_path: Path, monkeypatch) -> None:
     """Skill-deletion CLI flags are accepted; deletion is on by default."""
     subset_csv = tmp_path / "subset.csv"
