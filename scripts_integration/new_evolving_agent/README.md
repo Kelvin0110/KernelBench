@@ -96,7 +96,7 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `skill_merge_interval` | `50` | Min global iterations between merge passes |
 | `l1_skill_consecutive_unused_delete_after` | `50` | Unused-streak threshold before deletion |
 | `l1_skill_deletion_grace_iterations` | `50` | Grace iterations before unused-streak policy applies |
-| `enable_l1_skill_unit_tests` | `true` | LLM executable unit tests on new L1 skills |
+| `enable_l1_skill_unit_test_gc` | `false` | Re-run unit tests on every governor iteration (GC pass); promotion-time tests still run when `skill_deletion` is on |
 | `l1_skill_delete_on_unit_test_fail` | `true` | Delete skills that fail unit tests |
 | `l1_skill_unit_test_max_tokens` | `8192` | Max tokens for unit-test LLM calls |
 | `l1_skill_unit_test_timeout_sec` | `60.0` | LLM timeout for unit-test generation |
@@ -157,10 +157,12 @@ independently.
 - **Consecutive-unused GC**: after a skill is unused for
   `l1_skill_consecutive_unused_delete_after` global iterations (default 50, with
   `l1_skill_deletion_grace_iterations` grace for new skills), it is marked `deleted`.
-- **Unit-test GC** (when `enable_l1_skill_unit_tests`): newly promoted skills get
+- **Promotion-time unit tests** (when `skill_deletion` is on): newly promoted skills get
   LLM-generated `skill_impl.py` / `test_skill_impl.py` under
-  `l1_skill_artifacts/<entry_id>/`. Failures can delete the skill when
-  `l1_skill_delete_on_unit_test_fail` is true.
+  `l1_skill_artifacts/<run_slug>_<entry_id>/` (or legacy `<entry_id>/`).
+  Failures can delete the skill when `l1_skill_delete_on_unit_test_fail` is true.
+- **Unit-test GC** (when `enable_l1_skill_unit_test_gc`): re-validate all active
+  skills every governor iteration during the deletion pass (off by default).
 
 **Extractor catalog**: when deletion is **on**, the picker sees all active skills;
 when **off** (`--no-skill-deletion`), the catalog is capped to the most
@@ -181,8 +183,8 @@ cluster, unit-test gate, supersede sources. Controlled by `skill_merge_interval`
 CLI flags (also on `KBGovernorConfig`): `--skill-deletion` / `--no-skill-deletion`,
 `--skill-merging` / `--no-skill-merging`, `--skill-merge-similarity`,
 `--skill-merge-interval`, `--l1-skill-consecutive-unused-delete-after`,
-`--l1-skill-deletion-grace-iterations`, `--enable-l1-skill-unit-tests` /
-`--no-enable-l1-skill-unit-tests`, `--l1-skill-delete-on-unit-test-fail`,
+`--l1-skill-deletion-grace-iterations`, `--enable-l1-skill-unit-test-gc` /
+`--no-enable-l1-skill-unit-test-gc`, `--l1-skill-delete-on-unit-test-fail`,
 `--l1-skill-unit-test-max-tokens`, `--l1-skill-unit-test-timeout-sec`,
 `--l1-skill-unit-test-run-timeout-sec`.
 
