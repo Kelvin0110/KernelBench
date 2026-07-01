@@ -151,7 +151,7 @@ uv run python -m pytest Self-Evolving-Agent/tests/test_kb_skill_memory.py -q
 uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py -q
 ```
 
-### Small real CUDA run — deletion + merging (no skill refinement)
+### Small real CUDA run — deletion (with unit test every itrs) + merging (no skill refinement)
 
 ```bash
 CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
@@ -162,12 +162,26 @@ CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agen
   --skill-merging \
   --skill-merge-similarity 0.8 \
   --skill-merge-interval 20 \
-  --enable-l1-skill-unit-tests \
+  --enable-l1-skill-unit-test-gc \
   >> base_agent_with_deletion_merge_smoke.log 2>&1 &
 ```
 
 ### Full 50 problems — deletion + merging
 
+#### (with unit test every itrs)
+```bash
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_deletion_merge_sim_07_itr20 \
+  --max-iterations 20 \
+  --skill-deletion \
+  --skill-merging \
+  --skill-merge-similarity 0.8 \
+  --skill-merge-interval 50 \
+  --enable-l1-skill-unit-test-gc \
+  >> base_agent_with_deletion_merge_itr20_Jun_29.log 2>&1 &
+```
+
+#### (with unit test only when it is first promoted)
 ```bash
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_with_deletion_merge_sim_07_itr20 \
@@ -180,7 +194,7 @@ CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agen
   >> base_agent_with_deletion_merge_sim_07_itr20_Jun_30.log 2>&1 &
 ```
 
-### Full 50 problems — deletion + merging + skill refinement
+### Full 50 problems — deletion (with unit test every itrs) + merging + skill refinement
 
 ```bash
 CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
@@ -193,7 +207,7 @@ CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agen
   --enable-skill-refinement \
   --skill-refinement-max-rounds 3 \
   --enable-l1-skill-unit-tests \
-  >> base_agent_with_deletion_merge_refine_sim_07_itr20_Jun_30.log 2>&1 &
+  >> kb_deletion_merge_refine_50_itr20.log 2>&1 &
 ```
 
 To disable deletion (legacy capped extractor catalog):

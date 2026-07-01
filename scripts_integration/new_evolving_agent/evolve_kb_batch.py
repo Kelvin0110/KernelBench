@@ -32,7 +32,7 @@ from kernelbench_integration import (
     safe_run_kb_governor,
 )
 from evolving_common.memory_manager import (
-    DEFAULT_ENABLE_L1_SKILL_UNIT_TESTS,
+    DEFAULT_ENABLE_L1_SKILL_UNIT_TEST_GC,
     DEFAULT_L1_SKILL_CONSECUTIVE_UNUSED_DELETE_AFTER,
     DEFAULT_L1_SKILL_DELETE_ON_UNIT_TEST_FAIL,
     DEFAULT_L1_SKILL_DELETION_GRACE_ITERATIONS,
@@ -442,10 +442,11 @@ def main() -> int:
         help="Grace period before consecutive-unused deletion applies to new skills.",
     )
     parser.add_argument(
-        "--enable-l1-skill-unit-tests",
+        "--enable-l1-skill-unit-test-gc",
         action=argparse.BooleanOptionalAction,
-        default=DEFAULT_ENABLE_L1_SKILL_UNIT_TESTS,
-        help="Run LLM-generated executable unit tests on newly appended L1 skills.",
+        default=DEFAULT_ENABLE_L1_SKILL_UNIT_TEST_GC,
+        help="Re-run skill unit tests on every governor iteration (deletion GC pass). "
+        "Default: only validate when a skill is first promoted/appended.",
     )
     parser.add_argument(
         "--l1-skill-delete-on-unit-test-fail",
@@ -662,7 +663,7 @@ def main() -> int:
                     args.l1_skill_consecutive_unused_delete_after
                 ),
                 l1_skill_deletion_grace_iterations=int(args.l1_skill_deletion_grace_iterations),
-                enable_l1_skill_unit_tests=bool(args.enable_l1_skill_unit_tests),
+                enable_l1_skill_unit_test_gc=bool(args.enable_l1_skill_unit_test_gc),
                 l1_skill_delete_on_unit_test_fail=bool(args.l1_skill_delete_on_unit_test_fail),
                 l1_skill_unit_test_max_tokens=int(args.l1_skill_unit_test_max_tokens),
                 l1_skill_unit_test_timeout_sec=float(args.l1_skill_unit_test_timeout_sec),
@@ -763,6 +764,7 @@ def main() -> int:
         "dry_run": bool(args.dry_run),
         "cuda_available": bool(has_cuda),
         "skill_deletion": bool(args.skill_deletion),
+        "enable_l1_skill_unit_test_gc": bool(args.enable_l1_skill_unit_test_gc),
         "skill_merging": bool(args.skill_merging),
         "skill_merge_similarity": float(args.skill_merge_similarity),
         "skill_merge_interval": int(args.skill_merge_interval),

@@ -176,7 +176,7 @@ def test_main_dry_run_accepts_skill_deletion_flags(tmp_path: Path, monkeypatch) 
             "--skill-deletion",
             "--l1-skill-consecutive-unused-delete-after",
             "40",
-            "--no-enable-l1-skill-unit-tests",
+            "--no-enable-l1-skill-unit-test-gc",
         ],
     )
 
