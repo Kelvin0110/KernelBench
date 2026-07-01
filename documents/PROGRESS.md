@@ -454,3 +454,16 @@
 - **Docs**: `RUN_WITH_UV.md` smoke + two full 50-problem examples (deletion+merge; deletion+merge+refinement).
 - **Tests**: `test_kb_skill_memory.py` (merge/refinement chains), `test_evolve_kb_batch.py` (merge flags + timing).
 - **Status**: Completed
+
+### 2026-07-01 - Cursor Agent
+- **Feature**: Decouple L1 skill deletion and merging for independent testing.
+- **Submodule** (`evolving_common/governor/skill_deletion.py`, `gen3_stages.py`):
+  - `configure_l1_skill_governance(skill_deletion, skill_merging)` and `is_l1_skill_governance_active()`.
+  - Shared `bump_global_iteration` + full extractor catalog when **either** flag is on.
+  - Deletion pass and promotion-time unit tests remain gated on `skill_deletion` only.
+  - `maybe_run_skill_merge_pass` no longer requires `skill_deletion`.
+- **Integrations**: KB `governor.py` and MLE `runner.py` call `configure_l1_skill_governance`; MLE `cli.py` help/warning updated.
+- **Batch** (`evolve_kb_batch.py`): flags already independent; `run_summary.json` records both booleans.
+- **Docs**: `README.md` §3.2 independent modes table; `RUN_WITH_UV.md` full 50-problem deletion-only and merge-only commands.
+- **Tests**: `test_gen3_skill_governance.py`, updated `test_gen3_skill_merge.py`, `test_evolve_kb_batch.py` merge-only/deletion-only dry-runs.
+- **Status**: Completed
