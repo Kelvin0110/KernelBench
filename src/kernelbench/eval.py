@@ -11,6 +11,7 @@ import random
 import sys
 import tempfile
 import traceback
+import types
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from typing import Union, Optional
@@ -121,6 +122,19 @@ class KernelExecResult(BaseModel):
     ref_runtime_stats: dict = {} # only recorded if we decide to measure performance
 
 
+def _bind_function_to_context(fn: callable, context: dict) -> callable:
+    """Re-bind *fn* so global lookups resolve in *context*, not a polluted namespace."""
+    if fn is None:
+        return None
+    return types.FunctionType(
+        fn.__code__,
+        context,
+        fn.__name__,
+        fn.__defaults__,
+        fn.__closure__,
+    )
+
+
 def load_original_model_and_inputs(
     model_original_src: str, context: dict
 ) -> tuple[nn.Module, callable, callable]:
@@ -142,8 +156,8 @@ def load_original_model_and_inputs(
         return None
 
     # these should be defined in the original model code and present in the context
-    get_init_inputs_fn = context.get("get_init_inputs")
-    get_inputs_fn = context.get("get_inputs")
+    get_init_inputs_fn = _bind_function_to_context(context.get("get_init_inputs"), context)
+    get_inputs_fn = _bind_function_to_context(context.get("get_inputs"), context)
     Model = context.get("Model")
     return (Model, get_init_inputs_fn, get_inputs_fn)
 
@@ -223,11 +237,15 @@ def graceful_eval_cleanup(
     curr_context: dict,
     device: torch.device,
     tempfile: tempfile.NamedTemporaryFile = None,
+    extra_contexts: list[dict] | None = None,
 ):
     """
     Clean up env, gpu cache, and compiled CUDA extensions after evaluation
     """  # delete ran-specific function definitions before next eval run
     del curr_context
+    if extra_contexts:
+        for ctx in extra_contexts:
+            del ctx
     # Clear CUDA cache and reset GPU state
     with torch.cuda.device(device):
         torch.cuda.empty_cache()
@@ -408,6 +426,7 @@ def eval_kernel_against_ref(
     # Guard against potential reward hacking [optional but ongoing enhancement]
     check_for_excessive_speedup: bool = True,
     excessive_speedup_threshold: float = 10, # flag if the kernel is more than <excessive_speedup_threshold>x faster than the reference
+    baseline_runtime: float | None = None,  # fixed baseline for excessive-speedup flag (display speedup uses governor baseline)
 ) -> KernelExecResult:
     """
     Evaluate the custom kernel against the original model
@@ -480,14 +499,15 @@ def eval_kernel_against_ref(
             os.environ["HIP_VISIBLE_DEVICES"] = str(device_num)
         else:
             os.environ["CUDA_VISIBLE_DEVICES"] = str(device_num)
-    context = {}
+    original_context: dict = {}
+    custom_context: dict = {}
 
     if verbose:
         print(f"[Eval] Start Evalulation! on device: {device}")
         print("[Eval] Loading Original Model")
 
     Model, get_init_inputs, get_inputs = load_original_model_and_inputs(
-        original_model_src, context
+        original_model_src, original_context
     )
     set_seed(seed_num)  # set seed for reproducible input
     init_inputs = get_init_inputs()
@@ -519,8 +539,8 @@ def eval_kernel_against_ref(
                 custom_model_src, entry_point="ModelNew"
             )
         else:
-            # Default CUDA backend
-            ModelNew = load_custom_model(custom_model_src, context, build_dir)
+            # Default CUDA backend — isolated namespace so custom globals cannot pollute get_inputs
+            ModelNew = load_custom_model(custom_model_src, custom_context, build_dir)
         torch.cuda.synchronize(device=device)  # not sure if this is too much
     except Exception as e:
         print(
@@ -534,12 +554,16 @@ def eval_kernel_against_ref(
             print(
                 f"[Eval] Lock file error during compilation, Please retry. Error: {e}"
             )
-            graceful_eval_cleanup(context, device, tempfile)
+            graceful_eval_cleanup(
+                original_context, device, tempfile, extra_contexts=[custom_context]
+            )
             return None
         else:
             metadata["compilation_error_name"] = get_error_name(e)
             metadata["compilation_error"] = e
-            graceful_eval_cleanup(context, device, tempfile)
+            graceful_eval_cleanup(
+                original_context, device, tempfile, extra_contexts=[custom_context]
+            )
             return KernelExecResult(
                 compiled=False, metadata=metadata
             )  # skip further steps
@@ -551,7 +575,9 @@ def eval_kernel_against_ref(
         )
         metadata["compilation_error_name"] = "SyntaxError"
         metadata["compilation_error"] = "Syntax error in custom generated code or ModelNew not found"
-        graceful_eval_cleanup(context, device, tempfile)
+        graceful_eval_cleanup(
+            original_context, device, tempfile, extra_contexts=[custom_context]
+        )
         return KernelExecResult(
             compiled=False, metadata=metadata
         )  # skip further steps
@@ -572,7 +598,9 @@ def eval_kernel_against_ref(
             f"Failed to load custom CUDA kernel; Compiled but not able to run, count as runtime error. \nError: {e}"
         )
         # TODO: add metadata for runtime error e.g. error in launching kernel, illegal memory access, ...
-        graceful_eval_cleanup(context, device, tempfile)
+        graceful_eval_cleanup(
+            original_context, device, tempfile, extra_contexts=[custom_context]
+        )
         metadata["runtime_error"] = e
         metadata["runtime_error_name"] = get_error_name(e)
         return KernelExecResult(
@@ -657,13 +685,19 @@ def eval_kernel_against_ref(
         if verbose:
             print("[Eval] Additional checks to flag excessive speedup")
 
+        # Drop custom model before reference timing to reduce peak GPU memory.
+        del custom_model
+        custom_model = None
+        torch.cuda.synchronize(device=device)
+        with torch.cuda.device(device):
+            torch.cuda.empty_cache()
+
         torch.cuda.synchronize(device=device)
         set_seed(seed_num)
         inputs = get_inputs()
         # Convert inputs for performance measurement
         inputs = [_process_input_tensor(x, device, backend, precision) for x in inputs]
         
-        model_new = custom_model.to(device=device, dtype=precision)
         torch.cuda.synchronize(device=device)
 
         # time PyTorch reference function
@@ -680,8 +714,16 @@ def eval_kernel_against_ref(
         kernel_exec_result.ref_runtime = reference_runtime_stats["mean"]
         kernel_exec_result.ref_runtime_stats = reference_runtime_stats
 
-        # Compute Effective Speedup
-        effective_speedup = kernel_exec_result.ref_runtime / kernel_exec_result.runtime
+        # Prefer fixed baseline when provided (aligns flag with displayed governor speedup).
+        ref_for_speedup = (
+            float(baseline_runtime)
+            if baseline_runtime is not None and float(baseline_runtime) > 0
+            else float(kernel_exec_result.ref_runtime)
+        )
+        if kernel_exec_result.runtime > 0 and ref_for_speedup > 0:
+            effective_speedup = ref_for_speedup / kernel_exec_result.runtime
+        else:
+            effective_speedup = 0.0
 
         # TODO: integrate SoL estimation for each unique program on designated hardware
         # for now, we will use a heuristics such as 5-10x which is very hard to achieve
@@ -696,7 +738,9 @@ def eval_kernel_against_ref(
             print(f"[WARNING] Double check your kernel carefully to ensure it is not reward hacking.")
 
 
-    graceful_eval_cleanup(context, device, tempfile)
+    graceful_eval_cleanup(
+        original_context, device, tempfile, extra_contexts=[custom_context]
+    )
     return kernel_exec_result
 
 
