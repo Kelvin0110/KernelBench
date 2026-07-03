@@ -457,6 +457,78 @@ def test_fast_p_best_does_not_drop_after_problem_finishes(monkeypatch, tmp_path:
     assert all(values[i] <= values[i + 1] + 1e-9 for i in range(len(values) - 1))
 
 
+def test_generate_run_excludes_hacked_speedups(monkeypatch, tmp_path: Path) -> None:
+    module = _load_generate_run_module()
+
+    run_name = "run_hack"
+    run_dir = tmp_path / run_name
+    ws_dir = run_dir / "workspaces" / "level_1_problem_1"
+    ws_dir.mkdir(parents=True, exist_ok=True)
+
+    baseline_file = tmp_path / "baseline.json"
+    baseline_file.write_text(json.dumps({}), encoding="utf-8")
+
+    rows = [
+        {
+            "iteration": 1,
+            "metrics_iteration": {
+                "compiled": True,
+                "correct": True,
+                "runtime": 0.001,
+                "speedup": 10000.0,
+                "is_hack": True,
+            },
+            "metrics_best": {
+                "compiled": True,
+                "correct": True,
+                "runtime": 0.001,
+                "speedup": 10000.0,
+                "is_hack": True,
+            },
+        },
+        {
+            "iteration": 2,
+            "metrics_iteration": {
+                "compiled": True,
+                "correct": True,
+                "runtime": 5.0,
+                "speedup": 2.0,
+                "is_hack": False,
+            },
+            "metrics_best": {
+                "compiled": True,
+                "correct": True,
+                "runtime": 5.0,
+                "speedup": 2.0,
+                "is_hack": True,
+            },
+        },
+    ]
+    (ws_dir / "metrics_by_iteration.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "build_baseline_lookup", lambda _base, _level: {1: 10.0})
+
+    result = module.build_performance_stats(
+        run_name=run_name,
+        runs_root=tmp_path,
+        baseline_file=baseline_file,
+        fast_p_thresholds=[1.0],
+    )
+
+    doc = result["doc"]
+    assert doc["hack_iteration_count"] == 1
+    assert doc["problems_with_hack"] == 1
+    assert doc["speedup_aggregate_policy"] == "correct_only_exclude_hack"
+
+    iter2 = doc["iterations"][1]
+    assert iter2["iteration"] == 2
+    assert math.isclose(float(iter2["aggregates"]["current"]["mean"]), 2.0)
+    assert math.isclose(float(iter2["aggregates"]["best"]["mean"]), 0.0)
+
+
 def test_min_non_outlier_runtime_ignores_reward_hack_iteration() -> None:
     runtimes = [8.0, 9.0, 0.001, 8.5]
     best = min_non_outlier_runtime(runtimes)
