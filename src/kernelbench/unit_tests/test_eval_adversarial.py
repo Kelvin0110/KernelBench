@@ -15,7 +15,8 @@ pytest src/unit_tests/test_eval_adversarial.py
 def run_test_kernel(problem_name, 
                     kernel_filename, 
                     timing_method="cuda_event",
-                    num_perf_trials=100):
+                    num_perf_trials=100,
+                    baseline_runtime: float | None = None):
     """
     Run a test kernel agains the reference architecture and return the result.
 
@@ -40,7 +41,8 @@ def run_test_kernel(problem_name,
         timing_method=timing_method,
         # for checking against reward hacking
         check_for_excessive_speedup = True, 
-        excessive_speedup_threshold = 10
+        excessive_speedup_threshold = 10,
+        baseline_runtime=baseline_runtime,
     )
 
 
@@ -101,10 +103,33 @@ def test_non_default_stream(timing_method="do_bench", threshold=1.5):
         )
 
 
+def test_workload_shrink_globals():
+    """
+    Test that shrinking batch_size/dim globals in submitted code does not let
+    the kernel pass on a reduced workload while the reference uses full inputs.
+
+    Methodology (P34-style):
+    - Adversarial kernel sets batch_size=1, dim1=1, dim2=2 and a tiny CUDA norm.
+    - With isolated original get_inputs(), eval must use full (112,64,512,512) tensors.
+    - Custom kernel should fail correctness and/or be flagged for excessive speedup.
+    """
+    result = run_test_kernel(
+        problem_name="level1/34_InstanceNorm.py",
+        kernel_filename="shrink_input_kernel.py",
+        num_perf_trials=10,
+        baseline_runtime=39.3,
+    )
+    assert result.correctness is False, "Workload shrink hack should not pass correctness"
+    assert result.metadata.get("excessive_speedup") is True, (
+        "Workload shrink hack should be flagged for excessive speedup vs baseline"
+    )
+
+
 def main():
     test_result_cache_reuse()
     test_input_modification()
     test_non_default_stream()
+    test_workload_shrink_globals()
 
     # we might add more adversarial tests in the future
 

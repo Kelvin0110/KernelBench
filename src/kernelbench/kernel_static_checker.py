@@ -549,6 +549,38 @@ def check_precision_downgrade(code: str, precision: str = "fp32") -> Tuple[bool,
     
     return (False, "")
 
+
+# <========= WORKLOAD SHRINK CHECKS =========>
+WORKLOAD_GLOBAL_PATTERNS = [
+    r"^\s*batch_size\s*=",
+    r"^\s*dim1\s*=",
+    r"^\s*dim2\s*=",
+    r"^\s*features\s*=",
+    r"^\s*in_channels\s*=",
+    r"^\s*out_channels\s*=",
+    r"^\s*input_size\s*=",
+    r"^\s*hidden_size\s*=",
+    r"^\s*seq_len\s*=",
+]
+
+WORKLOAD_FN_PATTERNS = [
+    r"def\s+get_inputs\s*\(",
+    r"def\s+get_init_inputs\s*\(",
+]
+
+
+def check_workload_shrink(code: str) -> Tuple[bool, str]:
+    """Warn when submitted code redefines workload shape globals or input helpers."""
+    code = _strip_comments(code)
+    for pattern in WORKLOAD_GLOBAL_PATTERNS:
+        if re.search(pattern, code, flags=re.MULTILINE):
+            return (True, "Redefines workload shape globals (potential input shrink hack)")
+    for pattern in WORKLOAD_FN_PATTERNS:
+        if re.search(pattern, code):
+            return (True, "Defines get_inputs/get_init_inputs (potential workload override)")
+    return (False, "")
+
+
 # =============================================================================
 # In the future, we can add a AST-based checker and a LM-as-a-judge checker
 # =============================================================================
@@ -574,6 +606,7 @@ CHECK_FUNCTIONS: Dict[str, Union[Callable[[str], Tuple[bool, str]], Callable[[st
     "thread_injection": check_thread_injection,
     "lazy_eval": check_lazy_eval,
     "precision_downgrade": check_precision_downgrade,  # precision-dependent
+    "workload_shrink": check_workload_shrink,
     
     # Backend-specific implementation checks
     # should be strict
@@ -618,6 +651,7 @@ WARNING_CHECKS: List[str] = [
     "torch_computation_ops",  
     "stream_injection",       # could have legitimate uses (async ops), but should be careful!
     "precision_downgrade",    # precision downgrading - can be intentional but often a hack
+    "workload_shrink",        # redefines shape globals or get_inputs — often reward hacking
 ]
 
 

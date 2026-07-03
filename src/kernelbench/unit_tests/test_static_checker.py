@@ -13,7 +13,7 @@ Run with: uv run pytest src/kernelbench/unit_tests/test_static_checker.py -v
 
 import pytest
 from pathlib import Path
-from kernelbench.kernel_static_checker import validate_kernel_static
+from kernelbench.kernel_static_checker import check_workload_shrink, validate_kernel_static
 
 
 # =============================================================================
@@ -160,6 +160,21 @@ t.start()
 """
     valid, errors, warnings = validate_kernel_static(code, backend="cuda")
     assert not valid, "Threading should be flagged"
+
+
+def test_workload_shrink_warning():
+    """Redefining shape globals or get_inputs should be detected."""
+    code = """
+batch_size = 1
+dim1 = 1
+dim2 = 2
+
+def get_inputs():
+    return [torch.rand(batch_size, 64, dim1, dim2)]
+"""
+    has_issue, msg = check_workload_shrink(code)
+    assert has_issue
+    assert "workload" in msg.lower() or "get_inputs" in msg.lower()
 
 
 if __name__ == "__main__":
