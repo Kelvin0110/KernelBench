@@ -24,6 +24,7 @@ if str(SEA_ROOT) not in sys.path:
     sys.path.insert(0, str(SEA_ROOT))
 
 from kernelbench.dataset import construct_kernelbench_dataset
+from kernelbench.performance_stats import min_non_outlier_runtime
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 from kernelbench_integration import (
     KBGovernorConfig,
@@ -298,6 +299,7 @@ def _write_kernel_export(run_dir: Path, *, level: int, problem_id: str, code: st
 
 def _summarize_per_level_runs(runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     per_level: dict[str, dict[str, Any]] = {}
+    level_runtime_speedups: dict[str, list[tuple[float, float]]] = {}
     for entry in runs:
         level = str(entry.get("level"))
         bucket = per_level.setdefault(
@@ -317,10 +319,22 @@ def _summarize_per_level_runs(runs: list[dict[str, Any]]) -> dict[str, dict[str,
         except Exception:
             runtime_f = -1.0
         if entry.get("best_correct") and runtime_f >= 0:
-            current_best = bucket.get("best_runtime")
-            if current_best is None or runtime_f < float(current_best):
-                bucket["best_runtime"] = runtime_f
-                bucket["best_speedup"] = float(entry.get("best_speedup", 0.0) or 0.0)
+            level_runtime_speedups.setdefault(level, []).append(
+                (runtime_f, float(entry.get("best_speedup", 0.0) or 0.0))
+            )
+
+    for level, bucket in per_level.items():
+        pairs = level_runtime_speedups.get(level, [])
+        if not pairs:
+            continue
+        best_runtime = min_non_outlier_runtime([runtime for runtime, _ in pairs])
+        if best_runtime is None:
+            continue
+        bucket["best_runtime"] = best_runtime
+        for runtime_f, speedup_f in pairs:
+            if runtime_f == best_runtime:
+                bucket["best_speedup"] = speedup_f
+                break
     return per_level
 
 
@@ -742,15 +756,16 @@ def main() -> int:
         if runtime_f >= 0:
             runtime_candidates.append(runtime_f)
     if runtime_candidates:
-        best_runtime_overall = min(runtime_candidates)
-        for entry in successful:
-            try:
-                runtime_f = float(entry.get("runtime"))
-            except Exception:
-                continue
-            if runtime_f == best_runtime_overall:
-                best_overall = float(entry.get("best_speedup", 0.0) or 0.0)
-                break
+        best_runtime_overall = min_non_outlier_runtime(runtime_candidates)
+        if best_runtime_overall is not None:
+            for entry in successful:
+                try:
+                    runtime_f = float(entry.get("runtime"))
+                except Exception:
+                    continue
+                if runtime_f == best_runtime_overall:
+                    best_overall = float(entry.get("best_speedup", 0.0) or 0.0)
+                    break
 
     batch_session_wall_time_sec = time.perf_counter() - batch_session_t0
     total_problem_wall_time_sec = _sum_timing_wall_seconds(timing_path)
