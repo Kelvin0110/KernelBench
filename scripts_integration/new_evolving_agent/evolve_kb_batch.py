@@ -475,6 +475,13 @@ def main() -> int:
         help="Disable L1 memory for this run (no promotion, no extractor).",
     )
     parser.add_argument(
+        "--enable-static-check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run validate_kernel_static before GPU eval (default: on). "
+        "Use --no-static-check to disable for debugging.",
+    )
+    parser.add_argument(
         "--enable-skill-refinement",
         action="store_true",
         help="Enable the SkillRevise-style skill refinement add-on. When a skill "
@@ -755,6 +762,7 @@ def main() -> int:
                 l1_skill_unit_test_max_tokens=int(args.l1_skill_unit_test_max_tokens),
                 l1_skill_unit_test_timeout_sec=float(args.l1_skill_unit_test_timeout_sec),
                 l1_skill_unit_test_run_timeout_sec=float(args.l1_skill_unit_test_run_timeout_sec),
+                enable_static_check=bool(args.enable_static_check),
                 verbose=True,
             )
             result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
@@ -865,6 +873,7 @@ def main() -> int:
         "resumed_from_run_dir": str(run_dir) if args.resume else None,
         "subset_csv": str(subset_csv),
         "dry_run": bool(args.dry_run),
+        "enable_static_check": bool(args.enable_static_check),
         "cuda_available": bool(has_cuda),
         "skill_deletion": bool(args.skill_deletion),
         "enable_l1_skill_unit_test_gc": bool(args.enable_l1_skill_unit_test_gc),
