@@ -24,7 +24,13 @@ if str(SEA_ROOT) not in sys.path:
     sys.path.insert(0, str(SEA_ROOT))
 
 from kernelbench.dataset import construct_kernelbench_dataset
-from kernelbench.performance_stats import min_non_outlier_runtime
+from kernelbench.performance_stats import (
+    LIKELY_REWARD_HACK_SPEEDUP_THRESHOLD,
+    SUSPICIOUS_SPEEDUP_WARN_THRESHOLD,
+    build_baseline_lookup,
+    classify_speedup_severity,
+    min_non_outlier_runtime,
+)
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
 from kernelbench_integration import (
     KBGovernorConfig,
@@ -297,11 +303,18 @@ def _write_kernel_export(run_dir: Path, *, level: int, problem_id: str, code: st
     return export_path
 
 
-def _summarize_per_level_runs(runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _summarize_per_level_runs(
+    runs: list[dict[str, Any]],
+    *,
+    likely_hack_keys: set[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    likely_hack_keys = likely_hack_keys or set()
     per_level: dict[str, dict[str, Any]] = {}
     level_runtime_speedups: dict[str, list[tuple[float, float]]] = {}
     for entry in runs:
         level = str(entry.get("level"))
+        problem_id = entry.get("problem_id")
+        entry_key = f"L{level}P{problem_id}"
         bucket = per_level.setdefault(
             level,
             {
@@ -318,7 +331,11 @@ def _summarize_per_level_runs(runs: list[dict[str, Any]]) -> dict[str, dict[str,
             runtime_f = float(entry.get("runtime"))
         except Exception:
             runtime_f = -1.0
-        if entry.get("best_correct") and runtime_f >= 0:
+        if (
+            entry.get("best_correct")
+            and runtime_f >= 0
+            and entry_key not in likely_hack_keys
+        ):
             level_runtime_speedups.setdefault(level, []).append(
                 (runtime_f, float(entry.get("best_speedup", 0.0) or 0.0))
             )
@@ -336,6 +353,62 @@ def _summarize_per_level_runs(runs: list[dict[str, Any]]) -> dict[str, dict[str,
                 bucket["best_speedup"] = speedup_f
                 break
     return per_level
+
+
+def _collect_suspicious_speedup_problems(
+    runs: list[dict[str, Any]],
+    *,
+    baseline_results: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Return audit records and keys excluded as likely_reward_hack."""
+    suspicious: list[dict[str, Any]] = []
+    likely_hack_keys: set[str] = set()
+    baseline_by_level: dict[int, dict[int, float]] = {}
+    if isinstance(baseline_results, dict):
+        for level in (1, 2, 3):
+            baseline_by_level[level] = build_baseline_lookup(baseline_results, level)
+
+    for entry in runs:
+        if not entry.get("best_correct"):
+            continue
+        try:
+            speedup = float(entry.get("best_speedup", 0.0) or 0.0)
+        except Exception:
+            continue
+        severity = classify_speedup_severity(speedup)
+        if severity is None:
+            continue
+
+        level = int(entry.get("level"))
+        problem_id = int(entry.get("problem_id"))
+        entry_key = f"L{level}P{problem_id}"
+        baseline_runtime = baseline_by_level.get(level, {}).get(problem_id)
+        try:
+            best_runtime = float(entry.get("runtime"))
+        except Exception:
+            best_runtime = None
+
+        threshold = (
+            LIKELY_REWARD_HACK_SPEEDUP_THRESHOLD
+            if severity == "likely_reward_hack"
+            else SUSPICIOUS_SPEEDUP_WARN_THRESHOLD
+        )
+        suspicious.append(
+            {
+                "workspace_id": f"level_{level}_problem_{problem_id}",
+                "level": level,
+                "problem_id": problem_id,
+                "best_speedup": speedup,
+                "best_runtime": best_runtime,
+                "baseline_runtime": baseline_runtime,
+                "severity": severity,
+                "reason": f"speedup exceeds global threshold ({threshold:g}x)",
+            }
+        )
+        if severity == "likely_reward_hack":
+            likely_hack_keys.add(entry_key)
+
+    return suspicious, likely_hack_keys
 
 
 def _check_integration_dependencies(*, dry_run: bool) -> None:
@@ -745,10 +818,22 @@ def main() -> int:
         )
 
     successful = [e for e in runs if e.get("best_correct")]
+    baseline_results = (
+        _read_json(Path(args.baseline_timing_file), default={})
+        if args.baseline_timing_file
+        else None
+    )
+    suspicious_speedup_problems, likely_hack_keys = _collect_suspicious_speedup_problems(
+        runs,
+        baseline_results=baseline_results if isinstance(baseline_results, dict) else None,
+    )
     best_overall = 0.0
     best_runtime_overall: float | None = None
     runtime_candidates: list[float] = []
     for entry in successful:
+        entry_key = f"L{entry.get('level')}P{entry.get('problem_id')}"
+        if entry_key in likely_hack_keys:
+            continue
         try:
             runtime_f = float(entry.get("runtime"))
         except Exception:
@@ -759,6 +844,9 @@ def main() -> int:
         best_runtime_overall = min_non_outlier_runtime(runtime_candidates)
         if best_runtime_overall is not None:
             for entry in successful:
+                entry_key = f"L{entry.get('level')}P{entry.get('problem_id')}"
+                if entry_key in likely_hack_keys:
+                    continue
                 try:
                     runtime_f = float(entry.get("runtime"))
                 except Exception:
@@ -788,7 +876,12 @@ def main() -> int:
         "total_correct": len(successful),
         "best_speedup_overall": best_overall,
         "best_runtime_overall": best_runtime_overall,
-        "per_level_summary": _summarize_per_level_runs(runs),
+        "per_level_summary": _summarize_per_level_runs(
+            runs,
+            likely_hack_keys=likely_hack_keys,
+        ),
+        "suspicious_speedup_problems": suspicious_speedup_problems,
+        "suspicious_speedup_count": len(suspicious_speedup_problems),
         "results_path": str(eval_path),
         "evolving_runs_path": str(evolving_runs_path),
         "batch_timing_jsonl": str(timing_path),
