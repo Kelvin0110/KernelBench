@@ -9,6 +9,7 @@ from kernelbench.performance_stats import (
     align_series_for_comparison,
     aggregate_speedups,
     compute_fastp_from_records,
+    min_non_outlier_runtime,
     parse_fastp_values,
 )
 
@@ -452,4 +453,12 @@ def test_fast_p_best_does_not_drop_after_problem_finishes(monkeypatch, tmp_path:
     series = result["doc"]["series"]["fast_p_best"]["1.0"]
     values = [point["value"] for point in series]
     assert all(values[i] <= values[i + 1] + 1e-9 for i in range(len(values) - 1))
+
+
+def test_min_non_outlier_runtime_ignores_reward_hack_iteration() -> None:
+    runtimes = [8.0, 9.0, 0.001, 8.5]
+    best = min_non_outlier_runtime(runtimes)
+    assert best is not None
+    assert best >= 8.0
+    assert best != 0.001
 

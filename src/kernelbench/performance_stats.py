@@ -55,6 +55,56 @@ def safe_float(value: Any) -> float | None:
     return None
 
 
+def is_suspicious_fast_runtime(
+    runtime: float,
+    peer_runtimes: list[float],
+    *,
+    min_peers: int = 2,
+    iqr_factor: float = 1.5,
+) -> bool:
+    """True when *runtime* is an implausibly fast outlier vs *peer_runtimes*."""
+    peers = [float(r) for r in peer_runtimes if r is not None and float(r) > 0]
+    if runtime <= 0:
+        return False
+    if len(peers) == 1 and float(runtime) < 0.01 * peers[0]:
+        return True
+    if len(peers) < min_peers:
+        return False
+
+    arr = np.asarray(peers, dtype=float)
+    q1, q3 = np.percentile(arr, [25, 75])
+    iqr = float(q3 - q1)
+    lower_fence = float(q1 - iqr_factor * iqr)
+    peer_median = float(np.median(arr))
+    return float(runtime) < lower_fence and float(runtime) < 0.5 * peer_median
+
+
+def min_non_outlier_runtime(
+    runtimes: list[float],
+    *,
+    min_peers: int = 2,
+    iqr_factor: float = 1.5,
+) -> float | None:
+    """Return the minimum runtime after dropping suspiciously-fast outliers."""
+    positive = sorted({float(r) for r in runtimes if r is not None and float(r) > 0})
+    if not positive:
+        return None
+
+    eligible = [
+        runtime
+        for runtime in positive
+        if not is_suspicious_fast_runtime(
+            runtime,
+            [r for r in positive if r != runtime],
+            min_peers=min_peers,
+            iqr_factor=iqr_factor,
+        )
+    ]
+    if not eligible:
+        return min(positive)
+    return min(eligible)
+
+
 def speedup(baseline_runtime: float, runtime: float | None) -> float:
     if runtime is None or runtime <= 0:
         return 0.0
