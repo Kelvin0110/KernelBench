@@ -12,6 +12,8 @@ from kernelbench.dataset import construct_kernelbench_dataset
 from kernelbench.score import fastp
 
 DEFAULT_FAST_P_THRESHOLDS = [0.0, 0.5, 0.8, 1.0, 1.5, 2.0]
+SUSPICIOUS_SPEEDUP_WARN_THRESHOLD = 10.0
+LIKELY_REWARD_HACK_SPEEDUP_THRESHOLD = 50.0
 
 
 def read_json(path: Path, default: Any) -> Any:
@@ -79,16 +81,71 @@ def is_suspicious_fast_runtime(
     return float(runtime) < lower_fence and float(runtime) < 0.5 * peer_median
 
 
+def is_suspicious_vs_baseline(
+    runtime: float,
+    baseline_runtime: float,
+    *,
+    max_speedup: float = LIKELY_REWARD_HACK_SPEEDUP_THRESHOLD,
+) -> bool:
+    """True when *runtime* implies speedup above *max_speedup* vs fixed baseline."""
+    if runtime is None or runtime <= 0 or baseline_runtime is None or baseline_runtime <= 0:
+        return False
+    return float(baseline_runtime) / float(runtime) > float(max_speedup)
+
+
+def classify_speedup_severity(
+    speedup: float,
+    *,
+    warn_threshold: float = SUSPICIOUS_SPEEDUP_WARN_THRESHOLD,
+    hack_threshold: float = LIKELY_REWARD_HACK_SPEEDUP_THRESHOLD,
+) -> str | None:
+    """Return severity label for a speedup value, or None if normal."""
+    if speedup is None or not np.isfinite(float(speedup)) or float(speedup) <= warn_threshold:
+        return None
+    if float(speedup) > hack_threshold:
+        return "likely_reward_hack"
+    return "suspicious_speedup"
+
+
+def filter_runtimes_vs_baseline(
+    runtimes: list[float],
+    baseline_runtime: float,
+    *,
+    max_speedup: float = LIKELY_REWARD_HACK_SPEEDUP_THRESHOLD,
+) -> list[float]:
+    """Drop runtimes that imply implausible speedup vs a fixed baseline."""
+    if baseline_runtime is None or baseline_runtime <= 0:
+        return list(runtimes)
+    return [
+        float(r)
+        for r in runtimes
+        if r is not None
+        and float(r) > 0
+        and not is_suspicious_vs_baseline(float(r), float(baseline_runtime), max_speedup=max_speedup)
+    ]
+
+
 def min_non_outlier_runtime(
     runtimes: list[float],
     *,
     min_peers: int = 2,
     iqr_factor: float = 1.5,
+    baseline_runtime: float | None = None,
+    max_baseline_speedup: float = LIKELY_REWARD_HACK_SPEEDUP_THRESHOLD,
 ) -> float | None:
     """Return the minimum runtime after dropping suspiciously-fast outliers."""
     positive = sorted({float(r) for r in runtimes if r is not None and float(r) > 0})
     if not positive:
         return None
+
+    if baseline_runtime is not None and baseline_runtime > 0:
+        positive = filter_runtimes_vs_baseline(
+            positive,
+            float(baseline_runtime),
+            max_speedup=max_baseline_speedup,
+        )
+        if not positive:
+            return None
 
     eligible = [
         runtime
@@ -101,7 +158,7 @@ def min_non_outlier_runtime(
         )
     ]
     if not eligible:
-        return min(positive)
+        return min(positive) if positive else None
     return min(eligible)
 
 

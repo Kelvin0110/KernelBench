@@ -8,7 +8,9 @@ from pathlib import Path
 from kernelbench.performance_stats import (
     align_series_for_comparison,
     aggregate_speedups,
+    classify_speedup_severity,
     compute_fastp_from_records,
+    is_suspicious_vs_baseline,
     min_non_outlier_runtime,
     parse_fastp_values,
 )
@@ -461,4 +463,21 @@ def test_min_non_outlier_runtime_ignores_reward_hack_iteration() -> None:
     assert best is not None
     assert best >= 8.0
     assert best != 0.001
+
+
+def test_is_suspicious_vs_baseline_flags_implausible_speedup() -> None:
+    assert is_suspicious_vs_baseline(0.00403, 39.3, max_speedup=50.0) is True
+    assert is_suspicious_vs_baseline(35.2, 39.3, max_speedup=50.0) is False
+
+
+def test_classify_speedup_severity_tiers() -> None:
+    assert classify_speedup_severity(5.0) is None
+    assert classify_speedup_severity(15.0) == "suspicious_speedup"
+    assert classify_speedup_severity(9751.0) == "likely_reward_hack"
+
+
+def test_min_non_outlier_runtime_filters_uniform_baseline_hack() -> None:
+    runtimes = [0.0106, 0.0105, 0.00403, 0.00404]
+    best = min_non_outlier_runtime(runtimes, baseline_runtime=39.3)
+    assert best is None
 
