@@ -7,6 +7,7 @@
   - L0 is **`list[L0Round]`** per problem (`finalize_l0_round` once per iteration); prompts use `round_summary` for archived rounds.
   - L1 promotion uses `format_l0_for_l1_promotion` and `promote_every_n_rounds` (default 2); KernelBench keeps L0 after promotion (`clear_l0_after_promotion=False`).
   - Keep `eval_results.json` level-first; preserve `runtime` / `runtime_stats`; GPU eval via `GPUMemoryReserver`.
+  - **`is_hack` / static check (2026-07)**: default `enable_static_check=True`; hacked iterations excluded from best + speedup geo-mean; regenerate viz stats for old runs missing `is_hack` in jsonl.
 
 ---
 
@@ -466,4 +467,18 @@
 - **Batch** (`evolve_kb_batch.py`): flags already independent; `run_summary.json` records both booleans.
 - **Docs**: `README.md` §3.2 independent modes table; `RUN_WITH_UV.md` full 50-problem deletion-only and merge-only commands.
 - **Tests**: `test_gen3_skill_governance.py`, updated `test_gen3_skill_merge.py`, `test_evolve_kb_batch.py` merge-only/deletion-only dry-runs.
+- **Status**: Completed
+
+### 2026-07-03 - Cursor Agent
+- **Feature**: Static kernel check + `is_hack` metric wired into evolving-agent governor, batch summary, and visualization stats.
+- **Implementation**:
+  - `kernelbench_integration/static_check.py`: `run_static_check()` wraps `validate_kernel_static`; `resolve_is_hack()` centralizes flag logic.
+  - `kernelbench_integration/config.py`: `enable_static_check: bool = True` (CLI `--no-static-check` in `evolve_kb_batch.py`).
+  - `kernelbench_integration/governor.py`: STRICT static errors skip GPU eval; warnings + `metadata.excessive_speedup` set `is_hack`; `is_new_best` blocked when `is_hack`; `metrics_iteration.is_hack` / sticky `metrics_best.is_hack` / `KBGovernorResult.best_is_hack`.
+  - `visualizations/kernelbench/server/generate_run_performance_stats.py`: policy `correct_only_exclude_hack` for speedup mean/median/geometric mean; hacked runtimes dropped from running-best pool; counters `hack_iteration_count`, `problems_with_hack`.
+  - `visualizations/kernelbench/index.html` + `app.py`: hack timeline styling, status field, problem-list badge (`has_hack`).
+  - Prior eval-isolation work retained: separate exec namespaces, `baseline_runtime` for excessive-speedup flag, `workload_shrink` static WARNING.
+- **Impact**: Workload-shrink hacks and >10× eval speedups are visible per iteration and excluded from best tracking and speedup aggregates. Library shortcuts (e.g. `nn.RNN` replacing a Python loop) typically get `is_hack` via `excessive_speedup` and/or static `pytorch_wrap` warnings — they still run GPU eval but do not update best or geo-mean speedup series when flagged. Re-run batch or regenerate `performance_stats.json` for old runs (no `is_hack` in legacy `metrics_by_iteration.jsonl`).
+- **Docs**: `scripts_integration/new_evolving_agent/README.md` §3.3; this entry.
+- **Tests**: `test_kb_governor.py` (static block, warnings, metrics propagation), `test_performance_stats.py` (hack exclusion).
 - **Status**: Completed
