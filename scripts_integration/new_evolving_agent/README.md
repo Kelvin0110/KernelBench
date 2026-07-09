@@ -142,9 +142,9 @@ CLI: `--enable-static-check` / `--no-static-check`; recorded in `run_summary.jso
 | Viz **speedup** mean / median / geometric mean (`performance_stats.json`) | **Yes** | `correct_only_exclude_hack` — only `correct ∧ ¬is_hack` (current) or `best_correct ∧ ¬best_is_hack` (best) |
 | Viz **running best runtime** per problem (outlier filter input) | **Yes** | Hacked correct runtimes omitted from `correct_runtimes_upto`; stored best skipped when `best_is_hack` |
 | Viz **fast_p_best** | **Mostly** | Uses `best_correct` derived from non-hack running-best runtimes |
-| Viz **fast_p_current** | **No** (gap) | Still uses raw `correct`; hacked-but-correct iterations count in the fast-p denominator |
-| Batch **`best_speedup_overall`** / per-level best | **Partial** | Problems with `best_speedup > 50×` (`likely_reward_hack`) excluded via `_collect_suspicious_speedup_problems`; does not read per-iteration `is_hack` on legacy runs |
-| Batch **`suspicious_speedup_problems`** | Audit only | Flags >10× (`suspicious_speedup`) and >50× (`likely_reward_hack`) in `run_summary.json` |
+| Viz **fast_p_current** | **Yes** | Uses `current_correct` (`correct ∧ ¬is_hack`); hacked-but-correct iterations do not count toward the fast-p numerator |
+| Batch **`best_speedup_overall`** / per-level best | **Partial (legacy safety net)** | New runs: governor blocks `is_hack` from becoming best, so stored `best_speedup` stays clean. Batch also excludes problems with final `best_speedup > 50×` (`likely_reward_hack`); does not read per-iteration `is_hack` on legacy runs |
+| Batch **`suspicious_speedup_problems`** | Audit only | Lists final `best_speedup > 10×` on `best_correct` runs — **does not check `is_hack`**. On new runs, hacked iters rarely appear because they never update best |
 
 **Legacy runs** (before this wiring): `metrics_by_iteration.jsonl` has no `is_hack` — regenerate stats after re-eval, or treat high-speedup audit fields in `run_summary.json` as fallback.
 

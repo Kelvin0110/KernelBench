@@ -482,3 +482,11 @@
 - **Docs**: `scripts_integration/new_evolving_agent/README.md` §3.3; this entry.
 - **Tests**: `test_kb_governor.py` (static block, warnings, metrics propagation), `test_performance_stats.py` (hack exclusion).
 - **Status**: Completed
+
+### 2026-07-09 - Cursor Agent
+- **Feature**: `fast_p_current` excludes hacked iterations (align with speedup aggregates).
+- **Implementation**: [`generate_run_performance_stats.py`](Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py) adds `current_correct = correct ∧ ¬is_hack` on per-iteration points; `compute_fastp_from_records(..., correct_field="current_correct")`.
+- **Impact**: Viz fast-p current charts no longer treat hacked-but-correct iterations as fast successes. Batch `best_speedup_overall` / `suspicious_speedup_problems` unchanged — new runs already keep hacked iters off best via governor `is_new_best` gate.
+- **Tests**: `test_fast_p_current_excludes_hacked_across_two_problems`, extended `test_generate_run_excludes_hacked_speedups`.
+- **Docs**: `README.md` §3.3 table clarified for fast_p_current and batch audit behavior.
+- **Status**: Completed

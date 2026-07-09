@@ -528,6 +528,64 @@ def test_generate_run_excludes_hacked_speedups(monkeypatch, tmp_path: Path) -> N
     assert math.isclose(float(iter2["aggregates"]["current"]["mean"]), 2.0)
     assert math.isclose(float(iter2["aggregates"]["best"]["mean"]), 0.0)
 
+    iter1 = doc["iterations"][0]
+    assert iter1["iteration"] == 1
+    assert math.isclose(float(iter1["fast_p_current"]["1.0"]), 0.0)
+    assert math.isclose(float(iter2["fast_p_current"]["1.0"]), 1.0)
+    assert iter2["points"][0]["current_correct"] is True
+    assert iter1["points"][0]["current_correct"] is False
+
+
+def test_fast_p_current_excludes_hacked_across_two_problems(monkeypatch, tmp_path: Path) -> None:
+    module = _load_generate_run_module()
+
+    run_name = "run_fastp_hack"
+    run_dir = tmp_path / run_name
+    baseline_file = tmp_path / "baseline.json"
+    baseline_file.write_text(json.dumps({}), encoding="utf-8")
+
+    for ws_name, is_hack, runtime in (
+        ("level_1_problem_1", True, 0.001),
+        ("level_1_problem_2", False, 5.0),
+    ):
+        ws_dir = run_dir / "workspaces" / ws_name
+        ws_dir.mkdir(parents=True, exist_ok=True)
+        row = {
+            "iteration": 1,
+            "metrics_iteration": {
+                "compiled": True,
+                "correct": True,
+                "runtime": runtime,
+                "is_hack": is_hack,
+            },
+            "metrics_best": {
+                "compiled": True,
+                "correct": True,
+                "runtime": runtime,
+                "is_hack": is_hack,
+            },
+        }
+        (ws_dir / "metrics_by_iteration.jsonl").write_text(
+            json.dumps(row) + "\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(module, "build_baseline_lookup", lambda _base, _level: {1: 10.0, 2: 10.0})
+
+    result = module.build_performance_stats(
+        run_name=run_name,
+        runs_root=tmp_path,
+        baseline_file=baseline_file,
+        fast_p_thresholds=[1.0],
+    )
+
+    iter1 = result["doc"]["iterations"][0]
+    # Only the clean problem counts toward fast-p numerator (1 of 2 problems).
+    assert math.isclose(float(iter1["fast_p_current"]["1.0"]), 0.5)
+    points_by_pid = {p["problem_id"]: p for p in iter1["points"]}
+    assert points_by_pid[1]["current_correct"] is False
+    assert points_by_pid[2]["current_correct"] is True
+
 
 def test_min_non_outlier_runtime_ignores_reward_hack_iteration() -> None:
     runtimes = [8.0, 9.0, 0.001, 8.5]
