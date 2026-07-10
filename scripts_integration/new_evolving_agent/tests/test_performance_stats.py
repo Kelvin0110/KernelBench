@@ -141,7 +141,7 @@ def test_aide_best_geometric_mean_series_from_cumulative_best(
     )
 
     doc = result["doc"]
-    assert doc["speedup_aggregate_policy"] == "correct_only"
+    assert doc["speedup_aggregate_policy"] == "correct_only_exclude_hack"
 
     iter1_geo = float(doc["iterations"][0]["aggregates"]["best"]["geometric_mean"])
     iter2_geo = float(doc["iterations"][1]["aggregates"]["best"]["geometric_mean"])
@@ -151,6 +151,121 @@ def test_aide_best_geometric_mean_series_from_cumulative_best(
     best_geo_series = doc["series"]["speedup"]["best_geometric_mean"]
     assert [point["iteration"] for point in best_geo_series] == [1, 2]
     assert all(math.isclose(float(point["value"]), 2.0) for point in best_geo_series)
+
+
+def test_aide_excludes_hacked_speedups_and_outliers(monkeypatch, tmp_path: Path) -> None:
+    module = _load_generate_aide_module()
+
+    run_integration_root = tmp_path / "run_integration"
+    (run_integration_root / "demo_hack_run").mkdir(parents=True)
+    baseline_file = tmp_path / "baseline.json"
+    baseline_file.write_text("{}", encoding="utf-8")
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,1\n1,2\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "load_subset_problem_ids_by_level", lambda _p: {1: {1, 2}})
+    monkeypatch.setattr(module, "load_subset_pairs", lambda _p: [(1, 1), (1, 2)])
+    monkeypatch.setattr(
+        module,
+        "_build_problem_templates_from_subset",
+        lambda **_kwargs: [
+            {"level": 1, "problem_id": 1, "baseline_runtime": 10.0},
+            {"level": 1, "problem_id": 2, "baseline_runtime": 10.0},
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "_collect_subset_run_node_records",
+        lambda **_kwargs: {
+            1: [
+                {
+                    "level": 1,
+                    "problem_id": 1,
+                    "baseline_runtime": 10.0,
+                    "runtime": 0.001,
+                    "compiled": True,
+                    "correct": True,
+                    "is_hack": True,
+                    "code_changed_since_last_checkpoint": True,
+                },
+                {
+                    "level": 1,
+                    "problem_id": 2,
+                    "baseline_runtime": 10.0,
+                    "runtime": 5.0,
+                    "compiled": True,
+                    "correct": True,
+                    "is_hack": False,
+                    "code_changed_since_last_checkpoint": True,
+                },
+            ],
+            2: [
+                {
+                    "level": 1,
+                    "problem_id": 1,
+                    "baseline_runtime": 10.0,
+                    "runtime": 5.0,
+                    "compiled": True,
+                    "correct": True,
+                    "is_hack": False,
+                    "code_changed_since_last_checkpoint": True,
+                },
+                {
+                    "level": 1,
+                    "problem_id": 2,
+                    "baseline_runtime": 10.0,
+                    "runtime": 5.0,
+                    "compiled": True,
+                    "correct": True,
+                    "is_hack": False,
+                    "code_changed_since_last_checkpoint": True,
+                },
+            ],
+        },
+    )
+
+    result = module.build_aide_checkpoint_stats(
+        layout="subset_run",
+        run_name="demo_hack_run",
+        run_integration_root=run_integration_root,
+        subset_csv=subset_csv,
+        baseline_file=baseline_file,
+        fast_p_thresholds=[1.0],
+    )
+
+    doc = result["doc"]
+    assert doc["hack_iteration_count"] == 1
+    assert doc["problems_with_hack"] == 1
+
+    iter1 = doc["iterations"][0]
+    assert math.isclose(float(iter1["aggregates"]["current"]["mean"]), 2.0)
+    assert math.isclose(float(iter1["aggregates"]["best"]["mean"]), 2.0)
+    assert math.isclose(float(iter1["fast_p_current"]["1.0"]), 0.5)
+    points_by_pid = {p["problem_id"]: p for p in iter1["points"]}
+    assert points_by_pid[1]["current_correct"] is False
+    assert points_by_pid[2]["current_correct"] is True
+
+    iter2 = doc["iterations"][1]
+    assert math.isclose(float(iter2["aggregates"]["current"]["mean"]), 2.0)
+    assert math.isclose(float(iter2["aggregates"]["best"]["mean"]), 2.0)
+    assert math.isclose(float(iter2["fast_p_current"]["1.0"]), 1.0)
+
+
+def test_aide_resolve_is_hack_from_metadata_excessive_speedup() -> None:
+    module = _load_generate_aide_module()
+    entry = {
+        "compiled": True,
+        "correctness": True,
+        "runtime": 5.0,
+        "metadata": {"excessive_speedup": True},
+    }
+    record = module._record_from_eval_entry(
+        level=1,
+        problem_id=1,
+        entry=entry,
+        baseline_runtime=10.0,
+    )
+    assert record["is_hack"] is True
 
 
 def test_extract_action_from_truncated_selector_json() -> None:
