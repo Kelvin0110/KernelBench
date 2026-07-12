@@ -409,7 +409,7 @@ def test_static_strict_failure_skips_gpu_eval(monkeypatch) -> None:
     assert result.error_message.startswith("static_check_failed:")
 
 
-def test_static_warnings_set_is_hack_but_eval_runs(monkeypatch) -> None:
+def test_workload_shrink_warning_sets_is_hack(monkeypatch) -> None:
     monkeypatch.setattr(
         kb_gov_module,
         "run_static_check",
@@ -431,7 +431,72 @@ def test_static_warnings_set_is_hack_but_eval_runs(monkeypatch) -> None:
 
     assert result.is_hack is True
     assert result.correct is True
+    assert result.static_check_warnings == ["workload_shrink: suspicious"]
     assert result.metadata.get("static_check_warnings") == ["workload_shrink: suspicious"]
+
+
+def test_non_hack_static_warning_allows_best(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        kb_gov_module,
+        "run_static_check",
+        lambda *_a, **_k: (
+            True,
+            [],
+            ["pytorch_wrap: Uses torch.nn compute layer (only containers, Parameter, init allowed)"],
+        ),
+    )
+    monkeypatch.setattr(
+        kb_gov_module,
+        "run_kernelbench_eval",
+        lambda _payload: _fake_eval_payload(runtime=2.0, ref_runtime=5.0),
+    )
+    monkeypatch.setattr(
+        kb_gov_module,
+        "call_coder_with_meta",
+        lambda *_a, **_k: ('```python\nprint("candidate")\n```', 32, {"model_id": "fake-coder"}),
+    )
+    monkeypatch.setattr(kb_gov_module, "maybe_promote_l0_to_l1", lambda *_a, **_k: None)
+
+    def _fake_round_summarize(rnd, **_kwargs):
+        from evolving_common.l0_context import format_round_summary_fallback
+        from evolving_common.memory_manager import set_l0_round_summary
+
+        text = format_round_summary_fallback(rnd)
+        set_l0_round_summary(rnd, text)
+        return text
+
+    monkeypatch.setattr(kb_gov_module, "maybe_summarize_l0_round", _fake_round_summarize)
+
+    cfg = KBGovernorConfig(
+        problem_id="100",
+        reference_code='print("ref")',
+        level=1,
+        run_name="warn-not-hack-test",
+        results_root=tmp_path,
+        max_iterations=1,
+        isolate_evaluation_process=False,
+        enable_action_selector=False,
+        enable_l0_unfold=False,
+        enable_static_check=True,
+    )
+
+    result = KBGovernor(cfg).run(task_prompt="Optimize this model")
+
+    assert result.best_is_hack is False
+    assert result.records[0].evaluation.is_hack is False
+    assert result.records[0].evaluation.static_check_warnings
+    assert result.best_code_path is not None
+
+    metrics_path = (
+        tmp_path
+        / "warn-not-hack-test"
+        / "workspaces"
+        / "level_1_problem_100"
+        / "metrics_by_iteration.jsonl"
+    )
+    rows = [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert rows[0]["metrics_iteration"]["is_hack"] is False
+    assert rows[0]["metrics_iteration"]["static_check_warnings"]
 
 
 def test_is_hack_propagates_to_metrics_by_iteration(tmp_path: Path, monkeypatch) -> None:
@@ -490,6 +555,7 @@ def test_is_hack_propagates_to_metrics_by_iteration(tmp_path: Path, monkeypatch)
     rows = [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert rows
     assert rows[0]["metrics_iteration"]["is_hack"] is True
+    assert rows[0]["metrics_iteration"]["static_check_warnings"] == ["workload_shrink: suspicious"]
     assert rows[0]["metrics_best"]["is_hack"] is True
 
 
