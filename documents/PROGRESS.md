@@ -7,7 +7,7 @@
   - L0 is **`list[L0Round]`** per problem (`finalize_l0_round` once per iteration); prompts use `round_summary` for archived rounds.
   - L1 promotion uses `format_l0_for_l1_promotion` and `promote_every_n_rounds` (default 2); KernelBench keeps L0 after promotion (`clear_l0_after_promotion=False`).
   - Keep `eval_results.json` level-first; preserve `runtime` / `runtime_stats`; GPU eval via `GPUMemoryReserver`.
-  - **`is_hack` / static check (2026-07)**: default `enable_static_check=True`; hacked iterations excluded from best + speedup geo-mean; regenerate viz stats for old runs missing `is_hack` in jsonl.
+  - **`is_hack` / static check (2026-07)**: default `enable_static_check=True`; only STRICT + `workload_shrink` + >10× set `is_hack`; other warnings in `static_check_warnings`; regenerate viz stats for old runs.
 
 ---
 
@@ -483,7 +483,17 @@
 - **Tests**: `test_kb_governor.py` (static block, warnings, metrics propagation), `test_performance_stats.py` (hack exclusion).
 - **Status**: Completed
 
-### 2026-07-09 - Cursor Agent
+### 2026-07-12 - Cursor Agent
+- **Feature**: Narrow `is_hack` policy + expose `static_check_warnings` on eval metrics.
+- **Implementation**:
+  - `kernelbench_integration/static_check.py`: `resolve_is_hack()` only true for STRICT errors, `workload_shrink` warnings, or `excessive_speedup`; other static warnings recorded via `collect_static_check_warnings()` but do not block best.
+  - `kernel_static_checker.validate_kernel_static`: prefix errors/warnings with `check_name:` for classification.
+  - `KBEvalResult.static_check_warnings`; governor persists on `metrics_iteration` and terminal extras.
+  - Viz: yellow warn timeline nodes + warning count in status panel when warnings present without hack.
+- **Impact**: Hybrid kernels (`torch.tanh` wrapper + dummy CUDA) no longer blocked from best when speedup is normal; real workload shrink and >10× cheats still flagged. Re-run batches to refresh metrics; old jsonl lacks `static_check_warnings`.
+- **Tests**: `test_static_check.py`; updated `test_kb_governor.py` (workload_shrink vs pytorch_wrap).
+- **Docs**: `README.md` §3.3 truth table updated.
+- **Status**: Completed
 - **Feature**: `fast_p_current` excludes hacked iterations (align with speedup aggregates).
 - **Implementation**: [`generate_run_performance_stats.py`](Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py) adds `current_correct = correct ∧ ¬is_hack` on per-iteration points; `compute_fastp_from_records(..., correct_field="current_correct")`.
 - **Impact**: Viz fast-p current charts no longer treat hacked-but-correct iterations as fast successes. Batch `best_speedup_overall` / `suspicious_speedup_problems` unchanged — new runs already keep hacked iters off best via governor `is_new_best` gate.

@@ -111,22 +111,24 @@ Default **on** (`enable_static_check=True`). Mirrors standalone `check_kernel=Tr
 
 Set in `kernelbench_integration/static_check.resolve_is_hack()` and the governor eval path:
 
-| Source | GPU eval runs? | `is_hack` | Notes |
-|--------|----------------|-----------|-------|
-| Static **STRICT** error (`code_bypass`, `timing_event_patch`, `thread_injection`, `lazy_eval`, backend `*_impl` missing) | **No** | `true` | Returns `static_check_failed: …` |
-| Static **WARNING** only | Yes | `true` | Includes `workload_shrink`, `pytorch_wrap`, `torch_computation_ops`, `stream_injection`, `precision_downgrade` |
-| Eval `metadata.excessive_speedup` | Yes | `true` | Custom runtime > **10×** faster than baseline/ref (`eval.py`, threshold configurable) |
-| Clean iteration | Yes | `false` | |
+| Source | GPU eval runs? | `is_hack` | `static_check_warnings` |
+|--------|----------------|-----------|-------------------------|
+| Static **STRICT** error (`code_bypass`, `timing_event_patch`, `thread_injection`, `lazy_eval`, backend `*_impl` missing) | **No** | `true` | errors + any warnings |
+| Static **`workload_shrink`** warning only | Yes | `true` | includes shrink message |
+| Other static **WARNING** only (`pytorch_wrap`, `torch_computation_ops`, …) | Yes | **`false`** | lists warnings; still eligible for best |
+| Eval `metadata.excessive_speedup` | Yes | `true` | may also have warnings |
+| Clean iteration | Yes | `false` | `[]` |
 
 **Examples**
 
-- **Workload shrink** (`batch_size=1`, redefined `get_inputs`): WARNING → `is_hack=true`; eval may still pass on shrunk tensors (namespace isolation reduces false passes).
-- **Library shortcut** (e.g. `nn.RNN` instead of a Python loop on full tensors): often WARNING (`pytorch_wrap` / `torch_computation_ops`) **and** `excessive_speedup` if >10× — `is_hack=true` but not workload shrink.
+- **Workload shrink** (`batch_size=1`, redefined `get_inputs`): `workload_shrink` warning → `is_hack=true`; eval may still pass on shrunk tensors (namespace isolation reduces false passes).
+- **Library shortcut** (e.g. `nn.RNN` instead of a Python loop on full tensors): often `pytorch_wrap` / `torch_computation_ops` warning with `is_hack=false`; if >10×, `excessive_speedup` also sets `is_hack=true`.
 - **STRICT** missing CUDA kernel: eval skipped, `is_hack=true`.
 
 Persisted per iteration in `metrics_by_iteration.jsonl`:
 
 - `metrics_iteration.is_hack` — this attempt
+- `metrics_iteration.static_check_warnings` — all static errors/warnings recorded for audit
 - `metrics_best.is_hack` — sticky `true` if **any** iteration in the run had `is_hack`
 - `KBGovernorResult.best_is_hack` — same, in `evolving_runs.json`
 
@@ -148,7 +150,7 @@ CLI: `--enable-static-check` / `--no-static-check`; recorded in `run_summary.jso
 
 **Legacy runs** (before this wiring): `metrics_by_iteration.jsonl` has no `is_hack` — regenerate stats after re-eval, or treat high-speedup audit fields in `run_summary.json` as fallback.
 
-Visualizer: orange **hack** timeline nodes, `Hack: true/false` in status panel, **hack** badge on problem list (`GET …/problems` → `has_hack`). See `Self-Evolving-Agent/visualizations/kernelbench/README.md`.
+Visualizer: orange **hack** timeline nodes, yellow **warn** nodes when `static_check_warnings` present without hack, `Hack: true/false` and warning count in status panel, **hack** badge on problem list (`GET …/problems` → `has_hack`). See `Self-Evolving-Agent/visualizations/kernelbench/README.md`.
 
 ### 3.1 Skill Refinement add-on (opt-in, SkillRevise-style)
 
