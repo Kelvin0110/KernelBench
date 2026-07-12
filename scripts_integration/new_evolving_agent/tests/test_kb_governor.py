@@ -409,7 +409,7 @@ def test_static_strict_failure_skips_gpu_eval(monkeypatch) -> None:
     assert result.error_message.startswith("static_check_failed:")
 
 
-def test_workload_shrink_warning_sets_is_hack(monkeypatch) -> None:
+def test_workload_shrink_warning_does_not_set_is_hack(monkeypatch) -> None:
     monkeypatch.setattr(
         kb_gov_module,
         "run_static_check",
@@ -429,7 +429,7 @@ def test_workload_shrink_warning_sets_is_hack(monkeypatch) -> None:
     )
     result = KBGovernor(cfg)._evaluate_candidate("class ModelNew: pass", attempt=1)
 
-    assert result.is_hack is True
+    assert result.is_hack is False
     assert result.correct is True
     assert result.static_check_warnings == ["workload_shrink: suspicious"]
     assert result.metadata.get("static_check_warnings") == ["workload_shrink: suspicious"]
@@ -503,12 +503,16 @@ def test_is_hack_propagates_to_metrics_by_iteration(tmp_path: Path, monkeypatch)
     monkeypatch.setattr(
         kb_gov_module,
         "run_kernelbench_eval",
-        lambda _payload: _fake_eval_payload(),
+        lambda _payload: _fake_eval_payload(
+            runtime=0.001,
+            ref_runtime=10.0,
+            metadata={"excessive_speedup": True},
+        ),
     )
     monkeypatch.setattr(
         kb_gov_module,
         "run_static_check",
-        lambda *_a, **_k: (True, [], ["workload_shrink: suspicious"]),
+        lambda *_a, **_k: (True, [], []),
     )
     monkeypatch.setattr(
         kb_gov_module,
@@ -555,7 +559,7 @@ def test_is_hack_propagates_to_metrics_by_iteration(tmp_path: Path, monkeypatch)
     rows = [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert rows
     assert rows[0]["metrics_iteration"]["is_hack"] is True
-    assert rows[0]["metrics_iteration"]["static_check_warnings"] == ["workload_shrink: suspicious"]
+    assert rows[0]["metrics_iteration"]["static_check_warnings"] == []
     assert rows[0]["metrics_best"]["is_hack"] is True
 
 

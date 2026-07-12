@@ -33,8 +33,8 @@ def test_resolve_is_hack_strict_error() -> None:
     assert resolve_is_hack(static_errors=["cuda_impl: missing kernel"]) is True
 
 
-def test_resolve_is_hack_workload_shrink_warning() -> None:
-    assert resolve_is_hack(static_warnings=["workload_shrink: suspicious"]) is True
+def test_resolve_is_hack_workload_shrink_warning_only() -> None:
+    assert resolve_is_hack(static_warnings=["workload_shrink: suspicious"]) is False
 
 
 def test_resolve_is_hack_pytorch_wrap_warning_only() -> None:
