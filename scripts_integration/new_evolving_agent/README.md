@@ -114,14 +114,14 @@ Set in `kernelbench_integration/static_check.resolve_is_hack()` and the governor
 | Source | GPU eval runs? | `is_hack` | `static_check_warnings` |
 |--------|----------------|-----------|-------------------------|
 | Static **STRICT** error (`code_bypass`, `timing_event_patch`, `thread_injection`, `lazy_eval`, backend `*_impl` missing) | **No** | `true` | errors + any warnings |
-| Static **`workload_shrink`** warning only | Yes | `true` | includes shrink message |
+| Static **`workload_shrink`** warning only | Yes | **`false`** | includes shrink message; audit only |
 | Other static **WARNING** only (`pytorch_wrap`, `torch_computation_ops`, …) | Yes | **`false`** | lists warnings; still eligible for best |
 | Eval `metadata.excessive_speedup` | Yes | `true` | may also have warnings |
 | Clean iteration | Yes | `false` | `[]` |
 
 **Examples**
 
-- **Workload shrink** (`batch_size=1`, redefined `get_inputs`): `workload_shrink` warning → `is_hack=true`; eval may still pass on shrunk tensors (namespace isolation reduces false passes).
+- **Workload shrink** (redefined `batch_size` / `get_inputs`, including copy-paste from reference boilerplate): `workload_shrink` warning → `is_hack=false`; real shrink cheats fail correctness or hit `excessive_speedup` (>10×) under eval namespace isolation.
 - **Library shortcut** (e.g. `nn.RNN` instead of a Python loop on full tensors): often `pytorch_wrap` / `torch_computation_ops` warning with `is_hack=false`; if >10×, `excessive_speedup` also sets `is_hack=true`.
 - **STRICT** missing CUDA kernel: eval skipped, `is_hack=true`.
 
@@ -149,6 +149,21 @@ CLI: `--enable-static-check` / `--no-static-check`; recorded in `run_summary.jso
 | Batch **`suspicious_speedup_problems`** | Audit only | Lists final `best_speedup > 10×` on `best_correct` runs — **does not check `is_hack`**. On new runs, hacked iters rarely appear because they never update best |
 
 **Legacy runs** (before this wiring): `metrics_by_iteration.jsonl` has no `is_hack` — regenerate stats after re-eval, or treat high-speedup audit fields in `run_summary.json` as fallback.
+
+#### Repair legacy runs (old broad `is_hack` policy)
+
+Runs completed before the narrowed policy (STRICT + `excessive_speedup` only; or older broad “any warning → hack”) may have blocked best promotion for benign static warnings (`pytorch_wrap`, `workload_shrink`, `torch_computation_ops`). Re-derive offline from stored candidate code:
+
+```bash
+uv run python scripts_integration/new_evolving_agent/repair/repair_is_hack_policy.py \
+  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_07_itr10_2026_07_09_15_16 \
+  --dry-run
+
+uv run python scripts_integration/new_evolving_agent/repair/repair_is_hack_policy.py \
+  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_07_itr10_2026_07_09_15_16
+```
+
+Updates `evolving_runs.json`, `eval_results*.json`, `run_summary.json`, workspace `metrics_by_iteration.jsonl`, `best_iter_*.py`, kernel exports, and `visualizations/performance_stats.json`. No GPU re-eval.
 
 Visualizer: orange **hack** timeline nodes, yellow **warn** nodes when `static_check_warnings` present without hack, `Hack: true/false` and warning count in status panel, **hack** badge on problem list (`GET …/problems` → `has_hack`). See `Self-Evolving-Agent/visualizations/kernelbench/README.md`.
 

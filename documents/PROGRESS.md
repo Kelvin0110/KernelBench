@@ -7,7 +7,7 @@
   - L0 is **`list[L0Round]`** per problem (`finalize_l0_round` once per iteration); prompts use `round_summary` for archived rounds.
   - L1 promotion uses `format_l0_for_l1_promotion` and `promote_every_n_rounds` (default 2); KernelBench keeps L0 after promotion (`clear_l0_after_promotion=False`).
   - Keep `eval_results.json` level-first; preserve `runtime` / `runtime_stats`; GPU eval via `GPUMemoryReserver`.
-  - **`is_hack` / static check (2026-07)**: default `enable_static_check=True`; only STRICT + `workload_shrink` + >10× set `is_hack`; other warnings in `static_check_warnings`; regenerate viz stats for old runs.
+  - **`is_hack` / static check (2026-07)**: default `enable_static_check=True`; only STRICT + >10× `excessive_speedup` set `is_hack`; `workload_shrink` and other warnings in `static_check_warnings` (audit only); regenerate viz stats for old runs.
 
 ---
 
@@ -493,10 +493,21 @@
 - **Impact**: Hybrid kernels (`torch.tanh` wrapper + dummy CUDA) no longer blocked from best when speedup is normal; real workload shrink and >10× cheats still flagged. Re-run batches to refresh metrics; old jsonl lacks `static_check_warnings`.
 - **Tests**: `test_static_check.py`; updated `test_kb_governor.py` (workload_shrink vs pytorch_wrap).
 - **Docs**: `README.md` §3.3 truth table updated.
+- **Repair**: [`repair/repair_is_hack_policy.py`](scripts_integration/new_evolving_agent/repair/repair_is_hack_policy.py) offline re-derive for legacy runs; `test_repair_is_hack_policy.py`.
 - **Status**: Completed
+
+### 2026-07-09 - Cursor Agent
 - **Feature**: `fast_p_current` excludes hacked iterations (align with speedup aggregates).
 - **Implementation**: [`generate_run_performance_stats.py`](Self-Evolving-Agent/visualizations/kernelbench/server/generate_run_performance_stats.py) adds `current_correct = correct ∧ ¬is_hack` on per-iteration points; `compute_fastp_from_records(..., correct_field="current_correct")`.
 - **Impact**: Viz fast-p current charts no longer treat hacked-but-correct iterations as fast successes. Batch `best_speedup_overall` / `suspicious_speedup_problems` unchanged — new runs already keep hacked iters off best via governor `is_new_best` gate.
 - **Tests**: `test_fast_p_current_excludes_hacked_across_two_problems`, extended `test_generate_run_excludes_hacked_speedups`.
 - **Docs**: `README.md` §3.3 table clarified for fast_p_current and batch audit behavior.
+- **Status**: Completed
+
+### 2026-07-12 - Cursor Agent
+- **Feature**: Remove `workload_shrink` from `is_hack` gate (plan 3).
+- **Implementation**: `resolve_is_hack()` no longer treats `workload_shrink` warnings as hack; still recorded in `static_check_warnings`. Repair policy string → `strict_or_excessive_speedup`.
+- **Impact**: Reference boilerplate copy-paste (e.g. L1P34 `batch_size`/`get_inputs`) no longer blocks best; real shrink cheats rely on eval isolation + `excessive_speedup`. Re-run repair on legacy runs to refresh bests.
+- **Tests**: `test_static_check.py`, `test_kb_governor.py`, `test_repair_is_hack_policy.py`.
+- **Docs**: `README.md` §3.3 truth table.
 - **Status**: Completed
