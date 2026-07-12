@@ -709,10 +709,11 @@ def validate_kernel_static(
             has_issue, msg = CHECK_FUNCTIONS[check_name](code)
         
         if has_issue:
+            tagged = f"{check_name}: {msg}"
             if check_name in forbidden_checks:
-                errors.append(msg)
+                errors.append(tagged)
             else:
-                warnings_list.append(msg)
+                warnings_list.append(tagged)
     
     valid = len(errors) == 0 # valid if no errors
     return valid, errors, warnings_list

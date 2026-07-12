@@ -393,6 +393,23 @@ def test_precision_check_in_warnings_by_default():
         assert precision_in_warnings, "Precision downgrade should be in warnings by default"
 
 
+def test_validate_kernel_static_prefixes_check_names():
+    """Warnings and errors are tagged with check_name for downstream classification."""
+    code = """
+    import torch
+    from torch.utils.cpp_extension import load_inline
+    class ModelNew(torch.nn.Module):
+        def forward(self, x):
+            return torch.tanh(x)
+    """
+    valid, errors, warnings = validate_kernel_static(code, backend="cuda", precision="fp32")
+    assert valid or errors
+    for msg in errors + warnings:
+        assert ": " in msg
+        check_name, _ = msg.split(": ", 1)
+        assert check_name
+
+
 def test_precision_check_respects_forbidden():
     """Test that precision_downgrade respects forbidden parameter."""
     code = """
