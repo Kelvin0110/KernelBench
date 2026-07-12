@@ -519,3 +519,13 @@
 - **Tests**: `test_static_checker.py` (prose + adversarial cases).
 - **Docs**: `README.md` §3.3.
 - **Status**: Completed
+
+### 2026-07-12 - Cursor Agent
+- **Feature**: Hybrid integrity prompt + STRICT static-check terminal feedback.
+- **Implementation**:
+  - `kernelbench_integration/prompts.py`: `KERNELBENCH_INTEGRITY_RULES` — hybrid allowed (custom kernel + PyTorch), pure PyTorch-only and dummy/no-op CUDA prohibited; STRICT vs audit-only warnings documented for coders.
+  - `kernelbench_integration/governor.py`: append `KERNEL_BENCH_STATIC_ERRORS` (errors only) to agent-facing terminal on static STRICT failure; warnings omitted by design.
+- **Impact**: Coder prompts align with KernelBench hybrid enforcement; agents see explicit static error list when GPU eval is blocked. Warning-tier signals remain viz/jsonl audit only.
+- **Tests**: `test_kernelbench_prompts.py`; `test_kb_governor.py` (`test_static_strict_errors_in_terminal_not_warnings`).
+- **Docs**: `README.md` §3.3 “Prompt policy vs static check tiers”.
+- **Status**: Completed

@@ -407,6 +407,70 @@ def test_static_strict_failure_skips_gpu_eval(monkeypatch) -> None:
     assert result.correct is False
     assert result.error_message is not None
     assert result.error_message.startswith("static_check_failed:")
+    assert result.metadata.get("static_check_errors") == ["cuda_impl: missing kernel"]
+
+
+def test_static_strict_errors_in_terminal_not_warnings(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        kb_gov_module,
+        "run_static_check",
+        lambda *_a, **_k: (
+            False,
+            ["cuda_impl: missing kernel", "code_bypass: empty pass"],
+            ["pytorch_wrap: Uses torch.nn compute layer"],
+        ),
+    )
+    monkeypatch.setattr(
+        kb_gov_module,
+        "run_kernelbench_eval",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("GPU eval should not run")),
+    )
+    monkeypatch.setattr(
+        kb_gov_module,
+        "call_coder_with_meta",
+        lambda *_a, **_k: ('```python\nprint("candidate")\n```', 32, {"model_id": "fake-coder"}),
+    )
+    monkeypatch.setattr(kb_gov_module, "maybe_promote_l0_to_l1", lambda *_a, **_k: None)
+
+    def _fake_round_summarize(rnd, **_kwargs):
+        from evolving_common.l0_context import format_round_summary_fallback
+        from evolving_common.memory_manager import set_l0_round_summary
+
+        text = format_round_summary_fallback(rnd)
+        set_l0_round_summary(rnd, text)
+        return text
+
+    monkeypatch.setattr(kb_gov_module, "maybe_summarize_l0_round", _fake_round_summarize)
+
+    cfg = KBGovernorConfig(
+        problem_id="100",
+        reference_code='print("ref")',
+        level=1,
+        run_name="static-errors-terminal-test",
+        results_root=tmp_path,
+        max_iterations=1,
+        isolate_evaluation_process=False,
+        enable_action_selector=False,
+        enable_l0_unfold=False,
+        enable_static_check=True,
+    )
+
+    KBGovernor(cfg).run(task_prompt="Optimize this model")
+
+    terminal_path = (
+        tmp_path
+        / "static-errors-terminal-test"
+        / "workspaces"
+        / "level_1_problem_100"
+        / "evaluation_terminal_output.jsonl"
+    )
+    rows = [json.loads(line) for line in terminal_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert rows
+    terminal_text = rows[0]["terminal_output"]
+    assert "KERNEL_BENCH_STATIC_ERRORS:" in terminal_text
+    assert "cuda_impl: missing kernel" in terminal_text
+    assert "code_bypass: empty pass" in terminal_text
+    assert "pytorch_wrap" not in terminal_text
 
 
 def test_workload_shrink_warning_does_not_set_is_hack(monkeypatch) -> None:

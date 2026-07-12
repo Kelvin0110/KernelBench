@@ -137,6 +137,18 @@ Governor **does not promote** a candidate to best when `is_hack` or `excessive_s
 
 CLI: `--enable-static-check` / `--no-static-check`; recorded in `run_summary.json` as `enable_static_check`.
 
+#### Prompt policy vs static check tiers
+
+Coder prompts (`kernelbench_integration/prompts.py`) describe **hybrid mode**: a valid custom kernel on the hot path plus native PyTorch elsewhere is allowed. **Pure PyTorch-only** (no `__global__` / `load_inline`) and **dummy/no-op CUDA** (identity kernel while PyTorch does the work) are prohibited in the prompt even when only the former is caught by STRICT static checks today.
+
+| Tier | Examples | GPU eval | Agent feedback |
+|------|----------|----------|----------------|
+| **STRICT error** | `code_bypass`, missing `cuda_impl`, timer patches, threading, lazy tensors | **Skipped** | `KERNEL_BENCH_ERROR` + `KERNEL_BENCH_STATIC_ERRORS` in terminal / L0 |
+| **WARNING** | `pytorch_wrap`, `torch_computation_ops`, `workload_shrink`, streams, precision downgrade | Runs | **Not** in terminal; stored in `metrics_by_iteration.jsonl` / viz only |
+| **Runtime** | `excessive_speedup` (>10×) | Runs | `KERNEL_BENCH_IS_HACK: True`; may block best promotion |
+
+Hybrid PyTorch warnings are intentional audit signals — they do not block evaluation and are not passed to the coder prompt context.
+
 #### What is excluded from aggregates
 
 | Metric / output | Excludes `is_hack`? | Mechanism |
