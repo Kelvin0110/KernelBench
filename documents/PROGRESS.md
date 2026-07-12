@@ -7,7 +7,7 @@
   - L0 is **`list[L0Round]`** per problem (`finalize_l0_round` once per iteration); prompts use `round_summary` for archived rounds.
   - L1 promotion uses `format_l0_for_l1_promotion` and `promote_every_n_rounds` (default 2); KernelBench keeps L0 after promotion (`clear_l0_after_promotion=False`).
   - Keep `eval_results.json` level-first; preserve `runtime` / `runtime_stats`; GPU eval via `GPUMemoryReserver`.
-  - **`is_hack` / static check (2026-07)**: default `enable_static_check=True`; only STRICT + >10× `excessive_speedup` set `is_hack`; `workload_shrink` and other warnings in `static_check_warnings` (audit only); regenerate viz stats for old runs.
+  - **`is_hack` / static check (2026-07)**: default `enable_static_check=True`; only STRICT (AST `pass`/`try`, timing/lazy/thread, backend impl) + >10× `excessive_speedup` set `is_hack`; other warnings in `static_check_warnings` (audit only); regenerate viz stats for old runs.
 
 ---
 
@@ -510,4 +510,12 @@
 - **Impact**: Reference boilerplate copy-paste (e.g. L1P34 `batch_size`/`get_inputs`) no longer blocks best; real shrink cheats rely on eval isolation + `excessive_speedup`. Re-run repair on legacy runs to refresh bests.
 - **Tests**: `test_static_check.py`, `test_kb_governor.py`, `test_repair_is_hack_policy.py`.
 - **Docs**: `README.md` §3.3 truth table.
+- **Status**: Completed
+
+### 2026-07-12 - Cursor Agent
+- **Feature**: AST-based `code_bypass` (`pass` / try-except) to fix static-check false positives.
+- **Implementation**: [`kernel_static_checker.py`](src/kernelbench/kernel_static_checker.py) `check_code_bypass()` uses `ast.Pass` / `ast.Try` instead of regex; lenient skip on `SyntaxError`.
+- **Impact**: Docstrings/strings like "forward pass" no longer skip GPU eval; real inheritance `pass` and try/except fallbacks still STRICT.
+- **Tests**: `test_static_checker.py` (prose + adversarial cases).
+- **Docs**: `README.md` §3.3.
 - **Status**: Completed

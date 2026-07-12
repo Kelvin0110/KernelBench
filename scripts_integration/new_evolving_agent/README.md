@@ -113,7 +113,7 @@ Set in `kernelbench_integration/static_check.resolve_is_hack()` and the governor
 
 | Source | GPU eval runs? | `is_hack` | `static_check_warnings` |
 |--------|----------------|-----------|-------------------------|
-| Static **STRICT** error (`code_bypass`, `timing_event_patch`, `thread_injection`, `lazy_eval`, backend `*_impl` missing) | **No** | `true` | errors + any warnings |
+| Static **STRICT** error (`code_bypass` AST `pass`/`try`, `timing_event_patch`, `thread_injection`, `lazy_eval`, backend `*_impl` missing) | **No** | `true` | errors + any warnings |
 | Static **`workload_shrink`** warning only | Yes | **`false`** | includes shrink message; audit only |
 | Other static **WARNING** only (`pytorch_wrap`, `torch_computation_ops`, …) | Yes | **`false`** | lists warnings; still eligible for best |
 | Eval `metadata.excessive_speedup` | Yes | `true` | may also have warnings |
@@ -124,6 +124,7 @@ Set in `kernelbench_integration/static_check.resolve_is_hack()` and the governor
 - **Workload shrink** (redefined `batch_size` / `get_inputs`, including copy-paste from reference boilerplate): `workload_shrink` warning → `is_hack=false`; real shrink cheats fail correctness or hit `excessive_speedup` (>10×) under eval namespace isolation.
 - **Library shortcut** (e.g. `nn.RNN` instead of a Python loop on full tensors): often `pytorch_wrap` / `torch_computation_ops` warning with `is_hack=false`; if >10×, `excessive_speedup` also sets `is_hack=true`.
 - **STRICT** missing CUDA kernel: eval skipped, `is_hack=true`.
+- **`code_bypass` / `pass`**: only real Python `pass` / `try` statements (AST); prose like `"forward pass"` in docstrings does **not** block eval.
 
 Persisted per iteration in `metrics_by_iteration.jsonl`:
 
