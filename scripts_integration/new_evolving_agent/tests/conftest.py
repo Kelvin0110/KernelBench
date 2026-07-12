@@ -42,6 +42,16 @@ if "kernelbench.performance_stats" not in sys.modules:
         sys.modules["kernelbench.performance_stats"] = perf_mod
         spec.loader.exec_module(perf_mod)
 
+if "kernelbench.kernel_static_checker" not in sys.modules:
+    checker_path = SRC_ROOT / "kernelbench" / "kernel_static_checker.py"
+    checker_spec = importlib.util.spec_from_file_location(
+        "kernelbench.kernel_static_checker", checker_path
+    )
+    if checker_spec and checker_spec.loader:
+        checker_mod = importlib.util.module_from_spec(checker_spec)
+        sys.modules["kernelbench.kernel_static_checker"] = checker_mod
+        checker_spec.loader.exec_module(checker_mod)
+
 _kb_governor = ModuleType('scripts_integration.new_evolving_agent.kb_governor')
 _kb_governor.KBGovernorConfig = MagicMock
 _kb_governor.governor_result_to_dict = lambda result: dict(result)

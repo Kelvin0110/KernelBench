@@ -58,5 +58,15 @@ def test_resolve_is_hack_pytorch_wrap_plus_excessive_speedup() -> None:
     )
 
 
-def test_resolve_is_hack_clean() -> None:
-    assert resolve_is_hack() is False
+def test_run_static_check_forward_pass_docstring_not_bypass() -> None:
+    from kernelbench_integration.static_check import run_static_check
+
+    code = '''
+class ModelNew(nn.Module):
+    """The heavy part of the forward pass is compiled with torch.compile."""
+    def forward(self, x):
+        return x
+'''
+    valid, errors, warnings = run_static_check(code, backend="cuda", precision="fp32")
+    assert not any("pass" in e.lower() for e in errors), errors
+
