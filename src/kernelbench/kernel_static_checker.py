@@ -5,7 +5,6 @@ The goal is flag reward hacking patterns (both strictly prohibited and possible 
 through statically examining the code.
 
 In the future we can add 
-- AST-based detections 
 - LM as a judge checker
 
 Warning: This list is by no means complete and nor this is not a replacement for runtime checks.
@@ -20,6 +19,7 @@ Usage:
     will return a tuple (valid, errors, warnings) 
 """
 
+import ast
 import re
 from typing import List, Tuple, Dict, Any, Optional, Callable, Union
 
@@ -40,15 +40,31 @@ def _strip_comments(code: str) -> str:
 # some of this is from Kevin RL Paper (arxiv:2507.11948)
 # =============================================================================
 
-# --- Try-Except Fallback ---
-# Rationale: Models wrap incomplete CUDA in exception handlers that fall back to PyTorch.
-# This allows them to pass tests without actually implementing the kernel.
-TRY_EXCEPT_PATTERNS = [r"\btry\s*:", r"\bexcept\s*:", r"\bexcept\s+\w+"]
+# --- Try-Except Fallback / Pass Statement (inheritance bypass) ---
+# Detected via AST on parseable Python so prose like "forward pass" in docstrings
+# does not false-positive.
 
-# --- Pass Statement / Inheritance Bypass ---
-# Rationale: Model inherits from reference class and uses 'pass' to do nothing,
-# effectively just calling the parent implementation.
-PASS_PATTERN = r"\bpass\b"
+
+def _parse_python_module(code: str) -> ast.Module | None:
+    try:
+        return ast.parse(code)
+    except SyntaxError:
+        return None
+
+
+def _has_ast_pass_statement(code: str) -> bool:
+    tree = _parse_python_module(code)
+    if tree is None:
+        return False
+    return any(isinstance(node, ast.Pass) for node in ast.walk(tree))
+
+
+def _has_ast_try_except(code: str) -> bool:
+    tree = _parse_python_module(code)
+    if tree is None:
+        return False
+    return any(isinstance(node, ast.Try) for node in ast.walk(tree))
+
 
 def check_code_bypass(code: str) -> Tuple[bool, str]:
     """
@@ -57,19 +73,16 @@ def check_code_bypass(code: str) -> Tuple[bool, str]:
        that fall back to PyTorch when custom code fails.
     2. Pass Statement: Models inherit from reference and use 'pass' to do nothing,
        effectively calling parent implementation.
-        Uses word boundary for 'pass' to avoid matching 'passed', 'bypass', etc.
+
+    Uses AST on parseable Python only (ignores ``pass`` / ``try`` in strings and
+    docstrings). On ``SyntaxError``, pass/try checks are skipped (lenient).
     """
-    code = _strip_comments(code)
-    
-    # Check for try-except fallback
-    for pattern in TRY_EXCEPT_PATTERNS:
-        if re.search(pattern, code):
-            return (True, "Contains try-except block (potential fallback bypass)")
-    
-    # Check for pass statement
-    if re.search(PASS_PATTERN, code):
+    if _has_ast_try_except(code):
+        return (True, "Contains try-except block (potential fallback bypass)")
+
+    if _has_ast_pass_statement(code):
         return (True, "Contains 'pass' statement (inheritance bypass)")
-    
+
     return (False, "")
 
 # Since KernelBench problems uses PyTorch as a reference, there could be settigs where

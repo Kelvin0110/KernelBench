@@ -13,7 +13,11 @@ Run with: uv run pytest src/kernelbench/unit_tests/test_static_checker.py -v
 
 import pytest
 from pathlib import Path
-from kernelbench.kernel_static_checker import check_workload_shrink, validate_kernel_static
+from kernelbench.kernel_static_checker import (
+    check_code_bypass,
+    check_workload_shrink,
+    validate_kernel_static,
+)
 
 
 # =============================================================================
@@ -130,6 +134,72 @@ class ModelNew(Model):
     valid, errors, warnings = validate_kernel_static(code, backend="cuda")
     assert not valid, "Pass statement should be flagged"
     assert any("pass" in e.lower() for e in errors)
+
+
+def test_bypass_pass_prose_in_docstring_not_flagged():
+    """Prose like 'forward pass' in docstrings must not trigger pass bypass."""
+    code = '''
+class ModelNew(nn.Module):
+    """The heavy part of the forward pass is compiled with torch.compile."""
+    def forward(self, x):
+        return x
+'''
+    flagged, msg = check_code_bypass(code)
+    assert not flagged, msg
+
+
+def test_bypass_pass_prose_in_string_not_flagged():
+    """The word pass inside string literals must not trigger bypass."""
+    code = '''
+note = "must pass validation before launch"
+'''
+    flagged, msg = check_code_bypass(code)
+    assert not flagged, msg
+
+
+def test_bypass_try_in_string_not_flagged():
+    """try: inside string literals must not trigger bypass."""
+    code = '''
+doc = """
+try:
+    this is documentation only
+"""
+'''
+    flagged, msg = check_code_bypass(code)
+    assert not flagged, msg
+
+
+def test_bypass_forward_pass_with_cuda_kernel_not_blocked_by_pass():
+    """Identity CUDA kernel + forward pass docstring should pass code_bypass."""
+    code = '''
+import torch
+from torch.utils.cpp_extension import load_inline
+
+_identity_cuda_src = r"""
+#include <torch/extension.h>
+__global__ void identity_kernel(float* data, int64_t N) {
+    int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < N) { data[idx] = data[idx]; }
+}
+torch::Tensor identity_cuda(torch::Tensor inp) { return inp; }
+"""
+_ext = load_inline(
+    name="identity_ext",
+    cpp_sources="torch::Tensor identity_cuda(torch::Tensor inp);",
+    cuda_sources=_identity_cuda_src,
+    functions=["identity_cuda"],
+    verbose=False,
+)
+
+class ModelNew(torch.nn.Module):
+    """The heavy part of the forward pass is compiled with torch.compile."""
+    def forward(self, x):
+        return _ext.identity_cuda(x)
+'''
+    flagged, msg = check_code_bypass(code)
+    assert not flagged, msg
+    valid, errors, warnings = validate_kernel_static(code, backend="cuda")
+    assert not any("pass" in e.lower() for e in errors), errors
 
 
 def test_lazy_eval_make_subclass():
