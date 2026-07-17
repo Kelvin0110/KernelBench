@@ -2,6 +2,8 @@
 
 This guide runs the new `scripts_integration/new_evolving_agent` workflow on a Linux CUDA server.
 
+For L0 context-management modes (`truncation` / `folding` / `markov_report`), see [RUN_WITH_UV_CONTEXT.md](RUN_WITH_UV_CONTEXT.md).
+
 ## 1) Prerequisites
 
 - NVIDIA driver and CUDA runtime available

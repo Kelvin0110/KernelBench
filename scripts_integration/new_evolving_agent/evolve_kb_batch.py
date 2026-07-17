@@ -38,6 +38,11 @@ from kernelbench_integration import (
     governor_result_to_dict,
     safe_run_kb_governor,
 )
+from evolving_common.context_management import (
+    DEFAULT_CONTEXT_MANAGEMENT,
+    DEFAULT_EVOLVING_REPORT_MAX_TOKENS,
+    DEFAULT_EVOLVING_REPORT_TIMEOUT_SEC,
+)
 from evolving_common.memory_manager import (
     DEFAULT_ENABLE_L1_SKILL_UNIT_TEST_GC,
     DEFAULT_L1_SKILL_CONSECUTIVE_UNUSED_DELETE_AFTER,
@@ -482,6 +487,35 @@ def main() -> int:
         "Use --no-static-check to disable for debugging.",
     )
     parser.add_argument(
+        "--context-management",
+        choices=("truncation", "folding", "markov_report"),
+        default=DEFAULT_CONTEXT_MANAGEMENT,
+        help=(
+            "L0 prompt context mode: truncation keeps only the latest N raw L0 rounds; "
+            "folding adds archived summaries, per-round L0 summaries, and unfold preflight; "
+            "markov_report rebuilds each iteration as goal + evolving report + latest L0 only "
+            f"(default: {DEFAULT_CONTEXT_MANAGEMENT})."
+        ),
+    )
+    parser.add_argument(
+        "--evolving-report-max-tokens",
+        type=int,
+        default=DEFAULT_EVOLVING_REPORT_MAX_TOKENS,
+        help=(
+            "Max tokens for the markov_report evolving-report rewriter "
+            f"(default: {DEFAULT_EVOLVING_REPORT_MAX_TOKENS})."
+        ),
+    )
+    parser.add_argument(
+        "--evolving-report-timeout-sec",
+        type=float,
+        default=DEFAULT_EVOLVING_REPORT_TIMEOUT_SEC,
+        help=(
+            "Timeout (seconds) for the markov_report evolving-report rewriter "
+            f"(default: {DEFAULT_EVOLVING_REPORT_TIMEOUT_SEC})."
+        ),
+    )
+    parser.add_argument(
         "--enable-skill-refinement",
         action="store_true",
         help="Enable the SkillRevise-style skill refinement add-on. When a skill "
@@ -762,6 +796,9 @@ def main() -> int:
                 l1_skill_unit_test_max_tokens=int(args.l1_skill_unit_test_max_tokens),
                 l1_skill_unit_test_timeout_sec=float(args.l1_skill_unit_test_timeout_sec),
                 l1_skill_unit_test_run_timeout_sec=float(args.l1_skill_unit_test_run_timeout_sec),
+                context_management=str(args.context_management),
+                evolving_report_max_tokens=int(args.evolving_report_max_tokens),
+                evolving_report_timeout_sec=float(args.evolving_report_timeout_sec),
                 enable_static_check=bool(args.enable_static_check),
                 verbose=True,
             )
@@ -875,6 +912,9 @@ def main() -> int:
         "dry_run": bool(args.dry_run),
         "enable_static_check": bool(args.enable_static_check),
         "cuda_available": bool(has_cuda),
+        "context_management": str(args.context_management),
+        "evolving_report_max_tokens": int(args.evolving_report_max_tokens),
+        "evolving_report_timeout_sec": float(args.evolving_report_timeout_sec),
         "skill_deletion": bool(args.skill_deletion),
         "enable_l1_skill_unit_test_gc": bool(args.enable_l1_skill_unit_test_gc),
         "skill_merging": bool(args.skill_merging),
