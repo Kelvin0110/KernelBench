@@ -56,7 +56,6 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
   --max-problems 5 \
   --max-iterations 20 \
   --context-management markov_report \
-  --no-skill-deletion \
   >> base_agent_markov_report_smoke.log 2>&1 &
 ```
 
@@ -64,11 +63,11 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_markov_report_itr50 \
-  --max-iterations 50 \
+  --run-name base_agent_markov_report_itr10 \
+  --max-iterations 10 \
   --context-management markov_report \
-  --no-skill-deletion \
-  >> base_agent_markov_report_itr50.log 2>&1 &
+  --evolving-report-max-tokens 65536 \
+  >> base_agent_markov_report_itr10_Jul_18.log 2>&1 &
 ```
 
 Optional rewriter knobs (defaults are usually fine):

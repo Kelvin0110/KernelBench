@@ -532,7 +532,7 @@ def main() -> int:
     parser.add_argument(
         "--skill-deletion",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Enable L1 skill deletion (unused-streak GC and optional unit-test GC). "
         "When disabled (--no-skill-deletion), the extractor catalog is capped "
         "to the most recent active skills (legacy behavior).",
