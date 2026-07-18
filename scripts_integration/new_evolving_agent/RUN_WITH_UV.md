@@ -182,14 +182,14 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
 ### Full 50 problems — merge only
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_merge_only_sim_07_itr50 \
-  --max-iterations 50 \
+CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_merge_only_sim_07_itr30 \
+  --max-iterations 30 \
   --no-skill-deletion \
   --skill-merging \
   --skill-merge-similarity 0.7 \
   --skill-merge-interval 50 \
-  >> base_agent_with_merge_only_sim_07_itr50_Jul_9.log 2>&1 &
+  >> base_agent_with_merge_only_sim_07_itr30_Jul_14.log 2>&1 &
 ```
 
 ### Full 50 problems — deletion + merging
@@ -197,8 +197,8 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 #### (with unit test every itrs)
 ```bash
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_deletion_merge_sim_07_itr20 \
-  --max-iterations 20 \
+  --run-name base_agent_with_deletion_merge_sim_08_itr30 \
+  --max-iterations 30 \
   --skill-deletion \
   --skill-merging \
   --skill-merge-similarity 0.8 \
@@ -210,40 +210,40 @@ CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agen
 #### (with unit test only when it is first promoted)
 ```bash
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_sim_07_itr50 \
-  --max-iterations 50 \
+  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_sim_08_itr30 \
+  --max-iterations 30 \
   --skill-deletion \
   --skill-merging \
-  --skill-merge-similarity 0.7 \
+  --skill-merge-similarity 0.8 \
   --skill-merge-interval 50 \
-  >> base_agent_with_deletion_old_prompt_only_test_promoted_merge_sim_07_itr50_Jul_3.log 2>&1 &
+  >> base_agent_with_deletion_old_prompt_only_test_promoted_merge_sim_08_itr30_Jul_17.log 2>&1 &
 ```
 
 ### Full 50 problems — deletion + skill refinement
 #### (with unit test only when it is first promoted)
 ```bash
 CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_refine_itr10 \
-  --max-iterations 10 \
+  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_refine_itr30 \
+  --max-iterations 30 \
   --skill-deletion \
   --enable-skill-refinement \
   --skill-refinement-max-rounds 3 \
-  >> base_agent_with_deletion_old_prompt_only_test_promoted_refine_itr10_Jul_11.log 2>&1 &
+  >> base_agent_with_deletion_old_prompt_only_test_promoted_refine_itr30_Jul_14.log 2>&1 &
 ```
 
 ### Full 50 problems — deletion + merging + skill refinement
 #### (with unit test only when it is first promoted)
 ```bash
-CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_07_itr10 \
-  --max-iterations 10 \
+CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_08_itr30 \
+  --max-iterations 30 \
   --skill-deletion \
   --skill-merging \
-  --skill-merge-similarity 0.7 \
+  --skill-merge-similarity 0.8 \
   --skill-merge-interval 50 \
   --enable-skill-refinement \
   --skill-refinement-max-rounds 3 \
-  >> base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_07_itr10_Jul_9.log 2>&1 &
+  >> base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_08_itr30_Jul_18.log 2>&1 &
 ```
 
 To disable deletion (legacy capped extractor catalog):
