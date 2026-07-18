@@ -488,12 +488,14 @@ def main() -> int:
     )
     parser.add_argument(
         "--context-management",
-        choices=("truncation", "folding", "markov_report"),
+        choices=("truncation", "folding", "markov_report", "selective_retention"),
         default=DEFAULT_CONTEXT_MANAGEMENT,
         help=(
             "L0 prompt context mode: truncation keeps only the latest N raw L0 rounds; "
             "folding adds archived summaries, per-round L0 summaries, and unfold preflight; "
-            "markov_report rebuilds each iteration as goal + evolving report + latest L0 only "
+            "markov_report rebuilds each iteration as goal + evolving report + latest L0 only; "
+            "selective_retention rebuilds each iteration as goal + milestone memory (full detail) "
+            "+ latest L0 only "
             f"(default: {DEFAULT_CONTEXT_MANAGEMENT})."
         ),
     )
