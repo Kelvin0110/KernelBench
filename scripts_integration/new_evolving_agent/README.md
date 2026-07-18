@@ -11,7 +11,7 @@ This directory contains the Gen3 KernelBench integration: staged prompts, L1 ski
   - Deprecated shim: [kb_governor.py](kb_governor.py) re-exports `kernelbench_integration` with a warning.
 
 - **[RUN_WITH_UV.md](RUN_WITH_UV.md)**: Standardized execution guide using the `uv` package manager for reproducible environments and dependency management.
-- **[RUN_WITH_UV_CONTEXT.md](RUN_WITH_UV_CONTEXT.md)**: Context-management modes (`truncation` / `folding` / `markov_report`) and batch commands.
+- **[RUN_WITH_UV_CONTEXT.md](RUN_WITH_UV_CONTEXT.md)**: Context-management modes (`truncation` / `folding` / `markov_report` / `selective_retention`) and batch commands.
 
 ### Testing & Verification
 - Governor unit tests: [`Self-Evolving-Agent/tests/test_kb_governor.py`](../../Self-Evolving-Agent/tests/test_kb_governor.py)
@@ -79,7 +79,7 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `l1_catalog_max_skills` | `50` | Most recent L1 skills shown in extractor catalog (metadata only) |
 | `action_selector_recent_l0_full` | `15` | Full L0 attempts shown to action selector |
 | `action_coder_l0_full_recent` | `15` | Full L0 attempts in coder prompt |
-| `context_management` | `truncation` | `truncation`: latest N raw L0 rounds; `folding`: archived summaries + unfold; `markov_report`: goal + evolving report + latest L0 only (see [RUN_WITH_UV_CONTEXT.md](RUN_WITH_UV_CONTEXT.md)) |
+| `context_management` | `truncation` | `truncation`: latest N raw L0 rounds; `folding`: archived summaries + unfold; `markov_report`: goal + evolving report + latest L0 only; `selective_retention`: goal + milestone memory (full detail) + latest L0 only (see [RUN_WITH_UV_CONTEXT.md](RUN_WITH_UV_CONTEXT.md)) |
 | `evolving_report_max_tokens` | `1536` | Max tokens for `markov_report` evolving-report rewriter |
 | `evolving_report_timeout_sec` | `90.0` | Timeout (seconds) for evolving-report rewriter |
 | `enable_l0_unfold` | `true` | Coder preflight unfold passes (folding mode only) |
