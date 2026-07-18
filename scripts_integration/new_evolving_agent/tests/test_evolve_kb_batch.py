@@ -261,6 +261,47 @@ def test_main_dry_run_accepts_markov_report_context_management(
     assert summary["skill_deletion"] is False
 
 
+def test_main_dry_run_accepts_selective_retention_context_management(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """selective_retention context mode is accepted; deletion can be left off."""
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n", encoding="utf-8")
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+
+    results_root = tmp_path / "results"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--subset-csv",
+            str(subset_csv),
+            "--run-name",
+            "selective_retention_flag",
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--max-problems",
+            "1",
+            "--context-management",
+            "selective_retention",
+            "--no-skill-deletion",
+        ],
+    )
+
+    assert evolve_kb_batch.main() == 0
+
+    matching_runs = sorted(
+        p for p in results_root.glob("selective_retention_flag*") if p.is_dir()
+    )
+    assert matching_runs
+    summary = json.loads((matching_runs[-1] / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["context_management"] == "selective_retention"
+    assert summary["skill_deletion"] is False
+
+
 def test_main_dry_run_accepts_skill_deletion_flags(tmp_path: Path, monkeypatch) -> None:
     """Skill-deletion CLI flags are accepted; deletion is on by default."""
     subset_csv = tmp_path / "subset.csv"
