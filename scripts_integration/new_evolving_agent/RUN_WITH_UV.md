@@ -288,6 +288,8 @@ If a batch stops partway through (for example `coder_call_error: RateLimitError`
 1. Copy the exact directory name from `runs_evolving/` (includes the UTC timestamp suffix, e.g. `memory_evolving_agent_gen3_itr20_2026_06_03_14_05`).
 2. Find the **1-based row index** of the first problem to re-run in the same subset CSV and `--max-problems` slice used originally (e.g. row 21 → `--start-problem 21`).
 3. Re-run with `--resume` (no new timestamp is appended). Problems before `--start-problem` are left unchanged; from that index through the end, prior records are replaced and per-problem workspaces are cleared before re-run.
+4. On resume, skill-governance flags in `run_summary.json` are checked against the current CLI (`skill_deletion`, `skill_merging`, merge knobs, unit-test GC, skill refinement). Mismatches **abort** unless you pass `--allow-resume-config-mismatch`.
+5. Skills in `shared_l1.jsonl` / `shared_l1.txt` whose source is a problem at/after `--start-problem` are removed automatically (including refined children and merges that depend on those skills). Pass `--backup-l1-on-resume` to keep `*.resume.bak` copies first.
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
