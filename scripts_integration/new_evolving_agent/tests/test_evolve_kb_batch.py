@@ -552,3 +552,262 @@ def test_write_json_serializes_exception_objects(tmp_path: Path) -> None:
 
     data = json.loads(output.read_text(encoding="utf-8"))
     assert "cuda illegal memory access" in data["runs"][0]["metadata"]["runtime_error"]
+
+
+def test_check_resume_config_mismatch_aborts(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    evolve_kb_batch._write_json(
+        run_dir / "run_summary.json",
+        {
+            "subset_csv": str(tmp_path / "subset.csv"),
+            "total_attempted": 3,
+            "skill_deletion": True,
+            "skill_merging": True,
+            "skill_merge_similarity": 0.9,
+            "skill_merge_interval": 50,
+            "enable_l1_skill_unit_test_gc": False,
+            "enable_skill_refinement": False,
+            "skill_refinement_max_rounds": 2,
+        },
+    )
+    try:
+        evolve_kb_batch._check_resume_config_mismatch(
+            run_dir=run_dir,
+            subset_csv=tmp_path / "subset.csv",
+            max_problems=3,
+            current={
+                "skill_deletion": False,
+                "skill_merging": True,
+                "skill_merge_similarity": 0.9,
+                "skill_merge_interval": 50,
+                "enable_l1_skill_unit_test_gc": False,
+                "enable_skill_refinement": False,
+                "skill_refinement_max_rounds": 2,
+            },
+            allow_mismatch=False,
+        )
+        raise AssertionError("expected SystemExit")
+    except SystemExit as exc:
+        assert "skill_deletion" in str(exc)
+
+
+def test_check_resume_config_mismatch_allow_continues(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    evolve_kb_batch._write_json(
+        run_dir / "run_summary.json",
+        {
+            "skill_deletion": True,
+            "skill_merging": False,
+        },
+    )
+    mismatches = evolve_kb_batch._check_resume_config_mismatch(
+        run_dir=run_dir,
+        subset_csv=tmp_path / "subset.csv",
+        max_problems=0,
+        current={
+            "skill_deletion": False,
+            "skill_merging": False,
+            "skill_merge_similarity": 0.9,
+            "skill_merge_interval": 50,
+            "enable_l1_skill_unit_test_gc": False,
+            "enable_skill_refinement": False,
+            "skill_refinement_max_rounds": 2,
+        },
+        allow_mismatch=True,
+    )
+    assert any("skill_deletion" in m for m in mismatches)
+
+
+def test_check_resume_config_mismatch_skips_missing_keys(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    evolve_kb_batch._write_json(
+        run_dir / "run_summary.json",
+        {"skill_deletion": True},
+    )
+    mismatches = evolve_kb_batch._check_resume_config_mismatch(
+        run_dir=run_dir,
+        subset_csv=tmp_path / "subset.csv",
+        max_problems=0,
+        current={
+            "skill_deletion": True,
+            "skill_merging": True,
+            "skill_merge_similarity": 0.8,
+            "skill_merge_interval": 25,
+            "enable_l1_skill_unit_test_gc": True,
+            "enable_skill_refinement": True,
+            "skill_refinement_max_rounds": 3,
+        },
+        allow_mismatch=False,
+    )
+    assert mismatches == []
+
+
+def test_rollback_l1_for_resume_removes_problem_lineage(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    l1_txt = run_dir / "shared_l1.txt"
+    l1_txt.write_text("# Shared L1 journal for evolving KernelBench batch\n", encoding="utf-8")
+    entries = [
+        {
+            "entry_id": "1",
+            "source": "Level 1 problem 1",
+            "status": "active",
+            "title": "keep",
+            "content": "keep p1",
+            "unit_test_artifacts": {"problem_slug": "L1P1"},
+        },
+        {
+            "entry_id": "2",
+            "source": "Level 1 problem 2",
+            "status": "active",
+            "title": "drop",
+            "content": "drop p2",
+            "unit_test_artifacts": {"problem_slug": "L1P2"},
+        },
+        {
+            "entry_id": "3",
+            "source": "Level 1 problem 3",
+            "status": "active",
+            "title": "drop",
+            "content": "drop p3",
+            "unit_test_artifacts": {"problem_slug": "L1P3"},
+        },
+        {
+            "entry_id": "4",
+            "source": "skill_refinement",
+            "parent_id": "2",
+            "status": "active",
+            "title": "refined p2",
+            "content": "child of p2",
+        },
+        {
+            "entry_id": "5",
+            "source": "skill_merge",
+            "status": "active",
+            "title": "merged",
+            "content": "merge 2+3",
+            "merge_meta": {"source_entry_ids": ["2", "3"]},
+        },
+    ]
+    evolve_kb_batch._write_l1_jsonl_entries(l1_txt, entries)
+    evolve_kb_batch._write_json(
+        run_dir / "l1_skill_usage.json",
+        {
+            "global_iteration": 42,
+            "skills": {
+                "1": {"entry_id": "1", "consecutive_unused_iterations": 0},
+                "2": {"entry_id": "2", "consecutive_unused_iterations": 1},
+                "4": {"entry_id": "4", "consecutive_unused_iterations": 2},
+                "5": {"entry_id": "5", "consecutive_unused_iterations": 3},
+            },
+        },
+    )
+
+    rows = [
+        {"level": 1, "problem_id": 1},
+        {"level": 1, "problem_id": 2},
+        {"level": 1, "problem_id": 3},
+    ]
+    summary = evolve_kb_batch.rollback_l1_for_resume(
+        run_dir,
+        rows=rows,
+        start_problem=2,
+        dry_run=False,
+        backup=False,
+    )
+    assert summary["removed_count"] == 4
+    assert summary["kept_count"] == 1
+    assert set(summary["removed_entry_ids"]) == {"2", "3", "4", "5"}
+    assert summary["rewrote"] is True
+
+    kept = evolve_kb_batch._read_l1_jsonl_entries(l1_txt)
+    assert [e["entry_id"] for e in kept] == ["1"]
+    txt = l1_txt.read_text(encoding="utf-8")
+    assert "Level 1 problem 1" in txt or "entry_id=1" in txt
+    assert "Level 1 problem 2" not in txt
+    assert "Level 1 problem 3" not in txt
+
+    usage = json.loads((run_dir / "l1_skill_usage.json").read_text(encoding="utf-8"))
+    assert usage["global_iteration"] == 42
+    assert set(usage["skills"].keys()) == {"1"}
+
+
+def test_rollback_l1_for_resume_dry_run_does_not_rewrite(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    l1_txt = run_dir / "shared_l1.txt"
+    l1_txt.write_text("# header\n", encoding="utf-8")
+    evolve_kb_batch._write_l1_jsonl_entries(
+        l1_txt,
+        [
+            {
+                "entry_id": "1",
+                "source": "Level 1 problem 1",
+                "content": "a",
+                "unit_test_artifacts": {"problem_slug": "L1P1"},
+            },
+            {
+                "entry_id": "2",
+                "source": "Level 1 problem 2",
+                "content": "b",
+                "unit_test_artifacts": {"problem_slug": "L1P2"},
+            },
+        ],
+    )
+    before = (run_dir / "shared_l1.jsonl").read_text(encoding="utf-8")
+    summary = evolve_kb_batch.rollback_l1_for_resume(
+        run_dir,
+        rows=[{"level": 1, "problem_id": 1}, {"level": 1, "problem_id": 2}],
+        start_problem=2,
+        dry_run=True,
+    )
+    assert summary["removed_count"] == 1
+    assert summary["rewrote"] is False
+    assert (run_dir / "shared_l1.jsonl").read_text(encoding="utf-8") == before
+
+
+def test_resume_aborts_on_flag_mismatch(tmp_path: Path, monkeypatch) -> None:
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,1\n1,2\n", encoding="utf-8")
+    run_name = "resume_flag_mismatch"
+    results_root = tmp_path / "results"
+    run_dir = results_root / run_name
+    _seed_resume_run_dir(run_dir, runs=[])
+    evolve_kb_batch._write_json(
+        run_dir / "run_summary.json",
+        {
+            "subset_csv": str(subset_csv),
+            "total_attempted": 2,
+            "skill_deletion": True,
+            "skill_merging": False,
+        },
+    )
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--resume",
+            "--run-name",
+            run_name,
+            "--subset-csv",
+            str(subset_csv),
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--start-problem",
+            "1",
+            "--max-problems",
+            "2",
+            "--no-skill-deletion",
+        ],
+    )
+    try:
+        evolve_kb_batch.main()
+        raise AssertionError("expected SystemExit")
+    except SystemExit as exc:
+        assert "skill_deletion" in str(exc) or exc.code not in (0, None)
