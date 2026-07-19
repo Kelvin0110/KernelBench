@@ -52,6 +52,8 @@ from evolving_common.memory_manager import (
     DEFAULT_L1_SKILL_UNIT_TEST_RUN_TIMEOUT_SEC,
     DEFAULT_SKILL_MERGE_INTERVAL,
     DEFAULT_SKILL_MERGE_SIMILARITY,
+    format_l1_entry_journal_block,
+    resolve_l1_jsonl_path,
 )
 
 
@@ -255,32 +257,285 @@ def _purge_problem_state(
     return runs
 
 
-def _warn_resume_config_mismatch(
+def _problem_source_label(level: int, problem_id: str | int) -> str:
+    return f"Level {int(level)} problem {int(problem_id)}"
+
+
+def _problem_slug(level: int, problem_id: str | int) -> str:
+    return f"L{int(level)}P{int(problem_id)}"
+
+
+def _normalize_source_label(source: str) -> str:
+    return " ".join(str(source or "").strip().lower().split())
+
+
+def _skill_matches_problem(
+    entry: dict[str, Any],
+    *,
+    level: int,
+    problem_id: str | int,
+) -> bool:
+    source_norm = _normalize_source_label(str(entry.get("source") or ""))
+    expected_source = _normalize_source_label(_problem_source_label(level, problem_id))
+    if source_norm == expected_source:
+        return True
+    artifacts = entry.get("unit_test_artifacts")
+    if isinstance(artifacts, dict):
+        slug = str(artifacts.get("problem_slug") or "").strip()
+        if slug == _problem_slug(level, problem_id):
+            return True
+    return False
+
+
+def _collect_resume_purge_problems(
+    rows: list[dict[str, Any]],
+    *,
+    start_problem: int,
+) -> list[tuple[int, str]]:
+    """Return (level, problem_id) for subset rows at/after start_problem (1-based)."""
+    out: list[tuple[int, str]] = []
+    for idx, row in enumerate(rows, start=1):
+        if idx < start_problem:
+            continue
+        out.append((int(row["level"]), str(int(row["problem_id"]))))
+    return out
+
+
+def _select_l1_entries_to_remove(
+    entries: list[dict[str, Any]],
+    *,
+    purge_problems: list[tuple[int, str]],
+) -> set[str]:
+    """Return entry_ids to remove for purge_problems, including refine/merge cascade."""
+    by_id = {
+        str(e.get("entry_id", "")).strip(): e
+        for e in entries
+        if str(e.get("entry_id", "")).strip()
+    }
+    remove: set[str] = set()
+    for entry in entries:
+        eid = str(entry.get("entry_id", "")).strip()
+        if not eid:
+            continue
+        for level, problem_id in purge_problems:
+            if _skill_matches_problem(entry, level=level, problem_id=problem_id):
+                remove.add(eid)
+                break
+
+    changed = True
+    while changed:
+        changed = False
+        for eid, entry in by_id.items():
+            if eid in remove:
+                continue
+            parent_id = entry.get("parent_id")
+            if parent_id is not None and str(parent_id).strip() in remove:
+                remove.add(eid)
+                changed = True
+                continue
+            merge_meta = entry.get("merge_meta")
+            source = str(entry.get("source") or "").strip()
+            source_ids: list[str] = []
+            if isinstance(merge_meta, dict):
+                raw_ids = merge_meta.get("source_entry_ids") or []
+                if isinstance(raw_ids, list):
+                    source_ids = [str(x).strip() for x in raw_ids if str(x).strip()]
+            if source == "skill_merge" or source_ids:
+                if any(sid in remove for sid in source_ids):
+                    remove.add(eid)
+                    changed = True
+    return remove
+
+
+def _read_l1_jsonl_entries(l1_txt_path: Path) -> list[dict[str, Any]]:
+    jsonl_path = resolve_l1_jsonl_path(l1_txt_path)
+    if not jsonl_path.is_file():
+        return []
+    entries: list[dict[str, Any]] = []
+    for raw in jsonl_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            entries.append(obj)
+    return entries
+
+
+def _write_l1_jsonl_entries(l1_txt_path: Path, entries: list[dict[str, Any]]) -> Path:
+    jsonl_path = resolve_l1_jsonl_path(l1_txt_path)
+    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+    with jsonl_path.open("w", encoding="utf-8") as f:
+        for entry in entries:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return jsonl_path
+
+
+def _rebuild_l1_txt_from_entries(l1_txt_path: Path, entries: list[dict[str, Any]]) -> None:
+    blocks = ["# Shared L1 journal for evolving KernelBench batch\n"]
+    for entry in entries:
+        blocks.append(format_l1_entry_journal_block(entry, event="append"))
+        if not blocks[-1].endswith("\n"):
+            blocks[-1] += "\n"
+    l1_txt_path.write_text("\n".join(blocks), encoding="utf-8")
+
+
+def _prune_l1_usage_skills(run_dir: Path, removed_ids: set[str]) -> int:
+    usage_path = run_dir / "l1_skill_usage.json"
+    if not usage_path.is_file() or not removed_ids:
+        return 0
+    raw = _read_json(usage_path, default={})
+    if not isinstance(raw, dict):
+        return 0
+    skills = raw.get("skills")
+    if not isinstance(skills, dict):
+        return 0
+    pruned = 0
+    for eid in list(skills.keys()):
+        key = str(eid).strip()
+        value = skills.get(eid)
+        value_id = ""
+        if isinstance(value, dict):
+            value_id = str(value.get("entry_id") or "").strip()
+        if key in removed_ids or value_id in removed_ids:
+            del skills[eid]
+            pruned += 1
+    _write_json(usage_path, raw)
+    return pruned
+
+
+def rollback_l1_for_resume(
+    run_dir: Path,
+    *,
+    rows: list[dict[str, Any]],
+    start_problem: int,
+    dry_run: bool = False,
+    backup: bool = False,
+) -> dict[str, Any]:
+    """Remove L1 skills sourced from problems at/after start_problem."""
+    l1_txt_path = run_dir / "shared_l1.txt"
+    purge_problems = _collect_resume_purge_problems(rows, start_problem=start_problem)
+    entries = _read_l1_jsonl_entries(l1_txt_path)
+    remove_ids = _select_l1_entries_to_remove(entries, purge_problems=purge_problems)
+    kept = [e for e in entries if str(e.get("entry_id", "")).strip() not in remove_ids]
+    removed_entries = [
+        e for e in entries if str(e.get("entry_id", "")).strip() in remove_ids
+    ]
+    summary: dict[str, Any] = {
+        "purge_problems": [f"L{lvl}P{pid}" for lvl, pid in purge_problems],
+        "removed_count": len(remove_ids),
+        "kept_count": len(kept),
+        "removed_entry_ids": sorted(remove_ids),
+        "removed_sources": sorted(
+            {
+                str(e.get("source") or "")
+                for e in removed_entries
+                if str(e.get("source") or "").strip()
+            }
+        ),
+        "rewrote": False,
+        "usage_pruned": 0,
+        "backed_up": False,
+    }
+    if dry_run or not remove_ids:
+        return summary
+
+    jsonl_path = resolve_l1_jsonl_path(l1_txt_path)
+    if backup:
+        if jsonl_path.is_file():
+            shutil.copy2(jsonl_path, Path(str(jsonl_path) + ".resume.bak"))
+        if l1_txt_path.is_file():
+            shutil.copy2(l1_txt_path, Path(str(l1_txt_path) + ".resume.bak"))
+        summary["backed_up"] = True
+
+    _write_l1_jsonl_entries(l1_txt_path, kept)
+    _rebuild_l1_txt_from_entries(l1_txt_path, kept)
+    summary["usage_pruned"] = _prune_l1_usage_skills(run_dir, remove_ids)
+    summary["rewrote"] = True
+    return summary
+
+
+def _check_resume_config_mismatch(
     *,
     run_dir: Path,
     subset_csv: Path,
     max_problems: int,
-) -> None:
+    current: dict[str, Any],
+    allow_mismatch: bool,
+) -> list[str]:
+    """Compare prior run_summary.json to current CLI flags.
+
+    Returns mismatch messages. Raises SystemExit when mismatches exist and
+    *allow_mismatch* is False. Missing keys in an old summary are skipped.
+    """
     summary_path = run_dir / "run_summary.json"
     if not summary_path.is_file():
-        return
+        return []
     prior = _read_json(summary_path, default={})
     if not isinstance(prior, dict):
-        return
+        return []
+
+    mismatches: list[str] = []
+
     prior_subset = prior.get("subset_csv")
-    if prior_subset and str(prior_subset) != str(subset_csv):
-        print(
-            f"[batch] warning: resume subset_csv differs from prior run "
-            f"({prior_subset} vs {subset_csv})",
-            file=sys.stderr,
+    if prior_subset is not None and str(prior_subset) != str(subset_csv):
+        mismatches.append(
+            f"subset_csv: prior={prior_subset!r} current={str(subset_csv)!r}"
         )
+
     prior_attempted = prior.get("total_attempted")
-    if prior_attempted is not None and max_problems > 0 and int(prior_attempted) != max_problems:
-        print(
-            f"[batch] warning: resume --max-problems={max_problems} differs from "
-            f"prior total_attempted={prior_attempted}",
-            file=sys.stderr,
+    if prior_attempted is not None and max_problems > 0 and int(prior_attempted) != int(max_problems):
+        mismatches.append(
+            f"max_problems/total_attempted: prior={prior_attempted!r} current={max_problems!r}"
         )
+
+    flag_keys = (
+        "skill_deletion",
+        "skill_merging",
+        "skill_merge_similarity",
+        "skill_merge_interval",
+        "enable_l1_skill_unit_test_gc",
+        "enable_skill_refinement",
+        "skill_refinement_max_rounds",
+    )
+    for key in flag_keys:
+        if key not in prior:
+            continue
+        prior_val = prior.get(key)
+        current_val = current.get(key)
+        if prior_val != current_val:
+            # Numeric merge knobs may arrive as int/float from JSON.
+            if key in ("skill_merge_similarity",) and prior_val is not None and current_val is not None:
+                try:
+                    if abs(float(prior_val) - float(current_val)) < 1e-9:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            if key in ("skill_merge_interval", "skill_refinement_max_rounds"):
+                try:
+                    if int(prior_val) == int(current_val):
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            mismatches.append(f"{key}: prior={prior_val!r} current={current_val!r}")
+
+    if not mismatches:
+        return []
+
+    for msg in mismatches:
+        print(f"[batch] warning: resume config mismatch: {msg}", file=sys.stderr)
+
+    if not allow_mismatch:
+        details = "\n  - ".join(mismatches)
+        raise SystemExit(
+            "Resume aborted: run_summary.json flags do not match current CLI.\n"
+            f"  - {details}\n"
+            "Re-run with matching flags, or pass --allow-resume-config-mismatch."
+        )
+    return mismatches
 
 
 def _extract_best_kernel_code(run_entry: dict[str, Any]) -> str | None:
@@ -621,6 +876,17 @@ def main() -> int:
         help="1-based subset index (after --max-problems trim) to start re-running. "
         "Only valid with --resume; earlier problems are kept unchanged.",
     )
+    parser.add_argument(
+        "--allow-resume-config-mismatch",
+        action="store_true",
+        help="Continue resume even when skill-governance flags in run_summary.json "
+        "differ from the current CLI (default: abort on mismatch).",
+    )
+    parser.add_argument(
+        "--backup-l1-on-resume",
+        action="store_true",
+        help="Before L1 rollback on resume, copy shared_l1.jsonl/txt to *.resume.bak.",
+    )
     args = parser.parse_args()
 
     if args.start_problem < 1:
@@ -662,11 +928,37 @@ def main() -> int:
                 f"Resume run directory not found: {run_dir}. "
                 "Pass --run-name with the full timestamped folder name."
             )
-        _warn_resume_config_mismatch(
+        _check_resume_config_mismatch(
             run_dir=run_dir,
             subset_csv=subset_csv,
             max_problems=args.max_problems,
+            current={
+                "skill_deletion": bool(args.skill_deletion),
+                "skill_merging": bool(args.skill_merging),
+                "skill_merge_similarity": float(args.skill_merge_similarity),
+                "skill_merge_interval": int(args.skill_merge_interval),
+                "enable_l1_skill_unit_test_gc": bool(args.enable_l1_skill_unit_test_gc),
+                "enable_skill_refinement": bool(args.enable_skill_refinement),
+                "skill_refinement_max_rounds": int(args.skill_refinement_max_rounds),
+            },
+            allow_mismatch=bool(args.allow_resume_config_mismatch),
         )
+        l1_rollback = rollback_l1_for_resume(
+            run_dir,
+            rows=rows,
+            start_problem=int(args.start_problem),
+            dry_run=bool(args.dry_run),
+            backup=bool(args.backup_l1_on_resume),
+        )
+        print(
+            "[batch] resume L1 rollback: "
+            f"removed={l1_rollback['removed_count']} kept={l1_rollback['kept_count']} "
+            f"rewrote={l1_rollback['rewrote']} "
+            f"purge_problems={l1_rollback['purge_problems']}"
+        )
+        if l1_rollback["removed_entry_ids"]:
+            sample = l1_rollback["removed_entry_ids"][:12]
+            print(f"[batch] resume L1 removed entry_ids (sample): {sample}")
     else:
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -922,6 +1214,8 @@ def main() -> int:
         "skill_merging": bool(args.skill_merging),
         "skill_merge_similarity": float(args.skill_merge_similarity),
         "skill_merge_interval": int(args.skill_merge_interval),
+        "enable_skill_refinement": bool(args.enable_skill_refinement),
+        "skill_refinement_max_rounds": int(args.skill_refinement_max_rounds),
         "total_attempted": len(rows),
         "total_completed": len(runs),
         "total_correct": len(successful),
