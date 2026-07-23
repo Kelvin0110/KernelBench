@@ -1,13 +1,15 @@
 # Project Progress & Development Ledger
 
 ## Current Phase: Gen3 KernelBench Evolving Agent
-- **Active Goal**: Run and refine `scripts_integration/new_evolving_agent_gen3` with `evolving_common_gen3` staged loop (action_selector → l1_skill_picker → coder), round-native L0, and round/L1 summarizers.
+- **Active Goal**: Run and refine Gen3 evolving agent with staged loop + L0 context-management modes (`truncation` / `folding` / `markov_report` / `selective_retention`) on KernelBench and MLE.
 - **Critical Reminders**:
-  - Use **`evolving_common_gen3`** (not Gen2 `evolving_common`) for new KernelBench evolving work.
+  - Use **`evolving_common`** Gen3 paths for new KernelBench evolving work (`scripts_integration/new_evolving_agent`).
   - L0 is **`list[L0Round]`** per problem (`finalize_l0_round` once per iteration); prompts use `round_summary` for archived rounds.
   - L1 promotion uses `format_l0_for_l1_promotion` and `promote_every_n_rounds` (default 2); KernelBench keeps L0 after promotion (`clear_l0_after_promotion=False`).
   - Keep `eval_results.json` level-first; preserve `runtime` / `runtime_stats`; GPU eval via `GPUMemoryReserver`.
   - **`is_hack` / static check (2026-07)**: default `enable_static_check=True`; only STRICT (AST `pass`/`try`, timing/lazy/thread, backend impl) + >10× `excessive_speedup` set `is_hack`; other warnings in `static_check_warnings` (audit only); regenerate viz stats for old runs.
+  - **L0 context modes (2026-07)**: `--context-management {truncation,folding,markov_report,selective_retention}`. Per-problem artifacts live under `workspaces/level_*_problem_*/` — `evolving_report.md` (markov) and `l0_milestones.json` (selective); never at shared batch `run_dir` (round_ids collide across problems).
+  - Context-management batch commands: [`RUN_WITH_UV_CONTEXT.md`](../scripts_integration/new_evolving_agent/RUN_WITH_UV_CONTEXT.md). Specs: `Self-Evolving-Agent/docs/superpowers/specs/2026-07-11-markov-report-context-design.md`, `.../2026-07-18-selective-retention-context-design.md`.
 
 ---
 
@@ -528,4 +530,37 @@
 - **Impact**: Coder prompts align with KernelBench hybrid enforcement; agents see explicit static error list when GPU eval is blocked. Warning-tier signals remain viz/jsonl audit only.
 - **Tests**: `test_kernelbench_prompts.py`; `test_kb_governor.py` (`test_static_strict_errors_in_terminal_not_warnings`).
 - **Docs**: `README.md` §3.3 “Prompt policy vs static check tiers”.
+- **Status**: Completed
+
+### 2026-07-18 - Cursor Agent
+- **Feature**: Fourth L0 context mode `selective_retention` (Strategy 5) + batch CLI/docs.
+- **Implementation**:
+  - Mode registry: `evolving_common/context_management.py` — `selective_retention`, `MODEL_CONTEXT_WINDOWS` (`gpt-oss-120b`→128K), `resolve_context_window`, `CONTEXT_PACK_RATIO=0.9`.
+  - Core: `evolving_common/governor/selective_retention.py` — rule milestones (`propose_new` / new best / first compile / first correct), additive fail-soft LLM judge, `l0_milestones.json` load/save, 90% packing (keep latest 1 + prefer new-best; drop oldest non–new-best from prompt only).
+  - Prompts: `build_selective_retention_context_block` + selector/extractor/coder branches in `prompt_context.py`; Gen3 threads `selective_context_block` and disables unfold.
+  - KB + MLE governors wire post-round milestone update + prev-coder token tracking; CLI choices on `cli.py` and `evolve_kb_batch.py`.
+  - Docs: `RUN_WITH_UV_CONTEXT.md`, batch `README.md`; design `docs/superpowers/specs/2026-07-18-selective-retention-context-design.md`.
+- **Impact**: Prompts keep only high-value historical attempts (full detail) + latest L0; non-milestones omitted from the prompt but never deleted from disk.
+- **Tests**: `tests/test_selective_retention.py`; batch dry-run `test_main_dry_run_accepts_selective_retention_context_management`.
+- **Status**: Completed
+
+### 2026-07-18 - Cursor Agent
+- **Feature**: Per-problem isolation for markov `evolving_report.md` and selective `l0_milestones.json` (KernelBench batch).
+- **Implementation**:
+  - Bug: both files were under shared batch `run_dir`, so problems overwrote each other; colliding `round_1`… IDs also corrupted selective packing.
+  - Fix: KB stores under `workspaces/level_*_problem_*/`; MLE under that run's `workspace/` (not `workspace.parent`).
+  - Helpers: `resolve_evolving_report_path` / `resolve_milestone_path` docs require a single-problem workspace.
+- **Impact**: Multi-problem batch runs no longer leak markov narratives or milestone IDs across problems.
+- **Tests**: isolation cases in `test_markov_report.py` and `test_selective_retention.py`.
+- **Status**: Completed
+
+### 2026-07-23 - Cursor Agent
+- **Feature**: Enrich selective-retention milestone LLM judge context + prompts.
+- **Implementation**:
+  - System prompt: concrete promote/do-not-promote criteria + few-shot JSON examples (`MILESTONE_JUDGE_SYSTEM_PROMPT`).
+  - User prompt sections: original goal, best metrics so far, last-3 prior compact summaries, latest metrics, latest full L0 (`build_milestone_judge_user_message`).
+  - Helpers: `format_best_metrics_from_priors`, `format_prior_round_summaries` in `selective_retention.py`; `task_section` threaded from KB `_finalize_iteration_l0` and MLE `_maybe_update_milestones`.
+- **Impact**: Soft milestones (debug breakthroughs, new approaches without a new best) can be judged against goal/history instead of an isolated round.
+- **Tests**: extended `test_selective_retention.py` (message sections + helpers).
+- **Docs**: design spec LLM-judge context note updated.
 - **Status**: Completed
