@@ -10,7 +10,7 @@
   - **`is_hack` / static check (2026-07)**: default `enable_static_check=True`; only STRICT (AST `pass`/`try`, timing/lazy/thread, backend impl) + >10× `excessive_speedup` set `is_hack`; other warnings in `static_check_warnings` (audit only); regenerate viz stats for old runs.
   - **L0 context modes (2026-07)**: `--context-management {truncation,folding,markov_report,selective_retention}`. Per-problem artifacts live under `workspaces/level_*_problem_*/` — `evolving_report.md` (markov) and `l0_milestones.json` (selective); never at shared batch `run_dir` (round_ids collide across problems).
   - Context-management batch commands: [`RUN_WITH_UV_CONTEXT.md`](../scripts_integration/new_evolving_agent/RUN_WITH_UV_CONTEXT.md). Specs: `Self-Evolving-Agent/docs/superpowers/specs/2026-07-11-markov-report-context-design.md`, `.../2026-07-18-selective-retention-context-design.md`.
-
+  - **Resume range (2026-07)**: `--resume --start-problem N [--end-problem M]` re-runs only `[N, M]`; L1 rollback matches that range; re-runs apply causal L1 (`l1_allowed_entry_ids`) so later kept skills cannot be selected.
 ---
 
 ## Development Log
@@ -563,4 +563,15 @@
 - **Impact**: Soft milestones (debug breakthroughs, new approaches without a new best) can be judged against goal/history instead of an isolated round.
 - **Tests**: extended `test_selective_retention.py` (message sections + helpers).
 - **Docs**: design spec LLM-judge context note updated.
+- **Status**: Completed
+
+### 2026-07-25 - Cursor Agent
+- **Feature**: Resume range (`--end-problem`) + causal L1 skill visibility for KernelBench batch.
+- **Implementation**:
+  - CLI: `--end-problem` (inclusive, requires `--resume`); default `len(rows)` preserves start→end-of-subset.
+  - Purge/rollback only for `[start, end]`; keep results outside the range.
+  - Causal allowlist via `collect_causal_l1_entry_ids` → `KBGovernorConfig.l1_allowed_entry_ids`; filtered in Gen3 `run_l1_skill_selection` and legacy governor catalog path.
+- **Impact**: Can re-run a closed subset index range without deleting later problems' skills/results, while preventing later skills from leaking into earlier re-runs.
+- **Tests**: `test_evolve_kb_batch.py` (purge end, rollback end, causal filter, dry-run range summary).
+- **Docs**: `RUN_WITH_UV.md` §6, batch `README.md`.
 - **Status**: Completed

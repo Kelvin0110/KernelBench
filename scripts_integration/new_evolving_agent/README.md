@@ -5,12 +5,12 @@ This directory contains the Gen3 KernelBench integration: staged prompts, L1 ski
 ## 1. Key Files & Responsibilities
 
 ### Core Integration
-- **[evolve_kb_batch.py](evolve_kb_batch.py)**: **Outer loop** — batch orchestrator (subset CSV, resume, result aggregation).
+- **[evolve_kb_batch.py](evolve_kb_batch.py)**: **Outer loop** — batch orchestrator (subset CSV, resume with optional `--end-problem` range + causal L1 filter, result aggregation).
 - **Governor (inner loop)**: [`Self-Evolving-Agent/kernelbench_integration/`](../../Self-Evolving-Agent/kernelbench_integration/) — see [developer README](../../Self-Evolving-Agent/kernelbench_integration/README.md).
   - `KBGovernor` runs Gen3 staged prompts + KernelBench subprocess eval for one problem.
   - Deprecated shim: [kb_governor.py](kb_governor.py) re-exports `kernelbench_integration` with a warning.
 
-- **[RUN_WITH_UV.md](RUN_WITH_UV.md)**: Standardized execution guide using the `uv` package manager for reproducible environments and dependency management.
+- **[RUN_WITH_UV.md](RUN_WITH_UV.md)**: Standardized execution guide using the `uv` package manager for reproducible environments and dependency management (includes resume range: `--start-problem` / `--end-problem`).
 - **[RUN_WITH_UV_CONTEXT.md](RUN_WITH_UV_CONTEXT.md)**: Context-management modes (`truncation` / `folding` / `markov_report` / `selective_retention`) and batch commands.
 
 ### Testing & Verification

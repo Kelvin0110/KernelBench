@@ -287,9 +287,10 @@ If a batch stops partway through (for example `coder_call_error: RateLimitError`
 
 1. Copy the exact directory name from `runs_evolving/` (includes the UTC timestamp suffix, e.g. `memory_evolving_agent_gen3_itr20_2026_06_03_14_05`).
 2. Find the **1-based row index** of the first problem to re-run in the same subset CSV and `--max-problems` slice used originally (e.g. row 21 → `--start-problem 21`).
-3. Re-run with `--resume` (no new timestamp is appended). Problems before `--start-problem` are left unchanged; from that index through the end, prior records are replaced and per-problem workspaces are cleared before re-run.
+3. Re-run with `--resume` (no new timestamp is appended). Problems before `--start-problem` and after `--end-problem` (inclusive range) are left unchanged; indices in `[start, end]` are purged and re-run. Omit `--end-problem` to re-run from start through the end of the subset (legacy behavior).
 4. On resume, skill-governance flags in `run_summary.json` are checked against the current CLI (`skill_deletion`, `skill_merging`, merge knobs, unit-test GC, skill refinement). Mismatches **abort** unless you pass `--allow-resume-config-mismatch`.
-5. Skills in `shared_l1.jsonl` / `shared_l1.txt` whose source is a problem at/after `--start-problem` are removed automatically (including refined children and merges that depend on those skills). Pass `--backup-l1-on-resume` to keep `*.resume.bak` copies first.
+5. Skills in `shared_l1.jsonl` / `shared_l1.txt` whose source is a problem in `[--start-problem, --end-problem]` are removed automatically (including refined children and merges that depend on those skills). Skills from problems after `--end-problem` stay in the journal. Pass `--backup-l1-on-resume` to keep `*.resume.bak` copies first.
+6. While re-running the range, each problem may only *use* L1 skills whose provenance is from earlier subset indices (strict causal filter), so kept later skills cannot leak into earlier re-runs.
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
@@ -301,6 +302,19 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
   >> new_evolving_gpu_run_gen3_itr10_Jun_3.log 2>&1
 ```
 
+Resume a closed range only (re-run problems 11–20, keep 1–10 and 21+):
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --resume \
+  --run-name memory_evolving_agent_gen3_itr10_2026_06_03_11_30 \
+  --max-problems 50 \
+  --max-iterations 10 \
+  --start-problem 11 \
+  --end-problem 20 \
+  >> new_evolving_gpu_run_gen3_itr10_Jun_3_range.log 2>&1
+```
+
 Dry-run resume (validate indexing only):
 
 ```bash
@@ -310,6 +324,7 @@ uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --subset-csv subset_selection/selected_problems_50.csv \
   --max-problems 50 \
   --start-problem 11 \
+  --end-problem 20 \
   --dry-run
 ```
 
