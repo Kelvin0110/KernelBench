@@ -769,6 +769,201 @@ def test_rollback_l1_for_resume_dry_run_does_not_rewrite(tmp_path: Path) -> None
     assert (run_dir / "shared_l1.jsonl").read_text(encoding="utf-8") == before
 
 
+def test_collect_resume_purge_problems_respects_end() -> None:
+    rows = [
+        {"level": 1, "problem_id": 1},
+        {"level": 1, "problem_id": 2},
+        {"level": 1, "problem_id": 3},
+        {"level": 1, "problem_id": 4},
+    ]
+    assert evolve_kb_batch._collect_resume_purge_problems(
+        rows, start_problem=2, end_problem=3
+    ) == [(1, "2"), (1, "3")]
+    assert evolve_kb_batch._collect_resume_purge_problems(
+        rows, start_problem=2, end_problem=None
+    ) == [(1, "2"), (1, "3"), (1, "4")]
+
+
+def test_rollback_l1_for_resume_respects_end_problem(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    l1_txt = run_dir / "shared_l1.txt"
+    l1_txt.write_text("# Shared L1 journal\n", encoding="utf-8")
+    entries = [
+        {
+            "entry_id": "1",
+            "source": "Level 1 problem 1",
+            "status": "active",
+            "content": "p1",
+            "unit_test_artifacts": {"problem_slug": "L1P1"},
+        },
+        {
+            "entry_id": "2",
+            "source": "Level 1 problem 2",
+            "status": "active",
+            "content": "p2",
+            "unit_test_artifacts": {"problem_slug": "L1P2"},
+        },
+        {
+            "entry_id": "3",
+            "source": "Level 1 problem 3",
+            "status": "active",
+            "content": "p3",
+            "unit_test_artifacts": {"problem_slug": "L1P3"},
+        },
+        {
+            "entry_id": "4",
+            "source": "Level 1 problem 4",
+            "status": "active",
+            "content": "p4",
+            "unit_test_artifacts": {"problem_slug": "L1P4"},
+        },
+    ]
+    evolve_kb_batch._write_l1_jsonl_entries(l1_txt, entries)
+    rows = [
+        {"level": 1, "problem_id": 1},
+        {"level": 1, "problem_id": 2},
+        {"level": 1, "problem_id": 3},
+        {"level": 1, "problem_id": 4},
+    ]
+    summary = evolve_kb_batch.rollback_l1_for_resume(
+        run_dir,
+        rows=rows,
+        start_problem=2,
+        end_problem=3,
+        dry_run=False,
+        backup=False,
+    )
+    assert set(summary["removed_entry_ids"]) == {"2", "3"}
+    kept = evolve_kb_batch._read_l1_jsonl_entries(l1_txt)
+    assert [e["entry_id"] for e in kept] == ["1", "4"]
+
+
+def test_collect_causal_l1_entry_ids_strict_prior_only() -> None:
+    rows = [
+        {"level": 1, "problem_id": 1},
+        {"level": 1, "problem_id": 2},
+        {"level": 1, "problem_id": 3},
+        {"level": 1, "problem_id": 4},
+        {"level": 1, "problem_id": 5},
+    ]
+    entries = [
+        {
+            "entry_id": "from_1",
+            "source": "Level 1 problem 1",
+            "unit_test_artifacts": {"problem_slug": "L1P1"},
+        },
+        {
+            "entry_id": "from_3",
+            "source": "Level 1 problem 3",
+            "unit_test_artifacts": {"problem_slug": "L1P3"},
+        },
+        {
+            "entry_id": "from_5",
+            "source": "Level 1 problem 5",
+            "unit_test_artifacts": {"problem_slug": "L1P5"},
+        },
+        {
+            "entry_id": "merge_1_3",
+            "source": "skill_merge",
+            "merge_meta": {"source_entry_ids": ["from_1", "from_3"]},
+        },
+        {
+            "entry_id": "merge_with_5",
+            "source": "skill_merge",
+            "merge_meta": {"source_entry_ids": ["from_1", "from_5"]},
+        },
+        {
+            "entry_id": "unknown",
+            "source": "external_import",
+        },
+    ]
+    allowed = evolve_kb_batch.collect_causal_l1_entry_ids(
+        entries, rows=rows, current_idx=4
+    )
+    assert allowed == {"from_1", "from_3", "merge_1_3"}
+
+
+def test_resume_range_keeps_outside_and_records_end(tmp_path: Path, monkeypatch) -> None:
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text(
+        "level,problem_id\n1,1\n1,2\n1,3\n1,4\n",
+        encoding="utf-8",
+    )
+
+    run_name = "resume_range_test"
+    results_root = tmp_path / "results"
+    run_dir = results_root / run_name
+    _seed_resume_run_dir(
+        run_dir,
+        runs=[
+            {
+                "level": 1,
+                "problem_id": "1",
+                "error": "ok_p1",
+                "timestamp_utc": "old1",
+            },
+            {
+                "level": 1,
+                "problem_id": "2",
+                "error": "ok_p2",
+                "timestamp_utc": "old2",
+            },
+            {
+                "level": 1,
+                "problem_id": "3",
+                "error": "ok_p3",
+                "timestamp_utc": "old3",
+            },
+            {
+                "level": 1,
+                "problem_id": "4",
+                "error": "ok_p4",
+                "timestamp_utc": "old4",
+            },
+        ],
+    )
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--resume",
+            "--run-name",
+            run_name,
+            "--subset-csv",
+            str(subset_csv),
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--start-problem",
+            "2",
+            "--end-problem",
+            "3",
+            "--max-problems",
+            "4",
+        ],
+    )
+
+    assert evolve_kb_batch.main() == 0
+
+    doc = json.loads((run_dir / "evolving_runs.json").read_text(encoding="utf-8"))
+    by_pid = {str(e["problem_id"]): e for e in doc["runs"]}
+    assert by_pid["1"]["error"] == "ok_p1"
+    assert by_pid["1"]["timestamp_utc"] == "old1"
+    assert by_pid["2"]["error"] == "dry_run_no_gpu_execution"
+    assert by_pid["3"]["error"] == "dry_run_no_gpu_execution"
+    assert by_pid["4"]["error"] == "ok_p4"
+    assert by_pid["4"]["timestamp_utc"] == "old4"
+
+    summary = json.loads((run_dir / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["resume"] is True
+    assert summary["start_problem"] == 2
+    assert summary["end_problem"] == 3
+
+
 def test_resume_aborts_on_flag_mismatch(tmp_path: Path, monkeypatch) -> None:
     subset_csv = tmp_path / "subset.csv"
     subset_csv.write_text("level,problem_id\n1,1\n1,2\n", encoding="utf-8")
