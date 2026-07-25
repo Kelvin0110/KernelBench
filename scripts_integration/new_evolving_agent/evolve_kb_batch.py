@@ -291,14 +291,130 @@ def _collect_resume_purge_problems(
     rows: list[dict[str, Any]],
     *,
     start_problem: int,
+    end_problem: int | None = None,
 ) -> list[tuple[int, str]]:
-    """Return (level, problem_id) for subset rows at/after start_problem (1-based)."""
+    """Return (level, problem_id) for subset rows in [start_problem, end_problem] (1-based).
+
+    When *end_problem* is None, purge from *start_problem* through the end of *rows*
+    (legacy resume behavior).
+    """
+    end = len(rows) if end_problem is None else int(end_problem)
     out: list[tuple[int, str]] = []
     for idx, row in enumerate(rows, start=1):
-        if idx < start_problem:
+        if idx < start_problem or idx > end:
             continue
         out.append((int(row["level"]), str(int(row["problem_id"]))))
     return out
+
+
+def _build_subset_index_maps(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Map problem slug and normalized source label → 1-based subset index."""
+    by_slug: dict[str, int] = {}
+    by_source: dict[str, int] = {}
+    for idx, row in enumerate(rows, start=1):
+        level = int(row["level"])
+        problem_id = str(int(row["problem_id"]))
+        by_slug[_problem_slug(level, problem_id)] = idx
+        by_source[_normalize_source_label(_problem_source_label(level, problem_id))] = idx
+    return by_slug, by_source
+
+
+def _entry_provenance_indices(
+    entry: dict[str, Any],
+    *,
+    by_id: dict[str, dict[str, Any]],
+    index_by_slug: dict[str, int],
+    index_by_source: dict[str, int],
+    _visiting: set[str] | None = None,
+) -> set[int] | None:
+    """Return subset indices that provenance this skill, or None if unknown/unmapped."""
+    eid = str(entry.get("entry_id") or "").strip()
+    visiting = _visiting if _visiting is not None else set()
+    if eid:
+        if eid in visiting:
+            return None
+        visiting = set(visiting)
+        visiting.add(eid)
+
+    merge_meta = entry.get("merge_meta")
+    source_ids: list[str] = []
+    if isinstance(merge_meta, dict):
+        raw_ids = merge_meta.get("source_entry_ids") or []
+        if isinstance(raw_ids, list):
+            source_ids = [str(x).strip() for x in raw_ids if str(x).strip()]
+    if str(entry.get("source") or "").strip() == "skill_merge" or source_ids:
+        if not source_ids:
+            return None
+        indices: set[int] = set()
+        for sid in source_ids:
+            parent = by_id.get(sid)
+            if parent is None:
+                return None
+            parent_idx = _entry_provenance_indices(
+                parent,
+                by_id=by_id,
+                index_by_slug=index_by_slug,
+                index_by_source=index_by_source,
+                _visiting=visiting,
+            )
+            if parent_idx is None:
+                return None
+            indices |= parent_idx
+        return indices
+
+    parent_id = entry.get("parent_id")
+    if parent_id is not None and str(parent_id).strip():
+        parent = by_id.get(str(parent_id).strip())
+        if parent is None:
+            return None
+        return _entry_provenance_indices(
+            parent,
+            by_id=by_id,
+            index_by_slug=index_by_slug,
+            index_by_source=index_by_source,
+            _visiting=visiting,
+        )
+
+    artifacts = entry.get("unit_test_artifacts")
+    if isinstance(artifacts, dict):
+        slug = str(artifacts.get("problem_slug") or "").strip()
+        if slug and slug in index_by_slug:
+            return {index_by_slug[slug]}
+
+    source_norm = _normalize_source_label(str(entry.get("source") or ""))
+    if source_norm and source_norm in index_by_source:
+        return {index_by_source[source_norm]}
+    return None
+
+
+def collect_causal_l1_entry_ids(
+    entries: list[dict[str, Any]],
+    *,
+    rows: list[dict[str, Any]],
+    current_idx: int,
+) -> set[str]:
+    """Entry IDs whose provenance is strictly earlier than *current_idx* (1-based)."""
+    index_by_slug, index_by_source = _build_subset_index_maps(rows)
+    by_id = {
+        str(e.get("entry_id", "")).strip(): e
+        for e in entries
+        if str(e.get("entry_id", "")).strip()
+    }
+    allowed: set[str] = set()
+    for eid, entry in by_id.items():
+        indices = _entry_provenance_indices(
+            entry,
+            by_id=by_id,
+            index_by_slug=index_by_slug,
+            index_by_source=index_by_source,
+        )
+        if indices is None:
+            continue
+        if indices and max(indices) < current_idx:
+            allowed.add(eid)
+    return allowed
 
 
 def _select_l1_entries_to_remove(
@@ -412,12 +528,15 @@ def rollback_l1_for_resume(
     *,
     rows: list[dict[str, Any]],
     start_problem: int,
+    end_problem: int | None = None,
     dry_run: bool = False,
     backup: bool = False,
 ) -> dict[str, Any]:
-    """Remove L1 skills sourced from problems at/after start_problem."""
+    """Remove L1 skills sourced from problems in [start_problem, end_problem]."""
     l1_txt_path = run_dir / "shared_l1.txt"
-    purge_problems = _collect_resume_purge_problems(rows, start_problem=start_problem)
+    purge_problems = _collect_resume_purge_problems(
+        rows, start_problem=start_problem, end_problem=end_problem
+    )
     entries = _read_l1_jsonl_entries(l1_txt_path)
     remove_ids = _select_l1_entries_to_remove(entries, purge_problems=purge_problems)
     kept = [e for e in entries if str(e.get("entry_id", "")).strip() not in remove_ids]
@@ -867,7 +986,7 @@ def main() -> int:
         "--resume",
         action="store_true",
         help="Resume an existing run: use --run-name exactly (with timestamp suffix), "
-        "reuse L1/run_dir, and replace results from --start-problem onward.",
+        "reuse L1/run_dir, and replace results in [--start-problem, --end-problem].",
     )
     parser.add_argument(
         "--start-problem",
@@ -875,6 +994,14 @@ def main() -> int:
         default=1,
         help="1-based subset index (after --max-problems trim) to start re-running. "
         "Only valid with --resume; earlier problems are kept unchanged.",
+    )
+    parser.add_argument(
+        "--end-problem",
+        type=int,
+        default=None,
+        help="1-based subset index (inclusive) to stop re-running on resume. "
+        "Default: last problem in the subset (start→end of subset). "
+        "Problems after this index are kept unchanged. Requires --resume.",
     )
     parser.add_argument(
         "--allow-resume-config-mismatch",
@@ -893,6 +1020,8 @@ def main() -> int:
         raise ValueError("--start-problem must be >= 1")
     if args.start_problem > 1 and not args.resume:
         raise ValueError("--start-problem requires --resume")
+    if args.end_problem is not None and not args.resume:
+        raise ValueError("--end-problem requires --resume")
 
     if not args.resume:
         # Append UTC timestamp to run-name to avoid collisions and make runs unique.
@@ -920,6 +1049,21 @@ def main() -> int:
         raise ValueError(
             f"--start-problem {args.start_problem} exceeds subset size {len(rows)}"
         )
+    if args.end_problem is None:
+        end_problem = len(rows)
+    else:
+        end_problem = int(args.end_problem)
+        if end_problem < 1:
+            raise ValueError("--end-problem must be >= 1")
+        if end_problem > len(rows):
+            raise ValueError(
+                f"--end-problem {end_problem} exceeds subset size {len(rows)}"
+            )
+        if end_problem < int(args.start_problem):
+            raise ValueError(
+                f"--end-problem {end_problem} must be >= --start-problem {args.start_problem}"
+            )
+    args.end_problem = end_problem
 
     run_dir = Path(args.results_root) / args.run_name
     if args.resume:
@@ -947,6 +1091,7 @@ def main() -> int:
             run_dir,
             rows=rows,
             start_problem=int(args.start_problem),
+            end_problem=int(args.end_problem),
             dry_run=bool(args.dry_run),
             backup=bool(args.backup_l1_on_resume),
         )
@@ -1004,11 +1149,15 @@ def main() -> int:
             print(f"[batch] resume: keep prior result for {key} (index {idx})")
             continue
 
+        if args.resume and idx > args.end_problem:
+            print(f"[batch] resume: keep prior result for {key} (index {idx} after end)")
+            continue
+
         if not args.resume and key in completed_keys:
             print(f"[batch] skip completed {key}")
             continue
 
-        if args.resume and idx >= args.start_problem:
+        if args.resume and args.start_problem <= idx <= args.end_problem:
             print(f"[batch] resume: replacing prior state for {key} (index {idx})")
             runs = _purge_problem_state(
                 run_dir=run_dir,
@@ -1059,6 +1208,14 @@ def main() -> int:
                 option="one_shot",
                 precision=args.precision,
             )
+            l1_allowed_entry_ids: list[str] | None = None
+            if args.resume:
+                causal_ids = collect_causal_l1_entry_ids(
+                    _read_l1_jsonl_entries(shared_l1_path),
+                    rows=rows,
+                    current_idx=idx,
+                )
+                l1_allowed_entry_ids = sorted(causal_ids)
             cfg = KBGovernorConfig(
                 run_name=args.run_name,
                 level=level,
@@ -1094,6 +1251,7 @@ def main() -> int:
                 evolving_report_max_tokens=int(args.evolving_report_max_tokens),
                 evolving_report_timeout_sec=float(args.evolving_report_timeout_sec),
                 enable_static_check=bool(args.enable_static_check),
+                l1_allowed_entry_ids=l1_allowed_entry_ids,
                 verbose=True,
             )
             result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
@@ -1201,6 +1359,7 @@ def main() -> int:
         "run_name": args.run_name,
         "resume": bool(args.resume),
         "start_problem": int(args.start_problem) if args.resume else None,
+        "end_problem": int(args.end_problem) if args.resume else None,
         "resumed_from_run_dir": str(run_dir) if args.resume else None,
         "subset_csv": str(subset_csv),
         "dry_run": bool(args.dry_run),
