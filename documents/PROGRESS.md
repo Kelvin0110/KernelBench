@@ -11,6 +11,7 @@
   - **L0 context modes (2026-07)**: `--context-management {truncation,folding,markov_report,selective_retention}`. Per-problem artifacts live under `workspaces/level_*_problem_*/` — `evolving_report.md` (markov) and `l0_milestones.json` (selective); never at shared batch `run_dir` (round_ids collide across problems).
   - Context-management batch commands: [`RUN_WITH_UV_CONTEXT.md`](../scripts_integration/new_evolving_agent/RUN_WITH_UV_CONTEXT.md). Specs: `Self-Evolving-Agent/docs/superpowers/specs/2026-07-11-markov-report-context-design.md`, `.../2026-07-18-selective-retention-context-design.md`.
   - **Resume range (2026-07)**: `--resume --start-problem N [--end-problem M]` re-runs only `[N, M]`; L1 rollback matches that range; re-runs apply causal L1 (`l1_allowed_entry_ids`) so later kept skills cannot be selected.
+  - **Folding archive pack (2026-07)**: folding prompts pack archived summaries newest-first under `CONTEXT_PACK_RATIO` of the model window (prompt only; L0 on disk kept).
 ---
 
 ## Development Log
@@ -574,4 +575,14 @@
 - **Impact**: Can re-run a closed subset index range without deleting later problems' skills/results, while preventing later skills from leaking into earlier re-runs.
 - **Tests**: `test_evolve_kb_batch.py` (purge end, rollback end, causal filter, dry-run range summary).
 - **Docs**: `RUN_WITH_UV.md` §6, batch `README.md`.
+- **Status**: Completed
+
+### 2026-07-27 - Cursor Agent
+- **Feature**: Folding archived-summary catalog packing (prompt-side context cap).
+- **Implementation**:
+  - Moved `estimate_tokens` to `context_management.py`; packing helpers `pack_l0_archived_pairs` / `build_packed_l0_archived_catalog` in `l0_context.py`.
+  - Gen3 coder + unfold preflight pack newest-first under `CONTEXT_PACK_RATIO * context_window`, reserving task + recent-full + unfold slots; disk L0 unchanged; unfold only from packed IDs.
+- **Impact**: Folding no longer injects an unbounded archive of summaries into prompts on long runs.
+- **Tests**: `test_l0_rounds.py` packing cases; selective_retention tests still pass via shared `estimate_tokens`.
+- **Docs**: `RUN_WITH_UV_CONTEXT.md` folding mode row.
 - **Status**: Completed

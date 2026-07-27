@@ -12,7 +12,7 @@ This file covers `--context-management` on
 | Mode | Default? | Behavior |
 |------|----------|----------|
 | `truncation` | yes | Keep only the latest N raw L0 rounds in prompts |
-| `folding` | no | Archived L0 summaries + per-round summaries + unfold preflight |
+| `folding` | no | Archived L0 summaries + per-round summaries + unfold preflight; archived summary catalog is packed newest-first under ~90% of the model context window (disk L0 unchanged) |
 | `markov_report` | no | Each iteration: **goal + evolving report + latest L0 only**; after eval, a dedicated rewriter LLM updates `evolving_report.md` |
 | `selective_retention` | no | Each iteration: **goal + milestone memory (selected past rounds, full detail) + latest L0 only**; milestones are labeled per round (rules + additive LLM judge) and packed under 90% of the model context window |
 
