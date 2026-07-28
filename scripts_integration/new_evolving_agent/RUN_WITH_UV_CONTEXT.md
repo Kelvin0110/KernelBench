@@ -176,3 +176,97 @@ Under `runs_evolving/<run_name>_*/`:
 
 Resume identically to markov: keep `--context-management selective_retention` (and
 `--no-skill-deletion` if used) so the prompt mode and L1 GC policy stay consistent.
+
+---
+
+## Folding mode
+
+Current folding choice: each iteration keeps **recent N full L0 rounds** (default
+`N=15`: code, terminal, reasoning) plus an **archived summary catalog** for older
+rounds. Before the coder, an **unfold preflight** may request full detail for a few
+archived `round_id`s from that catalog (default: enabled; up to 2 attempts × 3
+rounds). Archived summaries in the prompt are packed **newest-first** under ~90% of
+the model context window (disk L0 unchanged; unfold may only select IDs still in the
+packed catalog).
+
+Batch CLI only needs `--context-management folding`; unfold / recent-N knobs use
+governor defaults unless you run via `Self-Evolving-Agent/cli.py`.
+
+### Unit tests (no GPU / no API key)
+
+```bash
+uv run python -m pytest Self-Evolving-Agent/tests/test_l0_rounds.py -q
+```
+
+Packing / archive-catalog cases live in that file. For batch CLI acceptance, use the
+dry-run below.
+### Dry run (CLI plumbing only)
+
+```bash
+uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name folding_dryrun \
+  --subset-csv subset_selection/selected_problems_50.csv \
+  --max-problems 2 \
+  --max-iterations 2 \
+  --context-management folding \
+  --no-skill-deletion \
+  --backend cuda \
+  --precision fp32 \
+  --dry-run
+```
+
+Check `runs_evolving/<run_name>_*/run_summary.json` for
+`context_management: "folding"` and `skill_deletion: false`.
+
+### Small real CUDA run (smoke)
+
+```bash
+CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_folding_smoke \
+  --max-problems 5 \
+  --max-iterations 20 \
+  --context-management folding \
+  >> base_agent_folding_smoke.log 2>&1 &
+```
+
+### Full 50 problems
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_folding_itr30 \
+  --max-problems 50 \
+  --max-iterations 30 \
+  --context-management folding \
+  >> base_agent_folding_itr30_Jul_28.log 2>&1 &
+```
+
+The 128K window for `gpt-oss-120b` is built in (same registry as selective retention);
+archived-summary packing reuses `CONTEXT_PACK_RATIO` in
+`Self-Evolving-Agent/evolving_common/context_management.py`.
+
+### After a real run
+
+Under `runs_evolving/<run_name>_*/`:
+
+- `run_summary.json` — `context_management: "folding"`
+- `workspaces/level_*_problem_*/chat_history.jsonl` — LLM turns incl. `phase=preflight`
+  (unfold) and `phase=l0_round_summary` (per-round archive summaries)
+- Per-round `round_summary` lives on L0 in the problem workspace / snapshots (no
+  separate milestones file)
+
+### Resume
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --resume \
+  --run-name base_agent_folding_itr30_YYYY_MM_DD_HH_MM \
+  --max-problems 50 \
+  --max-iterations 30 \
+  --start-problem 11 \
+  --context-management folding \
+  --no-skill-deletion \
+  >> base_agent_folding_itr30_resume.log 2>&1 &
+```
+
+Keep `--context-management folding` (and `--no-skill-deletion` if the original run
+used it). Optional range resume: add `--end-problem M` as in [RUN_WITH_UV.md](RUN_WITH_UV.md) §6.
