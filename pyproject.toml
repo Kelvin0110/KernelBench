@@ -72,6 +72,17 @@ include = ["kernelbench*"]
 [tool.setuptools.package-data]
 kernelbench = ["prompts/**/*"]
 
+# PyTorch CUDA index — provides CUDA-enabled wheels for both x86_64 and aarch64
+# (e.g. GH200 Grace Hopper). PyPI only ships CPU-only aarch64 wheels for torch.
+# CUDA 12.8 is the latest stable series and works with driver >= 520.
+# After changing this, regenerate the lockfile: uv lock --upgrade-package torch
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 aideml = { path = "./aideml", editable = true }
 self-evolving-agent = { path = "./Self-Evolving-Agent", editable = true }
