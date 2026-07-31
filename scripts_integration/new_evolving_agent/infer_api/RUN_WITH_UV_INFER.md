@@ -75,48 +75,20 @@ uv run python Self-Evolving-Agent/tests/test_inference_endpoint.py inference
 Keeps only the latest N raw L0 rounds in prompts (default context-management mode).
 No `--context-management` flag required.
 
-### Dry run
-
-```bash
-uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name terra_truncation_dryrun \
-  --subset-csv subset_selection/selected_problems_50.csv \
-  --max-problems 2 \
-  --max-iterations 2 \
-  --nvidia-endpoint inference \
-  --model gpt-5.6-terra \
-  --no-skill-deletion \
-  --backend cuda \
-  --precision fp32 \
-  --dry-run
-```
-
 Check `runs_evolving/<run_name>_*/run_summary.json` for `"nvidia_endpoint": "inference"`,
 `"model": "gpt-5.6-terra"`, and `"context_management": "truncation"`.
 
-### Small real CUDA run (smoke)
-
-```bash
-CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_terra_truncation_smoke \
-  --max-problems 5 \
-  --max-iterations 20 \
-  --nvidia-endpoint inference \
-  --model gpt-5.6-terra \
-  --no-skill-deletion \
-  >> base_agent_terra_truncation_smoke.log 2>&1 &
-```
 
 ### Full 50 problems
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_terra_truncation_itr10 \
+  --run-name base_agent_gpt_56_terra_truncation_itr10 \
   --max-iterations 10 \
   --nvidia-endpoint inference \
   --model gpt-5.6-terra \
   --no-skill-deletion \
-  >> base_agent_terra_truncation_itr10.log 2>&1 &
+  >> base_agent_gpt_56_terra_truncation_itr10_Jul_31.log 2>&1 &
 ```
 
 ### After a real run
@@ -131,14 +103,14 @@ Under `runs_evolving/<run_name>_*/`:
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
-  --run-name base_agent_terra_truncation_itr10_YYYY_MM_DD_HH_MM \
+  --run-name base_agent_gpt_56_terra_truncation_itr10_YYYY_MM_DD_HH_MM \
   --max-problems 50 \
   --max-iterations 10 \
   --start-problem 11 \
   --nvidia-endpoint inference \
   --model gpt-5.6-terra \
   --no-skill-deletion \
-  >> base_agent_terra_truncation_itr10_resume.log 2>&1 &
+  >> base_agent_gpt_56_terra_truncation_itr10_Jul_31.log 2>&1 &
 ```
 
 ---
@@ -149,45 +121,6 @@ Each iteration: **goal + evolving report + latest L0 only**. After eval, a dedic
 rewriter LLM updates `evolving_report.md`. Effective for long runs where a compact
 evolving summary matters more than full L0 history.
 
-### Unit tests (no GPU / no API key)
-
-```bash
-uv run python -m pytest Self-Evolving-Agent/tests/test_markov_report.py -q
-uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py::test_main_dry_run_accepts_markov_report_context_management -q
-```
-
-### Dry run
-
-```bash
-uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name terra_markov_report_dryrun \
-  --subset-csv subset_selection/selected_problems_50.csv \
-  --max-problems 2 \
-  --max-iterations 2 \
-  --nvidia-endpoint inference \
-  --model gpt-5.6-terra \
-  --context-management markov_report \
-  --no-skill-deletion \
-  --backend cuda \
-  --precision fp32 \
-  --dry-run
-```
-
-Check `runs_evolving/<run_name>_*/run_summary.json` for `context_management: "markov_report"`.
-
-### Small real CUDA run (smoke)
-
-```bash
-CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_terra_markov_smoke \
-  --max-problems 5 \
-  --max-iterations 20 \
-  --nvidia-endpoint inference \
-  --model gpt-5.6-terra \
-  --context-management markov_report \
-  --no-skill-deletion \
-  >> base_agent_terra_markov_smoke.log 2>&1 &
-```
 
 ### Full 50 problems
 
