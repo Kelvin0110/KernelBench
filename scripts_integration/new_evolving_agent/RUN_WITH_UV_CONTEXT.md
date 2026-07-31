@@ -270,3 +270,8 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 
 Keep `--context-management folding` (and `--no-skill-deletion` if the original run
 used it). Optional range resume: add `--end-problem M` as in [RUN_WITH_UV.md](RUN_WITH_UV.md) §6.
+
+---
+
+For runs on the **inference-api.nvidia.com** endpoint (e.g. `gpt-5.6-terra`), see
+[scripts_integration/infer_api/RUN_WITH_UV_INFER.md](../infer_api/RUN_WITH_UV_INFER.md).
