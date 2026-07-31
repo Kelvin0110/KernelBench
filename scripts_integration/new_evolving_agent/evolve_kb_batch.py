@@ -612,6 +612,12 @@ def _check_resume_config_mismatch(
         )
 
     flag_keys = (
+        "nvidia_endpoint",
+        "model",
+        "coder_model",
+        "summarizer_model",
+        "extractor_model",
+        "action_selector_model",
         "skill_deletion",
         "skill_merging",
         "skill_merge_similarity",
@@ -812,10 +818,17 @@ def _check_integration_dependencies(*, dry_run: bool) -> None:
             "Self-Evolving-Agent deps are installed."
         )
 
-    if not dry_run and not os.getenv("NVIDIA_API_KEY"):
-        raise RuntimeError(
-            "NVIDIA_API_KEY is required for non-dry runs because llm_client uses NVIDIA OpenAI-compatible API."
+    if not dry_run:
+        endpoint = os.getenv("NVIDIA_ENDPOINT", "integrate").strip().lower()
+        has_key = bool(
+            os.getenv("NVIDIA_INF_API_KEY") if endpoint == "inference" else os.getenv("NVIDIA_API_KEY")
         )
+        if not has_key:
+            key_var = "NVIDIA_INF_API_KEY" if endpoint == "inference" else "NVIDIA_API_KEY"
+            raise RuntimeError(
+                f"{key_var} is required for non-dry runs "
+                f"(NVIDIA_ENDPOINT={endpoint}). Set it in .env or the environment."
+            )
 
 
 def main() -> int:
@@ -1014,7 +1027,84 @@ def main() -> int:
         action="store_true",
         help="Before L1 rollback on resume, copy shared_l1.jsonl/txt to *.resume.bak.",
     )
+    parser.add_argument(
+        "--nvidia-endpoint",
+        type=str,
+        choices=("integrate", "inference"),
+        default=None,
+        help=(
+            "NVIDIA API endpoint: 'integrate' (integrate.api.nvidia.com, default) or "
+            "'inference' (inference-api.nvidia.com). Overrides NVIDIA_ENDPOINT env var. "
+            "The inference endpoint requires NVIDIA_INF_API_KEY (falls back to NVIDIA_API_KEY)."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help=(
+            "Set all four LLM roles (coder, summarizer, extractor, action-selector) to the "
+            "same short alias or full model ID. Overrides NVIDIA_*_MODEL env vars. "
+            "Individual --coder-model / --summarizer-model / --extractor-model / "
+            "--action-selector-model flags take precedence over --model when both are given. "
+            "Example: --model gpt-5.6-terra"
+        ),
+    )
+    parser.add_argument(
+        "--coder-model",
+        type=str,
+        default=None,
+        help=(
+            "Short alias or full model ID for the coder LLM role. "
+            "Overrides --model and NVIDIA_CODER_MODEL env var (default: gpt-oss-120b)."
+        ),
+    )
+    parser.add_argument(
+        "--summarizer-model",
+        type=str,
+        default=None,
+        help=(
+            "Short alias or full model ID for the summarizer LLM role. "
+            "Overrides --model and NVIDIA_SUMMARIZER_MODEL env var (default: gpt-oss-120b)."
+        ),
+    )
+    parser.add_argument(
+        "--extractor-model",
+        type=str,
+        default=None,
+        help=(
+            "Short alias or full model ID for the extractor LLM role. "
+            "Overrides --model and NVIDIA_EXTRACTOR_MODEL env var (default: gpt-oss-120b)."
+        ),
+    )
+    parser.add_argument(
+        "--action-selector-model",
+        type=str,
+        default=None,
+        help=(
+            "Short alias or full model ID for the action-selector LLM role. "
+            "Overrides --model and NVIDIA_ACTION_SELECTOR_MODEL env var (default: same as extractor)."
+        ),
+    )
     args = parser.parse_args()
+
+    # Apply CLI model/endpoint overrides to env so llm_client picks them up transparently.
+    # --model sets all four roles; individual flags take precedence over --model.
+    if args.nvidia_endpoint is not None:
+        os.environ["NVIDIA_ENDPOINT"] = args.nvidia_endpoint
+    if args.model is not None:
+        os.environ["NVIDIA_CODER_MODEL"] = args.model
+        os.environ["NVIDIA_SUMMARIZER_MODEL"] = args.model
+        os.environ["NVIDIA_EXTRACTOR_MODEL"] = args.model
+        os.environ["NVIDIA_ACTION_SELECTOR_MODEL"] = args.model
+    if args.coder_model is not None:
+        os.environ["NVIDIA_CODER_MODEL"] = args.coder_model
+    if args.summarizer_model is not None:
+        os.environ["NVIDIA_SUMMARIZER_MODEL"] = args.summarizer_model
+    if args.extractor_model is not None:
+        os.environ["NVIDIA_EXTRACTOR_MODEL"] = args.extractor_model
+    if args.action_selector_model is not None:
+        os.environ["NVIDIA_ACTION_SELECTOR_MODEL"] = args.action_selector_model
 
     if args.start_problem < 1:
         raise ValueError("--start-problem must be >= 1")
@@ -1077,6 +1167,12 @@ def main() -> int:
             subset_csv=subset_csv,
             max_problems=args.max_problems,
             current={
+                "nvidia_endpoint": os.getenv("NVIDIA_ENDPOINT", "integrate"),
+                "model": args.model,
+                "coder_model": os.getenv("NVIDIA_CODER_MODEL", "gpt-oss-120b"),
+                "summarizer_model": os.getenv("NVIDIA_SUMMARIZER_MODEL", "gpt-oss-120b"),
+                "extractor_model": os.getenv("NVIDIA_EXTRACTOR_MODEL", "gpt-oss-120b"),
+                "action_selector_model": os.getenv("NVIDIA_ACTION_SELECTOR_MODEL", ""),
                 "skill_deletion": bool(args.skill_deletion),
                 "skill_merging": bool(args.skill_merging),
                 "skill_merge_similarity": float(args.skill_merge_similarity),
@@ -1358,6 +1454,12 @@ def main() -> int:
     summary = {
         "run_name": args.run_name,
         "resume": bool(args.resume),
+        "nvidia_endpoint": os.getenv("NVIDIA_ENDPOINT", "integrate"),
+        "model": args.model,
+        "coder_model": os.getenv("NVIDIA_CODER_MODEL", "gpt-oss-120b"),
+        "summarizer_model": os.getenv("NVIDIA_SUMMARIZER_MODEL", "gpt-oss-120b"),
+        "extractor_model": os.getenv("NVIDIA_EXTRACTOR_MODEL", "gpt-oss-120b"),
+        "action_selector_model": os.getenv("NVIDIA_ACTION_SELECTOR_MODEL", ""),
         "start_problem": int(args.start_problem) if args.resume else None,
         "end_problem": int(args.end_problem) if args.resume else None,
         "resumed_from_run_dir": str(run_dir) if args.resume else None,
