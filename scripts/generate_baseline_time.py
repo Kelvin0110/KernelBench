@@ -110,7 +110,7 @@ if __name__ == "__main__":
     
     # Replace this with whatever hardware you are running on 
     # hardware_name = "L40S_matx3"
-    hardware_name = "SONG_CPU2_A6000x2"
+    hardware_name = "NVIDIA_GH200x2"
 
     input(f"You are about to start recording baseline time for {hardware_name}, press Enter to continue...")
     # Systematic recording of baseline time
