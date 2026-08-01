@@ -63,12 +63,12 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
 ## Full 50 problems
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_markov_report_itr10 \
-  --max-iterations 10 \
+CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_markov_report_itr30 \
+  --max-iterations 30 \
   --context-management markov_report \
   --evolving-report-max-tokens 65536 \
-  >> base_agent_markov_report_itr10_Jul_18.log 2>&1 &
+  >> base_agent_markov_report_itr30_Jul_21.log 2>&1 &
 ```
 
 Optional rewriter knobs (defaults are usually fine):
@@ -154,11 +154,32 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
 ### Full 50 problems
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_selective_retention_itr10 \
-  --max-iterations 10 \
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_selective_retention_itr30 \
+  --max-iterations 30 \
   --context-management selective_retention \
-  >> base_agent_selective_retention_itr10_Jul_18.log 2>&1 &
+  >> base_agent_selective_retention_itr30_Jul_26.log 2>&1 &
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_selective_retention_itr30_2026_07_26_15_43 \
+  --max-iterations 30 \
+  --context-management selective_retention \
+  --resume \
+  --start-problem 34 \
+  >> base_agent_selective_retention_itr30_Jul_26.log 2>&1 &
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_selective_retention_itr30_2026_07_24_17_17 \
+  --max-iterations 30 \
+  --context-management selective_retention \
+  --resume \
+  --start-problem 13 \
+  --end-problem 26 \
+  >> base_agent_selective_retention_itr30_Jul_25.log 2>&1 &
 ```
 
 The 128K window for `gpt-oss-120b` is built in; override with a different model only
@@ -234,9 +255,18 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_folding_itr30 \
-  --max-problems 50 \
   --max-iterations 30 \
   --context-management folding \
+  >> base_agent_folding_itr30_Jul_28.log 2>&1 &
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_folding_itr30_2026_07_28_01_09 \
+  --max-iterations 30 \
+  --context-management folding \
+  --resume \
+  --start-problem 4 \
   >> base_agent_folding_itr30_Jul_28.log 2>&1 &
 ```
 

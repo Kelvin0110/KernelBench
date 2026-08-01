@@ -209,13 +209,15 @@ CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agen
 
 #### (with unit test only when it is first promoted)
 ```bash
-CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_sim_08_itr30 \
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_sim_08_itr30_2026_07_17_15_45 \
   --max-iterations 30 \
   --skill-deletion \
   --skill-merging \
   --skill-merge-similarity 0.8 \
   --skill-merge-interval 50 \
+  --resume \
+  --start-problem 46 \
   >> base_agent_with_deletion_old_prompt_only_test_promoted_merge_sim_08_itr30_Jul_17.log 2>&1 &
 ```
 
@@ -235,7 +237,7 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
 #### (with unit test only when it is first promoted)
 ```bash
 CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_08_itr30 \
+  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_08_itr30_2026_07_18_05_24 \
   --max-iterations 30 \
   --skill-deletion \
   --skill-merging \
@@ -243,7 +245,24 @@ CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agen
   --skill-merge-interval 50 \
   --enable-skill-refinement \
   --skill-refinement-max-rounds 3 \
+  --resume \
+  --start-problem 28 \
   >> base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_08_itr30_Jul_18.log 2>&1 &
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_07_itr30_2026_07_17_15_48 \
+  --max-iterations 30 \
+  --skill-deletion \
+  --skill-merging \
+  --skill-merge-similarity 0.7 \
+  --skill-merge-interval 50 \
+  --enable-skill-refinement \
+  --skill-refinement-max-rounds 3 \
+  --resume \
+  --start-problem 48 \
+  >> base_agent_with_deletion_old_prompt_only_test_promoted_merge_refine_sim_07_itr30_Jul_17.log 2>&1 &
 ```
 
 To disable deletion (legacy capped extractor catalog):
