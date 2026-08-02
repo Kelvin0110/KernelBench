@@ -26,6 +26,8 @@ All (current) baseline are ran with PyTorch `2.5.0+cu124` and CUDA `12.4`.
 
 Note: we will update it soon with PyTorch `2.9.0` and CUDA `12.8`    
 
+**Precision:** Generate baselines with the same dtype used for evaluation (default **`fp32`**). KernelBench reported results and `evolve_kb_batch` / governor evals default to `fp32`; mismatched baseline vs eval precision makes speedups unfair. New baseline JSON may include a top-level `meta.precision` field and per-entry `precision`.
+
 For timing, we measure wall clock time. We warm up 3 times and collect runtime statistics for 100 trials.
 
 ### Run on your own cluster
