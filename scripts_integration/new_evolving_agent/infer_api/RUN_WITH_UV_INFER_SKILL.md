@@ -79,13 +79,13 @@ with L1; this is the default).
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_oss120b_skill_refinement_itr50 \
-  --max-iterations 50 \
+  --run-name base_agent_oss120b_skill_refinement_itr30 \
+  --max-iterations 30 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --enable-skill-refinement \
   --skill-refinement-max-rounds 3 \
-  >> base_agent_oss120b_skill_refinement_itr50.log 2>&1 &
+  >> base_agent_oss120b_skill_refinement_itr30_Aug_3.log 2>&1 &
 ```
 
 After a real run, check:
@@ -103,14 +103,13 @@ After a real run, check:
 ### Full 50 problems
 
 ```bash
-CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_oss120b_deletion_only_test_promoted_itr50 \
-  --max-iterations 50 \
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_oss120b_deletion_itr30 \
+  --max-iterations 30 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --skill-deletion \
-  --no-skill-merging \
-  >> base_agent_oss120b_deletion_only_test_promoted_itr50.log 2>&1 &
+  >> base_agent_oss120b_deletion_itr30_Aug_3.log 2>&1 &
 ```
 
 ---
