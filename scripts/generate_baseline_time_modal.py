@@ -101,7 +101,7 @@ image = (
     .add_local_dir(KERNELBENCH_DIR, remote_path="/root/KernelBench")  # must be last
 )
 
-def write_batch_to_json(entries_to_write: list, f_path: str):
+def write_batch_to_json(entries_to_write: list, f_path: str, precision: str = "fp32"):
     """
     Write batch of data to JSON file (append or overwrite, do not completely overwrite)
     """
@@ -116,7 +116,15 @@ def write_batch_to_json(entries_to_write: list, f_path: str):
         # Initialize nested structure if it doesn't exist
         if str(level) not in existing_data:
             existing_data[level] = {}
+        if isinstance(entry, dict) and "precision" not in entry:
+            entry = {**entry, "precision": precision}
         existing_data[level][problem] = entry
+
+    meta = existing_data.get("meta")
+    if not isinstance(meta, dict):
+        meta = {}
+    meta["precision"] = precision
+    existing_data["meta"] = meta
 
     # Write updated results back to file
     if not os.path.exists(f_path):
@@ -210,6 +218,8 @@ def record_baseline_times(config: BaselineConfig,
                 for p_id, ref_arch_name, future in futures:
                     try:
                         result = future.get(timeout=config.timeout)
+                        if isinstance(result, dict):
+                            result = {**result, "precision": precision}
                         json_results.append((f"level{level}", ref_arch_name, result))
                     except Exception as e:
                         print(f"[ERROR] Problem {p_id} ({ref_arch_name}): {str(e)}")
@@ -218,7 +228,7 @@ def record_baseline_times(config: BaselineConfig,
                 pbar.update(len(curr_work_batch))
 
     save_path = os.path.join(TIMING_DIR, file_name)
-    write_batch_to_json(json_results, save_path)
+    write_batch_to_json(json_results, save_path, precision=precision)
     return json_results
 
 
@@ -238,7 +248,8 @@ def main(config: BaselineConfig):
         use_torch_compile=False,
         torch_compile_backend=None,
         torch_compile_options=None,
-        file_name=f"{config.hardware_name}/baseline_time_torch.json"
+        file_name=f"{config.hardware_name}/baseline_time_torch.json",
+        precision=config.precision,
     )
 
     # 2. Record Torch Compile using Inductor (default mode)

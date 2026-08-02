@@ -71,7 +71,16 @@ def record_baseline_times(use_torch_compile: bool = False,
                 verbose=False, # do not print 
                 precision=precision,
             )
+            if isinstance(runtime_stats, dict):
+                runtime_stats = {**runtime_stats, "precision": precision}
             json_results[f"level{level}"][ref_arch_name] = runtime_stats
+
+    json_results["meta"] = {
+        "precision": precision,
+        "use_torch_compile": bool(use_torch_compile),
+        "torch_compile_backend": torch_compile_backend,
+        "torch_compile_options": torch_compile_options,
+    }
 
     save_path = os.path.join(TIMING_DIR, file_name)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -98,7 +107,7 @@ def test_measure_particular_program(level_num: int, problem_id: int):
         torch_compile_options="default",
         device=device,
         verbose=False, 
-        precision="bf16"
+        precision="fp32"
     )
 
     print(f"Execution time for {ref_arch_name}: {exec_stats}")
@@ -123,7 +132,7 @@ if __name__ == "__main__":
                           torch_compile_backend=None,
                           torch_compile_options=None, 
                           file_name=f"{hardware_name}/baseline_time_torch.json",
-                          precision="bf16")
+                          precision="fp32")
     
     # 2. Record Torch Compile using Inductor
     # for torch_compile_mode in ["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"]:
