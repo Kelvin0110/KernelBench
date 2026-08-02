@@ -993,7 +993,19 @@ def main() -> int:
         "--baseline-timing-file",
         type=str,
         default=None,
-        help="Fixed baseline timing JSON for speedup (default: results/timing/SONG_CPU2_A6000x2/baseline_time_torch.json)",
+        help="Direct path to baseline timing JSON (overrides --hardware/--baseline)",
+    )
+    parser.add_argument(
+        "--hardware",
+        type=str,
+        default="SONG_CPU6_A6000x4",
+        help="Hardware folder under results/timing when --baseline-timing-file is not provided",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=str,
+        default="baseline_time_torch",
+        help="Baseline filename stem under results/timing/<hardware>/ when --baseline-timing-file is not provided",
     )
     parser.add_argument(
         "--resume",
@@ -1087,6 +1099,16 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+
+    if args.baseline_timing_file:
+        baseline_path = Path(args.baseline_timing_file)
+    else:
+        baseline_path = (
+            REPO_ROOT / "results" / "timing" / args.hardware / f"{args.baseline}.json"
+        )
+    if not baseline_path.is_absolute():
+        baseline_path = REPO_ROOT / baseline_path
+    args.baseline_timing_file = str(baseline_path)
 
     # Apply CLI model/endpoint overrides to env so llm_client picks them up transparently.
     # --model sets all four roles; individual flags take precedence over --model.
