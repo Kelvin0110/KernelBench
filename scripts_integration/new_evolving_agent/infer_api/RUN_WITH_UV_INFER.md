@@ -83,12 +83,22 @@ Check `runs_evolving/<run_name>_*/run_summary.json` for `"nvidia_endpoint": "inf
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_gpt_56_terra_truncation_itr10 \
-  --max-iterations 10 \
+  --run-name base_agent_gpt_56_terra_itr30 \
+  --max-iterations 30 \
   --nvidia-endpoint inference \
   --model gpt-5.6-terra \
   --no-skill-deletion \
-  >> base_agent_gpt_56_terra_truncation_itr10_Jul_31.log 2>&1 &
+  >> base_agent_gpt_56_terra_itr30_Aug_1.log 2>&1 &
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_gpt_oss_120b_itr30 \
+  --max-iterations 30 \
+  --nvidia-endpoint inference \
+  --model gpt-oss-120b \
+  --no-skill-deletion \
+  >> base_agent_gpt_oss_120b_itr30_Aug_3.log 2>&1 &
 ```
 
 ### After a real run
@@ -125,15 +135,15 @@ evolving summary matters more than full L0 history.
 ### Full 50 problems
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_terra_markov_itr10 \
-  --max-iterations 10 \
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_gpt_56_terra_markov_itr30 \
+  --max-iterations 30 \
   --nvidia-endpoint inference \
   --model gpt-5.6-terra \
   --context-management markov_report \
   --evolving-report-max-tokens 65536 \
   --no-skill-deletion \
-  >> base_agent_terra_markov_itr10.log 2>&1 &
+  >> base_agent_gpt_56_terra_markov_itr30_Aug_1.log 2>&1 &
 ```
 
 Optional rewriter knobs (defaults are usually fine):
