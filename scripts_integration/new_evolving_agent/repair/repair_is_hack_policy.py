@@ -93,7 +93,7 @@ def _load_generate_run_performance_stats():
 
 
 def _default_baseline_file() -> Path:
-    return REPO_ROOT / "results" / "timing" / "SONG_CPU2_A6000x2" / "baseline_time_torch.json"
+    return REPO_ROOT / "results" / "timing" / "SONG_CPU6_A6000x4" / "baseline_time_torch.json"
 
 
 def _recompute_record_evaluation(

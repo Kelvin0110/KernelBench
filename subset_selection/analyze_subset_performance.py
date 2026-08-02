@@ -32,7 +32,7 @@ from collections import defaultdict
 SCRIPT_DIR = Path(__file__).parent
 BASE_PATH = SCRIPT_DIR.parent  # KernelBench directory
 RUN_INTEGRATION_PATH = BASE_PATH / "run_integration"
-BASELINE_FILE = BASE_PATH / "results" / "timing" / "SONG_CPU2_A6000x2" / "baseline_time_torch.json"
+BASELINE_FILE = BASE_PATH / "results" / "timing" / "SONG_CPU6_A6000x4" / "baseline_time_torch.json"
 
 
 def load_selected_problems() -> Dict[int, set]:

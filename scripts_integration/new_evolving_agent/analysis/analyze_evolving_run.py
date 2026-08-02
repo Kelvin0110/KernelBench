@@ -10,7 +10,7 @@ Outputs are written under:
 Example:
     uv run python scripts_integration/new_evolving_agent/analysis/analyze_evolving_run.py \
         --run-name memory_evolving_agent_2026_04_14_15_44 \
-        --hardware SONG_CPU2_A6000x2 \
+        --hardware SONG_CPU6_A6000x4 \
         --baseline baseline_time_torch
 """
 
@@ -355,7 +355,7 @@ def main() -> int:
     parser.add_argument(
         "--hardware",
         type=str,
-        default="SONG_CPU2_A6000x2",
+        default="SONG_CPU6_A6000x4",
         help="Hardware folder under results/timing when --baseline-file is not provided",
     )
     parser.add_argument(

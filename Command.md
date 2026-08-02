@@ -48,11 +48,11 @@ CUDA_VISIBLE_DEVICES=2,3 nohup uv run python scripts/eval_from_generations.py   
 CUDA_VISIBLE_DEVICES=2,3 nohup uv run python scripts/eval_from_generations.py   run_name=test_hf_level_3_dsr1_0528_2nd   dataset_src=local   level=3  num_gpu_devices=2  build_cache=False  timeout=600  gpu_arch='["Ampere"]'   verbose=True  num_cpu_workers=5 > eval_dsr1_0528_2nd_level3.log 2>&1 &
 
 ——————
-uv run python scripts/benchmark_eval_analysis.py run_name=test_hf_level_1_dsr1_0528 level=1 hardware=SONG_CPU2_A6000x2 baseline=baseline_time_torch
+uv run python scripts/benchmark_eval_analysis.py run_name=test_hf_level_1_dsr1_0528 level=1 hardware=SONG_CPU6_A6000x4 baseline=baseline_time_torch
 
-uv run python scripts/benchmark_eval_analysis.py run_name=test_hf_level_2_dsr1_0528 level=2 hardware=SONG_CPU2_A6000x2 baseline=baseline_time_torch
+uv run python scripts/benchmark_eval_analysis.py run_name=test_hf_level_2_dsr1_0528 level=2 hardware=SONG_CPU6_A6000x4 baseline=baseline_time_torch
 
-uv run python scripts/benchmark_eval_analysis.py run_name=test_hf_level_3_dsr1_0528 level=3 hardware=SONG_CPU2_A6000x2 baseline=baseline_time_torch
+uv run python scripts/benchmark_eval_analysis.py run_name=test_hf_level_3_dsr1_0528 level=3 hardware=SONG_CPU6_A6000x4 baseline=baseline_time_torch
 ```
 
 CUDA_VISIBLE_DEVICES=0,1 nohup uv run python scripts/eval_from_generations.py   run_name=test_hf_level_1_kimi_thinking   dataset_src=local   level=1   num_gpu_devices=2 build_cache=False  timeout=300  gpu_arch='["Ampere"]'   verbose=True  num_cpu_workers=5 > eval_kimi_thinking_ori_level1.log 2>&1 &

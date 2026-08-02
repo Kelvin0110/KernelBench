@@ -28,7 +28,7 @@ Computes per-level and full-subset metrics from run artifacts in `runs_evolving/
 ```bash
 uv run python scripts_integration/new_evolving_agent/analysis/analyze_evolving_run.py \
   --run-name memory_evolving_agent_2026_04_14_15_44 \
-  --hardware SONG_CPU2_A6000x2 \
+  --hardware SONG_CPU6_A6000x4 \
   --baseline baseline_time_torch
 ```
 
@@ -37,7 +37,7 @@ Optional direct baseline path:
 ```bash
 uv run python scripts_integration/new_evolving_agent/analysis/analyze_evolving_run.py \
   --run-name memory_evolving_agent_2026_04_14_15_44 \
-  --baseline-file results/timing/SONG_CPU2_A6000x2/baseline_time_torch.json
+  --baseline-file results/timing/SONG_CPU6_A6000x4/baseline_time_torch.json
 ```
 
 **Outputs** (per run):
