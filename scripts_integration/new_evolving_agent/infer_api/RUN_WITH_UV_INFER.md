@@ -43,6 +43,12 @@ override env vars; per-role flags override `--model`.
 > **Key resolution:** `NVIDIA_INF_API_KEY` → `NVIDIA_API_KEY` → error.
 > **Model alias resolution:** `gpt-5.6-terra` → `azure/openai/gpt-5.6-terra` via
 > `NVIDIA_INF_MODEL_ALIASES` in `Self-Evolving-Agent/evolving_common/llm_client.py`.
+>
+> **⚠ Embedding always uses the integrate endpoint.**
+> `embed_texts_nvidia` (L1 skill-merge embedding) is pinned to
+> `integrate.api.nvidia.com` and keyed by `NVIDIA_API_KEY` regardless of
+> `--nvidia-endpoint`. Set `NVIDIA_API_KEY` in `.env` even when all chat calls
+> are routed to the inference endpoint.
 
 The resolved endpoint and model values are written to `run_summary.json` and
 checked on resume — mismatched flags abort unless `--allow-resume-config-mismatch`
