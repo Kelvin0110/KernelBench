@@ -231,13 +231,14 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_gpt_oss_120b_selective_itr10 \
-  --max-iterations 10 \
+  --run-name base_agent_gpt_oss_120b_selective_itr30_GH200 \
+  --max-iterations 30 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --context-management selective_retention \
   --no-skill-deletion \
-  >> base_agent_gpt_oss_120b_selective_itr10_Aug_1.log 2>&1 &
+  --hardware NVIDIA_GH200x2 \
+  >> base_agent_gpt_oss_120b_selective_itr30_GH200_Aug_5.log 2>&1 &
 ```
 
 ### After a real run
@@ -284,39 +285,6 @@ summaries fit in the prompt compared to `gpt-oss-120b`.
 uv run python -m pytest Self-Evolving-Agent/tests/test_l0_rounds.py -q
 ```
 
-### Dry run
-
-```bash
-uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name terra_folding_dryrun \
-  --subset-csv subset_selection/selected_problems_50.csv \
-  --max-problems 2 \
-  --max-iterations 2 \
-  --nvidia-endpoint inference \
-  --model gpt-5.6-terra \
-  --context-management folding \
-  --no-skill-deletion \
-  --backend cuda \
-  --precision fp32 \
-  --dry-run
-```
-
-Check `runs_evolving/<run_name>_*/run_summary.json` for
-`context_management: "folding"` and `skill_deletion: false`.
-
-### Small real CUDA run (smoke)
-
-```bash
-CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_terra_folding_smoke \
-  --max-problems 5 \
-  --max-iterations 20 \
-  --nvidia-endpoint inference \
-  --model gpt-5.6-terra \
-  --context-management folding \
-  --no-skill-deletion \
-  >> base_agent_terra_folding_smoke.log 2>&1 &
-```
 
 ### Full 50 problems
 
@@ -330,6 +298,18 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
   --context-management folding \
   --no-skill-deletion \
   >> base_agent_terra_folding_itr30.log 2>&1 &
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_gpt_oss_120b_folding_itr30_GH200 \
+  --max-iterations 30 \
+  --nvidia-endpoint inference \
+  --model gpt-oss-120b \
+  --context-management folding \
+  --no-skill-deletion \
+  --hardware NVIDIA_GH200x2 \
+  >> base_agent_gpt_oss_120b_folding_itr30_GH200_Aug_5.log 2>&1 &
 ```
 
 ### After a real run
