@@ -891,7 +891,7 @@ def main() -> int:
             "folding adds archived summaries, per-round L0 summaries, and unfold preflight; "
             "markov_report rebuilds each iteration as goal + evolving report + latest L0 only; "
             "selective_retention rebuilds each iteration as goal + milestone memory (full detail) "
-            "+ latest L0 only; "
+            "+ latest N full L0 rounds; "
             "compress_trigger microcompacts old L0 rounds each iteration and runs structured "
             "LLM compression on token-budget or iteration-count triggers "
             f"(default: {DEFAULT_CONTEXT_MANAGEMENT})."

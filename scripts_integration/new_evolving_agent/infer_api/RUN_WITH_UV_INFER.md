@@ -202,10 +202,12 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 
 ## Selective retention mode
 
-Each iteration: **goal + milestone memory (selected past rounds, full detail) + latest L0
-only**. Milestones are labeled per round (rules + additive LLM judge) and packed under
-90% of the model context window. Non-milestone rounds are omitted from the prompt but
-never deleted from disk.
+Each iteration: **goal + milestone memory (selected past rounds, full detail) + latest
+15 full L0 rounds** (`DEFAULT_SELECTIVE_RECENT_ROUNDS=15`, aligned with
+truncation/folding for fair comparison). Milestones are labeled per round (rules +
+additive LLM judge) and packed under 90% of the model context window. Non-milestone
+rounds outside the recent window are omitted from the prompt but never deleted from
+disk.
 
 With `gpt-5.6-terra`'s 1,050,000-token context window, the packing budget is ~945K
 tokens — significantly larger than with `gpt-oss-120b`.
@@ -222,25 +224,25 @@ uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_terra_selective_itr10 \
+  --run-name base_agent_terra_selective_recent15_itr10 \
   --max-iterations 10 \
   --nvidia-endpoint inference \
   --model gpt-5.6-terra \
   --context-management selective_retention \
   --no-skill-deletion \
-  >> base_agent_terra_selective_itr10.log 2>&1 &
+  >> base_agent_terra_selective_recent15_itr10.log 2>&1 &
 ```
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_gpt_oss_120b_selective_itr30_GH200 \
+  --run-name base_agent_gpt_oss_120b_selective_recent15_itr30_GH200 \
   --max-iterations 30 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --context-management selective_retention \
   --no-skill-deletion \
   --hardware NVIDIA_GH200x2 \
-  >> base_agent_gpt_oss_120b_selective_itr30_GH200_Aug_5.log 2>&1 &
+  >> base_agent_gpt_oss_120b_selective_recent15_itr30_GH200.log 2>&1 &
 ```
 
 ### After a real run
@@ -257,7 +259,7 @@ Under `runs_evolving/<run_name>_*/`:
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
-  --run-name base_agent_terra_selective_itr10_YYYY_MM_DD_HH_MM \
+  --run-name base_agent_terra_selective_recent15_itr10_YYYY_MM_DD_HH_MM \
   --max-problems 50 \
   --max-iterations 10 \
   --start-problem 11 \
@@ -265,7 +267,7 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
   --model gpt-5.6-terra \
   --context-management selective_retention \
   --no-skill-deletion \
-  >> base_agent_terra_selective_itr10_resume.log 2>&1 &
+  >> base_agent_terra_selective_recent15_itr10_resume.log 2>&1 &
 ```
 
 ---
@@ -281,11 +283,13 @@ Compression calls the **summarizer** role. `--model gpt-5.6-terra` sets that rol
 along with the coder, extractor, and action selector. If compression should use a
 different model, add `--summarizer-model <id>`.
 
-Defaults:
+Command knobs used for fair comparison with truncation/folding/selective recent=15:
 
-- `--compress-hot-rounds 3`
+- `--compress-hot-rounds 15`
 - `--compress-token-ratio 0.85` (~892.5K tokens for `gpt-5.6-terra`)
 - `--compress-every-n-iters 15`
+
+(The governor default for hot rounds remains `3` if the flag is omitted.)
 
 ### Unit tests (no GPU / no API key)
 
@@ -299,17 +303,17 @@ uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_terra_compress_trigger_itr30 \
+  --run-name base_agent_terra_compress_trigger_hot15_itr30 \
   --max-problems 50 \
   --max-iterations 30 \
   --nvidia-endpoint inference \
   --model gpt-5.6-terra \
   --context-management compress_trigger \
-  --compress-hot-rounds 3 \
+  --compress-hot-rounds 15 \
   --compress-token-ratio 0.85 \
   --compress-every-n-iters 15 \
   --no-skill-deletion \
-  >> base_agent_terra_compress_trigger_itr30.log 2>&1 &
+  >> base_agent_terra_compress_trigger_hot15_itr30.log 2>&1 &
 ```
 
 ### After a real run
@@ -326,18 +330,18 @@ Under `runs_evolving/<run_name>_*/`:
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
-  --run-name base_agent_terra_compress_trigger_itr30_YYYY_MM_DD_HH_MM \
+  --run-name base_agent_terra_compress_trigger_hot15_itr30_YYYY_MM_DD_HH_MM \
   --max-problems 50 \
   --max-iterations 30 \
   --start-problem 11 \
   --nvidia-endpoint inference \
   --model gpt-5.6-terra \
   --context-management compress_trigger \
-  --compress-hot-rounds 3 \
+  --compress-hot-rounds 15 \
   --compress-token-ratio 0.85 \
   --compress-every-n-iters 15 \
   --no-skill-deletion \
-  >> base_agent_terra_compress_trigger_itr30_resume.log 2>&1 &
+  >> base_agent_terra_compress_trigger_hot15_itr30_resume.log 2>&1 &
 ```
 
 Keep endpoint, model roles, compression mode, and trigger values identical to the
