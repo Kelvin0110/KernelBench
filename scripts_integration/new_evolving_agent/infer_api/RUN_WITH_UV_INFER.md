@@ -1,6 +1,6 @@
 # Run KernelBench Evolving Agent on inference-api.nvidia.com (uv)
 
-Companion to [RUN_WITH_UV_CONTEXT.md](../new_evolving_agent/RUN_WITH_UV_CONTEXT.md)
+Companion to [RUN_WITH_UV_CONTEXT.md](../RUN_WITH_UV_CONTEXT.md)
 for runs using the **`inference-api.nvidia.com`** endpoint.
 
 This file mirrors that guide's structure: one section per context-management mode,
@@ -22,6 +22,8 @@ The 1,050,000-token context window is registered in
 `Self-Evolving-Agent/evolving_common/context_management.py`; the 90% packing cap
 (`CONTEXT_PACK_RATIO`) applies to that figure (~945K usable tokens for
 folding / selective-retention prompt packing).
+For `compress_trigger`, the default 85% token trigger is ~892.5K packed prompt
+tokens with this model.
 
 ---
 
@@ -261,6 +263,81 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 
 ---
 
+## Compress trigger mode
+
+Each iteration keeps the latest hot rounds in full detail and microcompacts older
+rounds. A structured summarizer pass runs when either the previous packed prompt
+reaches the token ratio or the iteration interval expires. Full L0 history remains
+on disk.
+
+Compression calls the **summarizer** role. `--model gpt-5.6-terra` sets that role
+along with the coder, extractor, and action selector. If compression should use a
+different model, add `--summarizer-model <id>`.
+
+Defaults:
+
+- `--compress-hot-rounds 3`
+- `--compress-token-ratio 0.85` (~892.5K tokens for `gpt-5.6-terra`)
+- `--compress-every-n-iters 15`
+
+### Unit tests (no GPU / no API key)
+
+```bash
+uv run python -m pytest Self-Evolving-Agent/tests/test_compress_trigger.py -q
+uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py::test_main_dry_run_accepts_compress_trigger_context_management -q
+```
+
+
+### Full 50 problems
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_terra_compress_trigger_itr30 \
+  --max-problems 50 \
+  --max-iterations 30 \
+  --nvidia-endpoint inference \
+  --model gpt-5.6-terra \
+  --context-management compress_trigger \
+  --compress-hot-rounds 3 \
+  --compress-token-ratio 0.85 \
+  --compress-every-n-iters 15 \
+  --no-skill-deletion \
+  >> base_agent_terra_compress_trigger_itr30.log 2>&1 &
+```
+
+### After a real run
+
+Under `runs_evolving/<run_name>_*/`:
+
+- `run_summary.json` — endpoint/model settings, compression mode, and trigger values
+- `workspaces/level_*_problem_*/compression_summary.md` — current structured summary
+- `workspaces/level_*_problem_*/compression_state.json` — compression boundary and count
+- `workspaces/level_*_problem_*/compression_events.jsonl` — successful trigger events
+
+### Resume
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --resume \
+  --run-name base_agent_terra_compress_trigger_itr30_YYYY_MM_DD_HH_MM \
+  --max-problems 50 \
+  --max-iterations 30 \
+  --start-problem 11 \
+  --nvidia-endpoint inference \
+  --model gpt-5.6-terra \
+  --context-management compress_trigger \
+  --compress-hot-rounds 3 \
+  --compress-token-ratio 0.85 \
+  --compress-every-n-iters 15 \
+  --no-skill-deletion \
+  >> base_agent_terra_compress_trigger_itr30_resume.log 2>&1 &
+```
+
+Keep endpoint, model roles, compression mode, and trigger values identical to the
+original run.
+
+---
+
 ## Folding mode
 
 Each iteration keeps **recent N full L0 rounds** (default `N=15`: code, terminal,
@@ -354,4 +431,4 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 
 Keep `--context-management folding` (and `--no-skill-deletion` if the original run
 used it). Optional range resume: add `--end-problem M` as in
-[RUN_WITH_UV.md](../new_evolving_agent/RUN_WITH_UV.md) §6.
+[RUN_WITH_UV.md](../RUN_WITH_UV.md) §6.

@@ -39,6 +39,9 @@ from kernelbench_integration import (
     safe_run_kb_governor,
 )
 from evolving_common.context_management import (
+    DEFAULT_COMPRESS_EVERY_N_ITERS,
+    DEFAULT_COMPRESS_HOT_ROUNDS,
+    DEFAULT_COMPRESS_TOKEN_RATIO,
     DEFAULT_CONTEXT_MANAGEMENT,
     DEFAULT_EVOLVING_REPORT_MAX_TOKENS,
     DEFAULT_EVOLVING_REPORT_TIMEOUT_SEC,
@@ -875,15 +878,53 @@ def main() -> int:
     )
     parser.add_argument(
         "--context-management",
-        choices=("truncation", "folding", "markov_report", "selective_retention"),
+        choices=(
+            "truncation",
+            "folding",
+            "markov_report",
+            "selective_retention",
+            "compress_trigger",
+        ),
         default=DEFAULT_CONTEXT_MANAGEMENT,
         help=(
             "L0 prompt context mode: truncation keeps only the latest N raw L0 rounds; "
             "folding adds archived summaries, per-round L0 summaries, and unfold preflight; "
             "markov_report rebuilds each iteration as goal + evolving report + latest L0 only; "
             "selective_retention rebuilds each iteration as goal + milestone memory (full detail) "
-            "+ latest L0 only "
+            "+ latest L0 only; "
+            "compress_trigger microcompacts old L0 rounds each iteration and runs structured "
+            "LLM compression on token-budget or iteration-count triggers "
             f"(default: {DEFAULT_CONTEXT_MANAGEMENT})."
+        ),
+    )
+    parser.add_argument(
+        "--compress-hot-rounds",
+        type=int,
+        default=DEFAULT_COMPRESS_HOT_ROUNDS,
+        metavar="N",
+        help=(
+            "compress_trigger: number of latest L0 rounds kept in full detail "
+            f"(default {DEFAULT_COMPRESS_HOT_ROUNDS})."
+        ),
+    )
+    parser.add_argument(
+        "--compress-token-ratio",
+        type=float,
+        default=DEFAULT_COMPRESS_TOKEN_RATIO,
+        metavar="R",
+        help=(
+            "compress_trigger: trigger structured compression when packed prompt tokens "
+            f"exceed this fraction of the context window (default {DEFAULT_COMPRESS_TOKEN_RATIO})."
+        ),
+    )
+    parser.add_argument(
+        "--compress-every-n-iters",
+        type=int,
+        default=DEFAULT_COMPRESS_EVERY_N_ITERS,
+        metavar="N",
+        help=(
+            "compress_trigger: also trigger compression every N iterations "
+            f"(default {DEFAULT_COMPRESS_EVERY_N_ITERS})."
         ),
     )
     parser.add_argument(
@@ -1099,6 +1140,13 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+
+    if int(args.compress_hot_rounds) < 1:
+        parser.error("--compress-hot-rounds must be >= 1")
+    if not (0.0 < float(args.compress_token_ratio) <= 1.0):
+        parser.error("--compress-token-ratio must be in (0, 1]")
+    if int(args.compress_every_n_iters) < 1:
+        parser.error("--compress-every-n-iters must be >= 1")
 
     if args.baseline_timing_file:
         baseline_path = Path(args.baseline_timing_file)
@@ -1368,6 +1416,9 @@ def main() -> int:
                 context_management=str(args.context_management),
                 evolving_report_max_tokens=int(args.evolving_report_max_tokens),
                 evolving_report_timeout_sec=float(args.evolving_report_timeout_sec),
+                compress_hot_rounds=int(args.compress_hot_rounds),
+                compress_token_ratio=float(args.compress_token_ratio),
+                compress_every_n_iters=int(args.compress_every_n_iters),
                 enable_static_check=bool(args.enable_static_check),
                 l1_allowed_entry_ids=l1_allowed_entry_ids,
                 verbose=True,
@@ -1492,6 +1543,9 @@ def main() -> int:
         "context_management": str(args.context_management),
         "evolving_report_max_tokens": int(args.evolving_report_max_tokens),
         "evolving_report_timeout_sec": float(args.evolving_report_timeout_sec),
+        "compress_hot_rounds": int(args.compress_hot_rounds),
+        "compress_token_ratio": float(args.compress_token_ratio),
+        "compress_every_n_iters": int(args.compress_every_n_iters),
         "skill_deletion": bool(args.skill_deletion),
         "enable_l1_skill_unit_test_gc": bool(args.enable_l1_skill_unit_test_gc),
         "skill_merging": bool(args.skill_merging),

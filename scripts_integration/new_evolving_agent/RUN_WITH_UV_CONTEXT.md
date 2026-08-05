@@ -15,6 +15,7 @@ This file covers `--context-management` on
 | `folding` | no | Archived L0 summaries + per-round summaries + unfold preflight; archived summary catalog is packed newest-first under ~90% of the model context window (disk L0 unchanged) |
 | `markov_report` | no | Each iteration: **goal + evolving report + latest L0 only**; after eval, a dedicated rewriter LLM updates `evolving_report.md` |
 | `selective_retention` | no | Each iteration: **goal + milestone memory (selected past rounds, full detail) + latest L0 only**; milestones are labeled per round (rules + additive LLM judge) and packed under 90% of the model context window |
+| `compress_trigger` | no | Microcompact old L0 rounds every iteration, then run structured LLM compression when the prompt reaches a token threshold or an iteration interval |
 
 Skill refinement and skill merging stay **off** by default (omit those flags).
 Skill deletion defaults **on**, so mode-only examples below pass `--no-skill-deletion`.
@@ -200,6 +201,76 @@ Resume identically to markov: keep `--context-management selective_retention` (a
 
 ---
 
+## Compress trigger mode
+
+Design: [compress-trigger spec](../../Self-Evolving-Agent/docs/superpowers/specs/2026-07-27-compress-trigger-context-design.md).
+Each iteration keeps the latest hot rounds in full detail and replaces older
+post-compression rounds with one-line stubs. Once either trigger fires, a fail-soft
+summarizer call combines the prior summary with new full rounds and advances the
+compression boundary. Full L0 history remains on disk.
+
+Defaults:
+
+- `--compress-hot-rounds 3`
+- `--compress-token-ratio 0.85`
+- `--compress-every-n-iters 15`
+
+The structured summary output limit (`2048` tokens) and summarizer timeout (`90`
+seconds) remain governor defaults rather than batch CLI options.
+
+### Unit tests (no GPU / no API key)
+
+```bash
+uv run python -m pytest Self-Evolving-Agent/tests/test_compress_trigger.py -q
+uv run python -m pytest Self-Evolving-Agent/tests/test_context_management.py -q
+uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve_kb_batch.py::test_main_dry_run_accepts_compress_trigger_context_management -q
+```
+
+### Full 50 problems
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_compress_trigger_itr30 \
+  --max-problems 50 \
+  --max-iterations 30 \
+  --context-management compress_trigger \
+  --compress-hot-rounds 3 \
+  --compress-token-ratio 0.85 \
+  --compress-every-n-iters 15 \
+  --no-skill-deletion \
+  >> base_agent_compress_trigger_itr30.log 2>&1 &
+```
+
+### After a real run
+
+Under `runs_evolving/<run_name>_*/`:
+
+- `run_summary.json` — `context_management` and the three `compress_*` CLI values
+- `workspaces/level_*_problem_*/compression_summary.md` — current structured summary
+- `workspaces/level_*_problem_*/compression_state.json` — compression boundary and count
+- `workspaces/level_*_problem_*/compression_events.jsonl` — successful trigger events
+
+### Resume
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --resume \
+  --run-name base_agent_compress_trigger_itr30_YYYY_MM_DD_HH_MM \
+  --max-problems 50 \
+  --max-iterations 30 \
+  --start-problem 11 \
+  --context-management compress_trigger \
+  --compress-hot-rounds 3 \
+  --compress-token-ratio 0.85 \
+  --compress-every-n-iters 15 \
+  --no-skill-deletion \
+  >> base_agent_compress_trigger_itr30_resume.log 2>&1 &
+```
+
+Keep the compression mode and tuning flags identical to the original run.
+
+---
+
 ## Folding mode
 
 Current folding choice: each iteration keeps **recent N full L0 rounds** (default
@@ -304,4 +375,4 @@ used it). Optional range resume: add `--end-problem M` as in [RUN_WITH_UV.md](RU
 ---
 
 For runs on the **inference-api.nvidia.com** endpoint (e.g. `gpt-5.6-terra`), see
-[scripts_integration/infer_api/RUN_WITH_UV_INFER.md](../infer_api/RUN_WITH_UV_INFER.md).
+[infer_api/RUN_WITH_UV_INFER.md](infer_api/RUN_WITH_UV_INFER.md).

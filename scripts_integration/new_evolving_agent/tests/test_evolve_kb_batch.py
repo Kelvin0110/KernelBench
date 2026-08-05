@@ -302,6 +302,56 @@ def test_main_dry_run_accepts_selective_retention_context_management(
     assert summary["skill_deletion"] is False
 
 
+def test_main_dry_run_accepts_compress_trigger_context_management(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """compress_trigger mode and its tuning flags are accepted and recorded."""
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n", encoding="utf-8")
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+
+    results_root = tmp_path / "results"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--subset-csv",
+            str(subset_csv),
+            "--run-name",
+            "compress_trigger_flag",
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--max-problems",
+            "1",
+            "--context-management",
+            "compress_trigger",
+            "--compress-hot-rounds",
+            "2",
+            "--compress-token-ratio",
+            "0.8",
+            "--compress-every-n-iters",
+            "10",
+            "--no-skill-deletion",
+        ],
+    )
+
+    assert evolve_kb_batch.main() == 0
+
+    matching_runs = sorted(
+        p for p in results_root.glob("compress_trigger_flag*") if p.is_dir()
+    )
+    assert matching_runs
+    summary = json.loads((matching_runs[-1] / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["context_management"] == "compress_trigger"
+    assert summary["compress_hot_rounds"] == 2
+    assert summary["compress_token_ratio"] == 0.8
+    assert summary["compress_every_n_iters"] == 10
+    assert summary["skill_deletion"] is False
+
+
 def test_main_dry_run_accepts_skill_deletion_flags(tmp_path: Path, monkeypatch) -> None:
     """Skill-deletion CLI flags are accepted; deletion is on by default."""
     subset_csv = tmp_path / "subset.csv"
