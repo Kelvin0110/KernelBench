@@ -17,7 +17,8 @@ CLAUDE.md
 # *.sh
 TUTORIAL.md
 .github/
-.claude/
+.claude/*
+!.claude/skills/
 
 # log files
 logs/

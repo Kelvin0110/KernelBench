@@ -45,6 +45,12 @@ override env vars; per-role flags override `--model`.
 > **Key resolution:** `NVIDIA_INF_API_KEY` → `NVIDIA_API_KEY` → error.
 > **Model alias resolution:** `gpt-5.6-terra` → `azure/openai/gpt-5.6-terra` via
 > `NVIDIA_INF_MODEL_ALIASES` in `Self-Evolving-Agent/evolving_common/llm_client.py`.
+>
+> **⚠ Embedding always uses the integrate endpoint.**
+> `embed_texts_nvidia` (L1 skill-merge embedding) is pinned to
+> `integrate.api.nvidia.com` and keyed by `NVIDIA_API_KEY` regardless of
+> `--nvidia-endpoint`. Set `NVIDIA_API_KEY` in `.env` even when all chat calls
+> are routed to the inference endpoint.
 
 The resolved endpoint and model values are written to `run_summary.json` and
 checked on resume — mismatched flags abort unless `--allow-resume-config-mismatch`
@@ -227,13 +233,14 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_gpt_oss_120b_selective_itr10 \
-  --max-iterations 10 \
+  --run-name base_agent_gpt_oss_120b_selective_itr30_GH200 \
+  --max-iterations 30 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --context-management selective_retention \
   --no-skill-deletion \
-  >> base_agent_gpt_oss_120b_selective_itr10_Aug_1.log 2>&1 &
+  --hardware NVIDIA_GH200x2 \
+  >> base_agent_gpt_oss_120b_selective_itr30_GH200_Aug_5.log 2>&1 &
 ```
 
 ### After a real run
@@ -355,39 +362,6 @@ summaries fit in the prompt compared to `gpt-oss-120b`.
 uv run python -m pytest Self-Evolving-Agent/tests/test_l0_rounds.py -q
 ```
 
-### Dry run
-
-```bash
-uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name terra_folding_dryrun \
-  --subset-csv subset_selection/selected_problems_50.csv \
-  --max-problems 2 \
-  --max-iterations 2 \
-  --nvidia-endpoint inference \
-  --model gpt-5.6-terra \
-  --context-management folding \
-  --no-skill-deletion \
-  --backend cuda \
-  --precision fp32 \
-  --dry-run
-```
-
-Check `runs_evolving/<run_name>_*/run_summary.json` for
-`context_management: "folding"` and `skill_deletion: false`.
-
-### Small real CUDA run (smoke)
-
-```bash
-CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_terra_folding_smoke \
-  --max-problems 5 \
-  --max-iterations 20 \
-  --nvidia-endpoint inference \
-  --model gpt-5.6-terra \
-  --context-management folding \
-  --no-skill-deletion \
-  >> base_agent_terra_folding_smoke.log 2>&1 &
-```
 
 ### Full 50 problems
 
@@ -401,6 +375,18 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
   --context-management folding \
   --no-skill-deletion \
   >> base_agent_terra_folding_itr30.log 2>&1 &
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_gpt_oss_120b_folding_itr30_GH200 \
+  --max-iterations 30 \
+  --nvidia-endpoint inference \
+  --model gpt-oss-120b \
+  --context-management folding \
+  --no-skill-deletion \
+  --hardware NVIDIA_GH200x2 \
+  >> base_agent_gpt_oss_120b_folding_itr30_GH200_Aug_5.log 2>&1 &
 ```
 
 ### After a real run
