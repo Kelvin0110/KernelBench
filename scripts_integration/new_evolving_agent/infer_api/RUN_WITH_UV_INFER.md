@@ -203,8 +203,7 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 ## Selective retention mode
 
 Each iteration: **goal + milestone memory (selected past rounds, full detail) + latest
-15 full L0 rounds** (`DEFAULT_SELECTIVE_RECENT_ROUNDS=15`, aligned with
-truncation/folding for fair comparison). Milestones are labeled per round (rules +
+5 full L0 rounds** (`DEFAULT_SELECTIVE_RECENT_ROUNDS=5`). Milestones are labeled per round (rules +
 additive LLM judge) and packed under 90% of the model context window. Non-milestone
 rounds outside the recent window are omitted from the prompt but never deleted from
 disk.
@@ -224,25 +223,25 @@ uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_terra_selective_recent15_itr10 \
+  --run-name base_agent_terra_selective_recent5_itr10 \
   --max-iterations 10 \
   --nvidia-endpoint inference \
   --model gpt-5.6-terra \
   --context-management selective_retention \
   --no-skill-deletion \
-  >> base_agent_terra_selective_recent15_itr10.log 2>&1 &
+  >> base_agent_terra_selective_recent5_itr10.log 2>&1 &
 ```
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_gpt_oss_120b_selective_recent15_itr30_GH200 \
+  --run-name base_agent_gpt_oss_120b_selective_recent5_itr30_GH200 \
   --max-iterations 30 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --context-management selective_retention \
   --no-skill-deletion \
   --hardware NVIDIA_GH200x2 \
-  >> base_agent_gpt_oss_120b_selective_recent15_itr30_GH200.log 2>&1 &
+  >> base_agent_gpt_oss_120b_selective_recent5_itr30_GH200.log 2>&1 &
 ```
 
 ### After a real run
@@ -259,7 +258,7 @@ Under `runs_evolving/<run_name>_*/`:
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
-  --run-name base_agent_terra_selective_recent15_itr10_YYYY_MM_DD_HH_MM \
+  --run-name base_agent_terra_selective_recent5_itr10_YYYY_MM_DD_HH_MM \
   --max-problems 50 \
   --max-iterations 10 \
   --start-problem 11 \
@@ -267,7 +266,7 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
   --model gpt-5.6-terra \
   --context-management selective_retention \
   --no-skill-deletion \
-  >> base_agent_terra_selective_recent15_itr10_resume.log 2>&1 &
+  >> base_agent_terra_selective_recent5_itr10_resume.log 2>&1 &
 ```
 
 ---
@@ -283,7 +282,7 @@ Compression calls the **summarizer** role. `--model gpt-5.6-terra` sets that rol
 along with the coder, extractor, and action selector. If compression should use a
 different model, add `--summarizer-model <id>`.
 
-Command knobs used for fair comparison with truncation/folding/selective recent=15:
+Command knobs used for fair comparison runs (selective recent=5; compress hot=15):
 
 - `--compress-hot-rounds 15`
 - `--compress-token-ratio 0.85` (~892.5K tokens for `gpt-5.6-terra`)

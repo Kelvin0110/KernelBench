@@ -14,7 +14,7 @@ This file covers `--context-management` on
 | `truncation` | yes | Keep only the latest N raw L0 rounds in prompts |
 | `folding` | no | Archived L0 summaries + per-round summaries + unfold preflight; archived summary catalog is packed newest-first under ~90% of the model context window (disk L0 unchanged) |
 | `markov_report` | no | Each iteration: **goal + evolving report + latest L0 only**; after eval, a dedicated rewriter LLM updates `evolving_report.md` |
-| `selective_retention` | no | Each iteration: **goal + milestone memory (selected past rounds, full detail) + latest 15 full L0 rounds**; milestones are labeled per round (rules + additive LLM judge) and packed under 90% of the model context window |
+| `selective_retention` | no | Each iteration: **goal + milestone memory (selected past rounds, full detail) + latest 5 full L0 rounds**; milestones are labeled per round (rules + additive LLM judge) and packed under 90% of the model context window |
 | `compress_trigger` | no | Microcompact old L0 rounds every iteration, then run structured LLM compression when the prompt reaches a token threshold or an iteration interval |
 
 Skill refinement and skill merging stay **off** by default (omit those flags).
@@ -109,8 +109,7 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 
 Design: [selective-retention spec](../../Self-Evolving-Agent/docs/superpowers/specs/2026-07-18-selective-retention-context-design.md).
 Each iteration rebuilds the prompt as **original goal + milestone memory (full L0
-detail) + latest 15 full L0 rounds** (`DEFAULT_SELECTIVE_RECENT_ROUNDS=15`, aligned
-with truncation/folding for fair comparison). A round becomes a milestone via rules
+detail) + latest 5 full L0 rounds** (`DEFAULT_SELECTIVE_RECENT_ROUNDS=5`). A round becomes a milestone via rules
 (`propose_new`, new best metric, first compile success, first correct) plus an
 additive, fail-soft LLM judge. Non-milestone rounds outside the recent window are
 omitted from the prompt (never deleted from disk). When the previous coder turn used
@@ -128,7 +127,7 @@ uv run python -m pytest scripts_integration/new_evolving_agent/tests/test_evolve
 
 ```bash
 uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name selective_retention_recent15_dryrun \
+  --run-name selective_retention_recent5_dryrun \
   --subset-csv subset_selection/selected_problems_50.csv \
   --max-problems 2 \
   --max-iterations 2 \
@@ -146,42 +145,42 @@ Check `runs_evolving/<run_name>_*/run_summary.json` for
 
 ```bash
 CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_selective_retention_recent15_smoke \
+  --run-name base_agent_selective_retention_recent5_smoke \
   --max-problems 5 \
   --max-iterations 20 \
   --context-management selective_retention \
-  >> base_agent_selective_retention_recent15_smoke.log 2>&1 &
+  >> base_agent_selective_retention_recent5_smoke.log 2>&1 &
 ```
 
 ### Full 50 problems
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_selective_retention_recent15_itr30 \
+  --run-name base_agent_selective_retention_recent5_itr30 \
   --max-iterations 30 \
   --context-management selective_retention \
-  >> base_agent_selective_retention_recent15_itr30.log 2>&1 &
+  >> base_agent_selective_retention_recent5_itr30.log 2>&1 &
 ```
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_selective_retention_recent15_itr30_YYYY_MM_DD_HH_MM \
+  --run-name base_agent_selective_retention_recent5_itr30_YYYY_MM_DD_HH_MM \
   --max-iterations 30 \
   --context-management selective_retention \
   --resume \
   --start-problem 34 \
-  >> base_agent_selective_retention_recent15_itr30.log 2>&1 &
+  >> base_agent_selective_retention_recent5_itr30.log 2>&1 &
 ```
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
-  --run-name base_agent_selective_retention_recent15_itr30_YYYY_MM_DD_HH_MM \
+  --run-name base_agent_selective_retention_recent5_itr30_YYYY_MM_DD_HH_MM \
   --max-iterations 30 \
   --context-management selective_retention \
   --resume \
   --start-problem 13 \
   --end-problem 26 \
-  >> base_agent_selective_retention_recent15_itr30.log 2>&1 &
+  >> base_agent_selective_retention_recent5_itr30.log 2>&1 &
 ```
 
 The 128K window for `gpt-oss-120b` is built in; override with a different model only
@@ -210,7 +209,7 @@ post-compression rounds with one-line stubs. Once either trigger fires, a fail-s
 summarizer call combines the prior summary with new full rounds and advances the
 compression boundary. Full L0 history remains on disk.
 
-Command knobs used for fair comparison with truncation/folding/selective recent=15:
+Command knobs used for fair comparison runs (selective recent=5; compress hot=15):
 
 - `--compress-hot-rounds 15`
 - `--compress-token-ratio 0.85`

@@ -119,7 +119,7 @@ CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agen
 ### Full 50 problems
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_oss120b_merge_only_sim_07_itr30 \
   --max-iterations 30 \
   --nvidia-endpoint inference \
@@ -128,7 +128,7 @@ CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agen
   --skill-merging \
   --skill-merge-similarity 0.7 \
   --skill-merge-interval 50 \
-  >> base_agent_oss120b_merge_only_sim_07_itr30.log 2>&1 &
+  >> base_agent_oss120b_merge_only_sim_07_itr30_Aug_5.log 2>&1 &
 ```
 
 ---
