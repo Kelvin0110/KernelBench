@@ -6,6 +6,12 @@ for runs using the **`inference-api.nvidia.com`** endpoint.
 This file mirrors that guide's structure: one section per context-management mode,
 each with dry-run → smoke → full-50 → resume commands using `gpt-5.6-terra`.
 
+For the **skill-governance** experiment matrix (refinement / merge / deletion and
+their combinations, held at `truncation` context management), see
+[RUN_SKILL_GOVERNANCE.md](RUN_SKILL_GOVERNANCE.md). Analysis tooling and the
+running experiment report live in
+[`scripts_integration/new_evolving_agent_analysis/`](../../new_evolving_agent_analysis/).
+
 ---
 
 ## Model specs
