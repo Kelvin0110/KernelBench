@@ -250,6 +250,17 @@ CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agen
   >> base_agent_gpt_oss_120b_selective_recent5_itr30_GH200.log 2>&1 &
 ```
 
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_oss120b_selective_recent5_itr30 \
+  --max-iterations 30 \
+  --nvidia-endpoint inference \
+  --model gpt-oss-120b \
+  --context-management selective_retention \
+  --no-skill-deletion \
+  >> base_agent_oss120b_selective_recent5_itr30_Aug_5.log 2>&1 &
+```
+
 ### After a real run
 
 Under `runs_evolving/<run_name>_*/`:
