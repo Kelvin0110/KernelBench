@@ -89,8 +89,10 @@ uv run python Self-Evolving-Agent/tests/test_inference_endpoint.py inference
 Keeps only the latest N raw L0 rounds in prompts (default context-management mode).
 No `--context-management` flag required.
 
-Check `runs_evolving/<run_name>_*/run_summary.json` for `"nvidia_endpoint": "inference"`,
-`"model": "gpt-5.6-terra"`, and `"context_management": "truncation"`.
+Check `runs_evolving/inference_gpt_56_terra/<run_name>_*/run_summary.json` (or
+`runs_evolving/<run_name>_*/` without a custom `--results-root`) for
+`"nvidia_endpoint": "inference"`, `"model": "gpt-5.6-terra"`, and
+`"context_management": "truncation"`.
 
 
 ### Full 50 problems
@@ -118,7 +120,8 @@ CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agen
 
 ### After a real run
 
-Under `runs_evolving/<run_name>_*/`:
+Under `runs_evolving/inference_gpt_56_terra/<run_name>_*/` (or
+`runs_evolving/<run_name>_*/` if you did not set `--results-root`):
 
 - `run_summary.json` — `nvidia_endpoint`, `model`, per-role model IDs, `context_management: "truncation"`
 - `workspaces/level_*_problem_*/chat_history.jsonl` — all LLM turns
@@ -128,14 +131,15 @@ Under `runs_evolving/<run_name>_*/`:
 ```bash
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
-  --run-name base_agent_gpt_56_terra_truncation_itr10_YYYY_MM_DD_HH_MM \
-  --max-problems 50 \
-  --max-iterations 10 \
-  --start-problem 11 \
+  --results-root runs_evolving/inference_gpt_56_terra \
+  --run-name base_agent_gpt_56_terra_truncation_itr30_2026_08_01_17_40 \
+  --max-iterations 30 \
+  --start-problem 9 \
   --nvidia-endpoint inference \
   --model gpt-5.6-terra \
   --no-skill-deletion \
-  >> base_agent_gpt_56_terra_truncation_itr10_Jul_31.log 2>&1 &
+  --hardware SONG_CPU4_A6000x2 \
+  >> base_agent_gpt_56_terra_truncation_itr30_Aug_1.log 2>&1 &
 ```
 
 ---

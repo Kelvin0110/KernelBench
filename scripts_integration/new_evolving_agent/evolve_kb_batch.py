@@ -621,6 +621,7 @@ def _check_resume_config_mismatch(
         "summarizer_model",
         "extractor_model",
         "action_selector_model",
+        "hardware_server",
         "skill_deletion",
         "skill_merging",
         "skill_merge_similarity",
@@ -1040,7 +1041,10 @@ def main() -> int:
         "--hardware",
         type=str,
         default="SONG_CPU6_A6000x4",
-        help="Hardware folder under results/timing when --baseline-timing-file is not provided",
+        help=(
+            "Hardware folder under results/timing when --baseline-timing-file is not "
+            "provided; also recorded in run_summary.json as hardware_server"
+        ),
     )
     parser.add_argument(
         "--baseline",
@@ -1243,6 +1247,7 @@ def main() -> int:
                 "summarizer_model": os.getenv("NVIDIA_SUMMARIZER_MODEL", "gpt-oss-120b"),
                 "extractor_model": os.getenv("NVIDIA_EXTRACTOR_MODEL", "gpt-oss-120b"),
                 "action_selector_model": os.getenv("NVIDIA_ACTION_SELECTOR_MODEL", ""),
+                "hardware_server": str(args.hardware),
                 "skill_deletion": bool(args.skill_deletion),
                 "skill_merging": bool(args.skill_merging),
                 "skill_merge_similarity": float(args.skill_merge_similarity),
@@ -1540,6 +1545,7 @@ def main() -> int:
         "dry_run": bool(args.dry_run),
         "enable_static_check": bool(args.enable_static_check),
         "cuda_available": bool(has_cuda),
+        "hardware_server": str(args.hardware),
         "context_management": str(args.context_management),
         "evolving_report_max_tokens": int(args.evolving_report_max_tokens),
         "evolving_report_timeout_sec": float(args.evolving_report_timeout_sec),

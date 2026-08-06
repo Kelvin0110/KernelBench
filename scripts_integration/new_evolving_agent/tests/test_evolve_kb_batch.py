@@ -220,6 +220,7 @@ def test_main_dry_run_accepts_skill_merge_only_flags(tmp_path: Path, monkeypatch
     summary = json.loads((matching_runs[-1] / "run_summary.json").read_text(encoding="utf-8"))
     assert summary["skill_deletion"] is False
     assert summary["skill_merging"] is True
+    assert summary["hardware_server"] == "SONG_CPU6_A6000x4"
 
 
 def test_main_dry_run_accepts_markov_report_context_management(
