@@ -55,6 +55,28 @@ Minimum `.env` required for all modes below:
 NVIDIA_INF_API_KEY=<your inference API key>
 ```
 
+---
+
+## Prerequisites — CUDA toolchain and hardware baseline
+
+> **Both of these are required. Omitting either silently corrupts the run
+> rather than failing it.**
+
+**1. Export the CUDA toolchain before every run.** This host has no system CUDA
+toolkit; without these two lines `load_inline(cuda_sources=...)` cannot build and
+the agent falls back to reference PyTorch ops that score ≈1.0× speedup while
+appearing correct. See
+[`../env/README.md`](../env/README.md) for the install and the full postmortem.
+
+```bash
+export CUDA_HOME=$HOME/opt/cuda-12.8
+export PATH=$CUDA_HOME/bin:/localhome/local-tianzheng/KernelBench/.venv/bin:$PATH
+```
+
+**2. Always pass `--hardware NVIDIA_GH200x2`.** The batch script defaults to
+`--hardware SONG_CPU6_A6000x4`, which scores speedups against A6000 baselines on
+a GH200 host. All commands below include it.
+
 Skill-governance flags (same as [RUN_WITH_UV.md](../RUN_WITH_UV.md) §4.2):
 
 | Flag | Default | Role |
@@ -81,6 +103,7 @@ with L1; this is the default).
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_oss120b_skill_refinement_itr30 \
   --max-iterations 30 \
+  --hardware NVIDIA_GH200x2 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --enable-skill-refinement \
@@ -106,6 +129,7 @@ After a real run, check:
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_oss120b_deletion_itr30 \
   --max-iterations 30 \
+  --hardware NVIDIA_GH200x2 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --skill-deletion \
@@ -122,6 +146,7 @@ CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agen
 CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_oss120b_merge_only_sim_07_itr30 \
   --max-iterations 30 \
+  --hardware NVIDIA_GH200x2 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --no-skill-deletion \
@@ -141,6 +166,7 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
 CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_oss120b_deletion_merge_sim_08_itr30 \
   --max-iterations 30 \
+  --hardware NVIDIA_GH200x2 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --skill-deletion \
@@ -157,6 +183,7 @@ CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agen
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_oss120b_deletion_merge_sim_08_itr30 \
   --max-iterations 30 \
+  --hardware NVIDIA_GH200x2 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --skill-deletion \
@@ -176,6 +203,7 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
 CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_oss120b_deletion_refine_itr30 \
   --max-iterations 30 \
+  --hardware NVIDIA_GH200x2 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --skill-deletion \
@@ -194,6 +222,7 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
 CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_oss120b_deletion_merge_refine_sim_08_itr30 \
   --max-iterations 30 \
+  --hardware NVIDIA_GH200x2 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --skill-deletion \
@@ -209,6 +238,7 @@ CUDA_VISIBLE_DEVICES=2 nohup uv run python scripts_integration/new_evolving_agen
 CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name base_agent_oss120b_deletion_merge_refine_sim_07_itr30 \
   --max-iterations 30 \
+  --hardware NVIDIA_GH200x2 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --skill-deletion \
@@ -256,6 +286,7 @@ CUDA_VISIBLE_DEVICES=1 nohup uv run python scripts_integration/new_evolving_agen
   --run-name base_agent_oss120b_deletion_merge_refine_sim_08_itr30_YYYY_MM_DD_HH_MM \
   --max-problems 50 \
   --max-iterations 30 \
+  --hardware NVIDIA_GH200x2 \
   --start-problem 28 \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
