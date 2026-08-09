@@ -979,7 +979,7 @@ def main() -> int:
         "--skill-merge-similarity",
         type=float,
         default=DEFAULT_SKILL_MERGE_SIMILARITY,
-        help="Cosine similarity threshold for skill-merge clustering (default: 0.9).",
+        help="Cosine similarity threshold for skill-merge clustering (default: 0.7).",
     )
     parser.add_argument(
         "--skill-merge-interval",
