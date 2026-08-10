@@ -139,6 +139,38 @@ file is missing.
 
 ---
 
+## `analyze_feature_evidence.py`
+
+Reads explicitly selected **completed** runs and writes compact behavioral
+evidence without copying full chat histories or generated code:
+
+- `feature_evidence.json` — per-run token/phase/action counts, observed
+  compile/correct/hack rates, error categories, L0/L1 and governance summaries,
+  per-problem outcomes, matched baseline comparisons, deterministic case-study
+  candidates, parse diagnostics, and input provenance.
+- `feature_evidence.csv` — one row per run/problem for filtering and independent
+  checks.
+
+The extractor rejects partial runs before writing either output. Token totals
+use endpoint-reported usage, metrics rates use only rows where the relevant
+`metrics_iteration` field is present, and matched speedup requires a positive,
+correct, non-hack best in both runs. Case-study candidates are descriptive
+anchors, not causal estimates.
+
+```bash
+.venv/bin/python scripts_integration/new_evolving_agent_analysis/analyze_feature_evidence.py \
+  --runs-root runs_evolving/inference_oss_120b \
+  --output-dir scripts_integration/new_evolving_agent_analysis/output/gpt-oss-120b-inf-CPU6 \
+  --runs BASELINE_RUN \
+  --runs FEATURE_RUN \
+  --baseline-run BASELINE_RUN
+```
+
+Paths are resolved from the repository root. Optional governance sidecars that
+are absent because a feature is disabled are retained as explicit warnings.
+
+---
+
 ## Metric semantics — read this before interpreting numbers
 
 - **Speedup aggregates and fast-p use correct, non-hack samples only.** Per the
