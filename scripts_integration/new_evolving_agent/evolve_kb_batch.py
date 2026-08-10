@@ -947,6 +947,18 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--coder-timeout-sec",
+        type=float,
+        default=600.0,
+        help=(
+            "Per-attempt timeout (seconds) for coder LLM calls "
+            "(default: 600). Transient APITimeoutError is retried in-place "
+            "before the iteration is marked failed. Other LLM roles also "
+            "default to 600s (summarizer, extractor, action selector, "
+            "folding/report/compress/judge/refinement)."
+        ),
+    )
+    parser.add_argument(
         "--enable-skill-refinement",
         action="store_true",
         help="Enable the SkillRevise-style skill refinement add-on. When a skill "
@@ -1022,8 +1034,8 @@ def main() -> int:
     parser.add_argument(
         "--l1-skill-unit-test-timeout-sec",
         type=float,
-        default=60.0,
-        help="Per-call LLM timeout for unit-test generation/validation.",
+        default=600.0,
+        help="Per-call LLM timeout for unit-test generation/validation (default: 600).",
     )
     parser.add_argument(
         "--l1-skill-unit-test-run-timeout-sec",
@@ -1421,6 +1433,7 @@ def main() -> int:
                 context_management=str(args.context_management),
                 evolving_report_max_tokens=int(args.evolving_report_max_tokens),
                 evolving_report_timeout_sec=float(args.evolving_report_timeout_sec),
+                coder_timeout_sec=float(args.coder_timeout_sec),
                 compress_hot_rounds=int(args.compress_hot_rounds),
                 compress_token_ratio=float(args.compress_token_ratio),
                 compress_every_n_iters=int(args.compress_every_n_iters),
@@ -1549,6 +1562,7 @@ def main() -> int:
         "context_management": str(args.context_management),
         "evolving_report_max_tokens": int(args.evolving_report_max_tokens),
         "evolving_report_timeout_sec": float(args.evolving_report_timeout_sec),
+        "coder_timeout_sec": float(args.coder_timeout_sec),
         "compress_hot_rounds": int(args.compress_hot_rounds),
         "compress_token_ratio": float(args.compress_token_ratio),
         "compress_every_n_iters": int(args.compress_every_n_iters),
