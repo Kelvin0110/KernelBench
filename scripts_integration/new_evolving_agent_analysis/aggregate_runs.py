@@ -625,20 +625,38 @@ def collect_timing(*, run_dir: Path, summary: dict[str, Any]) -> dict[str, Any]:
     rows = read_jsonl(run_dir / "batch_timing.jsonl")
     row_total = 0.0
     row_count = 0
+    # A resume appends new rows for replayed problems, so the file can hold more
+    # rows than problems. Keep the last timing per problem for the distinct count.
+    per_problem: dict[str, float] = {}
     for row in rows:
         value = safe_float(row.get("wall_time_sec"))
         if value is None:
             continue
         row_total += value
         row_count += 1
+        # subset_index is the canonical position; problem_id alone collides
+        # across levels (L1P100 vs L3P100).
+        key = _as_str(row.get("subset_index"))
+        if not key:
+            key = f"{_as_str(row.get('level'))}:{_as_str(row.get('problem_id'))}"
+        per_problem[key] = value
 
     total = safe_float(summary.get("total_wall_time_sec"))
     if total is None:
         total = row_total if row_count else None
     problems_timed = _as_int(summary.get("problems_timed_this_session"), default=row_count)
-    avg = safe_float(summary.get("avg_wall_time_sec"))
-    if avg is None and total is not None and problems_timed > 0:
-        avg = total / problems_timed
+
+    # Do NOT trust summary["avg_wall_time_sec"] on a resumed run: it is
+    # total_wall_time_sec / problems_timed_this_session, and a resume that
+    # replayed 2 problems reports the whole batch's wall time divided by 2
+    # (observed: 2143 min/problem instead of the true 85.7).
+    distinct = len(per_problem)
+    if distinct:
+        avg = sum(per_problem.values()) / distinct
+    else:
+        avg = safe_float(summary.get("avg_wall_time_sec"))
+        if avg is None and total is not None and problems_timed > 0:
+            avg = total / problems_timed
 
     return {
         "batch_started_at_utc": _as_str(summary.get("batch_started_at_utc"))
