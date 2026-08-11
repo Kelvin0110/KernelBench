@@ -661,8 +661,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=str,
-        default=str(DEFAULT_OUTPUT_MD),
-        help=f"Markdown output path (default: {DEFAULT_OUTPUT_MD})",
+        default=None,
+        help=(
+            "Markdown output path. Defaults to <--output-dir>/comparison.md so a "
+            "custom --output-dir keeps its markdown alongside its aggregate "
+            f"(falls back to {DEFAULT_OUTPUT_MD} when neither is given)."
+        ),
     )
     return parser
 
@@ -679,7 +683,10 @@ def main() -> int:
     aggregate_path = Path(args.aggregate) if args.aggregate else output_dir / "aggregate_runs.json"
     if not aggregate_path.is_absolute():
         aggregate_path = REPO_ROOT / aggregate_path
-    output_md = Path(args.output)
+    # Default the markdown next to the aggregate it describes. Without this, a
+    # custom --output-dir still wrote comparison.md to the default location,
+    # silently clobbering an unrelated comparison.
+    output_md = Path(args.output) if args.output else output_dir / "comparison.md"
     if not output_md.is_absolute():
         output_md = REPO_ROOT / output_md
 
