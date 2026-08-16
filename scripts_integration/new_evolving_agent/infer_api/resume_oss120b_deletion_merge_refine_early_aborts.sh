@@ -5,11 +5,10 @@
 #   bash scripts_integration/new_evolving_agent/infer_api/resume_oss120b_deletion_merge_refine_early_aborts.sh [GPU]
 #
 # Default GPU=0 (GPU1 often holds live folding / other resumes).
-# Aborts: 9=L1P56 APITimeoutError @ itr 22
+# Aborts: 9=L1P56 APITimeoutError @ itr 22, 41=L3P32 APITimeoutError @ itr 10
 #
-# SAFETY: Do NOT run while the Aug-9 parent evolve_kb_batch.py for this run is
-# still alive — L1 rollback on subset 9 would race the live writer. This script
-# requires run_summary.json, which is only written when the parent batch finishes.
+# Parent batch finished 2026-08-14; run_summary.json is present. Do not re-run
+# this while another resume of the same run_dir is already live.
 
 set -euo pipefail
 
@@ -21,6 +20,7 @@ LOG="base_agent_oss120b_deletion_merge_refine_sim_07_itr30_resume_early_Aug_11.l
 # start:end pairs (1-based subset indices)
 RANGES=(
   "9:9"
+  "41:41"
 )
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -38,8 +38,8 @@ RUN_DIR="${RESULTS_ROOT}/${RUN_NAME}"
 }
 
 used="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$GPU")"
-if [ "$used" -gt 1000 ]; then
-  echo "FATAL: GPU $GPU busy (${used} MiB). Refusing."
+if [ "${RESUME_ALLOW_BUSY_GPU:-0}" != "1" ] && [ "$used" -gt 1000 ]; then
+  echo "FATAL: GPU $GPU busy (${used} MiB). Refusing. Set RESUME_ALLOW_BUSY_GPU=1 to override."
   exit 1
 fi
 

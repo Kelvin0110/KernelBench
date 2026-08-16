@@ -5,7 +5,8 @@
 #   bash scripts_integration/new_evolving_agent/infer_api/resume_oss120b_markov_early_aborts.sh [GPU]
 #
 # Default GPU=0 (GPU1 often holds live folding / other resumes).
-# Aborts: 18=L2P42 timeout@21, 39=L3P29 timeout@8, 48=L3P49 timeout@28
+# Remaining abort after Wave A: 18=L2P42 (504/500 abort @ itr 2).
+# Subsets 39 and 48 already completed on the Aug-13/14 resume.
 
 set -euo pipefail
 
@@ -17,8 +18,6 @@ LOG="base_agent_oss120b_markov_itr30_resume_early_Aug_11.log"
 # start:end pairs (1-based subset indices)
 RANGES=(
   "18:18"
-  "39:39"
-  "48:48"
 )
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -32,8 +31,8 @@ RUN_DIR="${RESULTS_ROOT}/${RUN_NAME}"
 [ -f "$RUN_DIR/run_summary.json" ] || { echo "FATAL: missing run_summary.json in $RUN_DIR"; exit 1; }
 
 used="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$GPU")"
-if [ "$used" -gt 1000 ]; then
-  echo "FATAL: GPU $GPU busy (${used} MiB). Refusing."
+if [ "${RESUME_ALLOW_BUSY_GPU:-0}" != "1" ] && [ "$used" -gt 1000 ]; then
+  echo "FATAL: GPU $GPU busy (${used} MiB). Refusing. Set RESUME_ALLOW_BUSY_GPU=1 to override."
   exit 1
 fi
 

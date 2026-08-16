@@ -33,9 +33,12 @@ RUN_DIR="${RESULTS_ROOT}/${RUN_NAME}"
 [ -d "$RUN_DIR" ] || { echo "FATAL: no such run dir: $RUN_DIR"; exit 1; }
 [ -f "$RUN_DIR/run_summary.json" ] || { echo "FATAL: missing run_summary.json in $RUN_DIR"; exit 1; }
 
-used="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$GPU")"
-if [ "$used" -gt 1000 ]; then
-  echo "FATAL: GPU $GPU busy (${used} MiB). Refusing."
+# Override with ALLOW_GPU_MEM_MB when another process holds VRAM but util is idle.
+MEM_LIMIT="${ALLOW_GPU_MEM_MB:-1000}"
+used="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$GPU" | tr -d ' ')"
+if [ "$used" -gt "$MEM_LIMIT" ]; then
+  echo "FATAL: GPU $GPU busy (${used} MiB > limit ${MEM_LIMIT} MiB). Refusing."
+  echo "       Re-run with ALLOW_GPU_MEM_MB=3000 if VRAM is held but utilization is idle."
   exit 1
 fi
 
