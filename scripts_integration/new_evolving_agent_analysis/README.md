@@ -1,5 +1,11 @@
 # Cross-run analysis for evolving-agent KernelBench experiments
 
+**Standing contract:** [ANALYSIS_RULES.md](ANALYSIS_RULES.md). Every series
+report, `comparison.md`, and cross-model synthesis must include the required
+iteration-10/30 table (`fast_p_best@0/1/2` and `speedup_best` geomean with `n`),
+use each series' **native** timing baseline, and keep reason / root-cause
+hypotheses / key insight / case study next to the numbers.
+
 Two scripts that compare whole runs under `runs_evolving/` against each other
 (context-management modes, skill-governance arms, models, iteration budgets).
 
@@ -173,6 +179,10 @@ are absent because a feature is disabled are retained as explicit warnings.
 
 ## Metric semantics — read this before interpreting numbers
 
+Authoritative rules, including native-baseline policy and the required
+iteration-10/30 table, live in [ANALYSIS_RULES.md](ANALYSIS_RULES.md). The
+notes below are the implementation details the scripts encode.
+
 - **Speedup aggregates and fast-p use correct, non-hack samples only.** Per the
   `generate_run_performance_stats.py` docstring: incorrect/failed problems are
   *excluded* from mean/median/geometric mean rather than scored as 0 or -1,
@@ -205,7 +215,11 @@ are absent because a feature is disabled are retained as explicit warnings.
   of them ran with `skill_deletion` / `skill_merging` /
   `enable_skill_refinement` set to `false`. `l1_entry_count` comes from
   `shared_l1.jsonl` and is always populated.
-- `--hardware` selects the baseline timing file used for every speedup. Scoring
-  a run against a baseline measured on different hardware produces meaningless
-  speedups; the aggregate emits a warning when the run's recorded
-  `metadata.hardware` does not appear in the baseline folder name.
+- `--hardware` selects the baseline timing file used for every speedup **within
+  a series**. Scoring a run against a baseline measured on different hardware
+  produces meaningless *absolute* runtimes; speedup itself is already relative
+  (`torch_baseline / kernel`). Cross-model comparisons therefore keep each
+  series' native baseline rather than rescoring one host onto another. See
+  [ANALYSIS_RULES.md](ANALYSIS_RULES.md). The aggregate still emits a warning
+  when the run's recorded `metadata.hardware` does not appear in the baseline
+  folder name.
