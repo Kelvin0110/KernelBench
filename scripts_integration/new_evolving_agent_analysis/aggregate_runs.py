@@ -581,6 +581,29 @@ def summarize_stats(stats_doc: dict[str, Any] | None, thresholds: list[float]) -
     }
 
 
+def _best_n_by_iteration(stats_doc: dict[str, Any] | None) -> dict[int, int]:
+    """Count correct, non-hack bests at each iteration from performance_stats points."""
+    out: dict[int, int] = {}
+    if not isinstance(stats_doc, dict):
+        return out
+    iterations = stats_doc.get("iterations")
+    if not isinstance(iterations, list):
+        return out
+    for item in iterations:
+        if not isinstance(item, dict):
+            continue
+        iteration = _as_int(item.get("iteration"))
+        points = item.get("points") if isinstance(item.get("points"), list) else []
+        sample_n = 0
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            if point.get("best_correct") and not point.get("best_is_hack"):
+                sample_n += 1
+        out[iteration] = sample_n
+    return out
+
+
 def extract_series(stats_doc: dict[str, Any] | None, thresholds: list[float]) -> dict[str, Any]:
     """Per-iteration series kept in the aggregate doc so compare_runs is self-contained."""
     out: dict[str, Any] = {"speedup": {}, "fast_p_best": {}, "fast_p_current": {}}
@@ -595,10 +618,26 @@ def extract_series(stats_doc: dict[str, Any] | None, thresholds: list[float]) ->
         points = speedup_series.get(key)
         if isinstance(points, list):
             out["speedup"][key] = [
-                {"iteration": _as_int(p.get("iteration")), "value": _round(safe_float(p.get("value")))}
+                {
+                    "iteration": _as_int(p.get("iteration")),
+                    "value": _round(safe_float(p.get("value"))),
+                    **(
+                        {"n": _as_int(p.get("n"))}
+                        if p.get("n") is not None
+                        else {}
+                    ),
+                }
                 for p in points
                 if isinstance(p, dict)
             ]
+
+    n_by_iteration = _best_n_by_iteration(stats_doc)
+    if n_by_iteration:
+        for point in out["speedup"].get("best_geometric_mean") or []:
+            if "n" not in point:
+                sample_n = n_by_iteration.get(point.get("iteration"))
+                if sample_n is not None:
+                    point["n"] = sample_n
 
     for field in ("fast_p_best", "fast_p_current"):
         raw = series.get(field) if isinstance(series.get(field), dict) else {}

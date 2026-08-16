@@ -636,19 +636,104 @@ def test_generate_run_excludes_hacked_speedups(monkeypatch, tmp_path: Path) -> N
     doc = result["doc"]
     assert doc["hack_iteration_count"] == 1
     assert doc["problems_with_hack"] == 1
-    assert doc["speedup_aggregate_policy"] == "correct_only_exclude_hack"
+    assert doc["speedup_aggregate_policy"] == "non_hack_best_only"
 
     iter2 = doc["iterations"][1]
     assert iter2["iteration"] == 2
     assert math.isclose(float(iter2["aggregates"]["current"]["mean"]), 2.0)
-    assert math.isclose(float(iter2["aggregates"]["best"]["mean"]), 0.0)
+    # Non-hack iter-2 forms best; metrics_best.is_hack=True is only run_had_hack.
+    assert math.isclose(float(iter2["aggregates"]["best"]["mean"]), 2.0)
+    assert math.isclose(float(iter2["fast_p_best"]["1.0"]), 1.0)
 
     iter1 = doc["iterations"][0]
     assert iter1["iteration"] == 1
     assert math.isclose(float(iter1["fast_p_current"]["1.0"]), 0.0)
+    assert math.isclose(float(iter1["fast_p_best"]["1.0"]), 0.0)
     assert math.isclose(float(iter2["fast_p_current"]["1.0"]), 1.0)
     assert iter2["points"][0]["current_correct"] is True
     assert iter1["points"][0]["current_correct"] is False
+
+
+def test_run_had_hack_does_not_revoke_non_hack_best(monkeypatch, tmp_path: Path) -> None:
+    """Later run_had_hack must not drop an earlier non-hack best from Fast@p or geo mean."""
+    module = _load_generate_run_module()
+
+    run_name = "run_had_hack_keep_best"
+    run_dir = tmp_path / run_name
+    ws_dir = run_dir / "workspaces" / "level_1_problem_1"
+    ws_dir.mkdir(parents=True, exist_ok=True)
+
+    baseline_file = tmp_path / "baseline.json"
+    baseline_file.write_text(json.dumps({}), encoding="utf-8")
+
+    rows = [
+        {
+            "iteration": 1,
+            "metrics_iteration": {
+                "compiled": True,
+                "correct": True,
+                "runtime": 4.0,
+                "speedup": 2.5,
+                "is_hack": False,
+            },
+            "metrics_best": {
+                "compiled": True,
+                "correct": True,
+                "runtime": 4.0,
+                "speedup": 2.5,
+                "is_hack": False,
+            },
+        },
+        {
+            "iteration": 2,
+            "metrics_iteration": {
+                "compiled": True,
+                "correct": True,
+                "runtime": 0.001,
+                "speedup": 10000.0,
+                "is_hack": True,
+            },
+            # Recorder sets is_hack=run_had_hack while best_* still reflect non-hack best.
+            "metrics_best": {
+                "compiled": True,
+                "correct": True,
+                "runtime": 4.0,
+                "speedup": 2.5,
+                "is_hack": True,
+            },
+        },
+    ]
+    (ws_dir / "metrics_by_iteration.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "build_baseline_lookup", lambda _base, _level: {1: 10.0})
+
+    result = module.build_performance_stats(
+        run_name=run_name,
+        runs_root=tmp_path,
+        baseline_file=baseline_file,
+        fast_p_thresholds=[1.0, 2.0],
+    )
+
+    doc = result["doc"]
+    assert doc["speedup_aggregate_policy"] == "non_hack_best_only"
+    iter1 = doc["iterations"][0]
+    iter2 = doc["iterations"][1]
+
+    assert math.isclose(float(iter1["fast_p_best"]["1.0"]), 1.0)
+    assert math.isclose(float(iter1["fast_p_best"]["2.0"]), 1.0)
+    assert math.isclose(float(iter1["aggregates"]["best"]["geometric_mean"]), 2.5)
+
+    # Same non-hack best still eligible after a later hack iteration.
+    assert math.isclose(float(iter2["fast_p_best"]["1.0"]), 1.0)
+    assert math.isclose(float(iter2["fast_p_best"]["2.0"]), 1.0)
+    assert math.isclose(float(iter2["aggregates"]["best"]["geometric_mean"]), 2.5)
+    assert math.isclose(float(iter2["points"][0]["best_runtime"]), 4.0)
+    assert iter2["points"][0]["best_correct"] is True
+    assert iter2["points"][0]["best_is_hack"] is True  # run_had_hack exposed, not used as gate
+    assert iter2["points"][0]["current_correct"] is False
 
 
 def test_fast_p_current_excludes_hacked_across_two_problems(monkeypatch, tmp_path: Path) -> None:

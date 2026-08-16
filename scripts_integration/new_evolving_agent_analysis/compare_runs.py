@@ -4,6 +4,9 @@ Consumes ``aggregate_runs.json`` produced by ``aggregate_runs.py`` (or recompute
 it in-process with ``--recompute``) and emits:
 
 - a run-overview table (mode, model, status, iterations, correctness, wall clock)
+- a **required checkpoint table** at iterations 10 and 30:
+  ``fast_p_best@0`` (correctness-like coverage), ``@1``, ``@2``, and
+  ``speedup_best`` geometric mean
 - a final-iteration performance table (speedup mean/median/geomean, fast-p)
 - a skill-governance table (L1 catalog size, merges, deletions, refinements)
 - optional delta tables versus ``--baseline-run`` (absolute and percent)
@@ -59,6 +62,8 @@ from aggregate_runs import (  # noqa: E402
 DEFAULT_OUTPUT_MD = DEFAULT_OUTPUT_DIR / "comparison.md"
 DEFAULT_FAST_P = 1.0
 DEFAULT_ITERATION_STRIDE = 5
+REQUIRED_CHECKPOINT_ITERATIONS = (10, 30)
+REQUIRED_CHECKPOINT_FAST_P = (0.0, 1.0, 2.0)
 
 #: (label, dotted path into a run record, digits, higher_is_better)
 DELTA_METRICS: tuple[tuple[str, str, int, bool], ...] = (
@@ -136,6 +141,60 @@ def build_aliases(records: list[dict[str, Any]]) -> dict[str, str]:
     return {record["run_name"]: f"R{index}" for index, record in enumerate(records, start=1)}
 
 
+def design_variant_label(record: dict[str, Any]) -> str:
+    """Stable short name for a context-management + governance configuration."""
+    mode = str(_dig(record, "config.context_management") or "unknown")
+    flags: list[str] = []
+    if _dig(record, "config.skill_deletion"):
+        flags.append("deletion")
+    if _dig(record, "config.skill_merging"):
+        similarity = _dig(record, "config.skill_merge_similarity")
+        flags.append(f"merge@{similarity}" if similarity is not None else "merge")
+    if _dig(record, "config.enable_skill_refinement"):
+        flags.append("refine")
+    if not flags:
+        return mode
+    return f"{mode}+{'+'.join(flags)}"
+
+
+def checkpoint_snapshot(
+    record: dict[str, Any],
+    *,
+    iterations: tuple[int, ...] = REQUIRED_CHECKPOINT_ITERATIONS,
+    thresholds: tuple[float, ...] = REQUIRED_CHECKPOINT_FAST_P,
+) -> dict[str, Any]:
+    """fast-p@0/1/2 and best-speedup geomean at the required checkpoint iterations."""
+    geomean = _series_map(speedup_series(record, "best_geometric_mean"))
+    geomean_n = _series_n_map(speedup_series(record, "best_geometric_mean"))
+    fast_p_maps = {
+        threshold: _series_map(fast_p_series(record, field="fast_p_best", threshold=threshold))
+        for threshold in thresholds
+    }
+    final_n = _dig(record, "performance.speedup_best.n")
+    final_iteration = _dig(record, "performance.final_iteration")
+    checkpoints: dict[str, Any] = {}
+    for iteration in iterations:
+        row: dict[str, Any] = {
+            "iteration": iteration,
+            "fast_p_best": {
+                str(threshold): fast_p_maps[threshold].get(iteration) for threshold in thresholds
+            },
+            "speedup_best_geomean": geomean.get(iteration),
+            "speedup_best_n": geomean_n.get(iteration),
+        }
+        if row["speedup_best_n"] is None and final_n is not None and final_iteration == iteration:
+            row["speedup_best_n"] = final_n
+        checkpoints[str(iteration)] = row
+    return {
+        "run_name": record.get("run_name"),
+        "design": design_variant_label(record),
+        "status": record.get("status"),
+        "total_correct": _dig(record, "outcomes.total_correct"),
+        "total_attempted": _dig(record, "outcomes.total_attempted"),
+        "checkpoints": checkpoints,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # series helpers
 # --------------------------------------------------------------------------- #
@@ -168,6 +227,25 @@ def _series_map(points: list[dict[str, Any]]) -> dict[int, float]:
         if value is None:
             continue
         out[iteration] = float(value)
+    return out
+
+
+def _series_n_map(points: list[dict[str, Any]]) -> dict[int, int]:
+    out: dict[int, int] = {}
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        try:
+            iteration = int(point.get("iteration"))
+        except (TypeError, ValueError):
+            continue
+        sample_n = point.get("n")
+        if sample_n is None:
+            continue
+        try:
+            out[iteration] = int(sample_n)
+        except (TypeError, ValueError):
+            continue
     return out
 
 
@@ -392,6 +470,75 @@ def _governance_section(records: list[dict[str, Any]], aliases: dict[str, str]) 
     return ["## Skill governance", ""] + _md_table(headers, rows)
 
 
+def _checkpoint_section(records: list[dict[str, Any]], aliases: dict[str, str]) -> list[str]:
+    """Required analysis table: fast-p 0/1/2 and best geomean at iterations 10 and 30."""
+    lines = [
+        "## Required checkpoints: iterations 10 and 30",
+        "",
+        "Every design variant is scored at the same two iteration budgets. "
+        "`fast_p_best@0` is the correctness-like coverage (fraction of all problems "
+        "whose running-best speedup is at least 0). `fast_p_best@1` and `@2` use "
+        "the same full-problem denominator. `speedup_best` geomean uses only "
+        "correct, non-hack samples; read `n` next to it. Speedup is already "
+        "relative to this series' native torch baseline — do not rescore one "
+        "host onto another host's baseline to compare models.",
+        "",
+    ]
+    headers = [
+        "id",
+        "design",
+        "status",
+        "correct",
+        "I10 @0",
+        "I10 @1",
+        "I10 @2",
+        "I10 geomean",
+        "I10 n",
+        "I30 @0",
+        "I30 @1",
+        "I30 @2",
+        "I30 geomean",
+        "I30 n",
+    ]
+    rows: list[list[str]] = []
+    for record in records:
+        snap = checkpoint_snapshot(record)
+        i10 = snap["checkpoints"]["10"]
+        i30 = snap["checkpoints"]["30"]
+        correct = snap["total_correct"]
+        attempted = snap["total_attempted"]
+        correct_cell = (
+            f"{correct}/{attempted}"
+            if correct is not None and attempted is not None
+            else _fmt(correct, 0)
+        )
+        rows.append(
+            [
+                aliases[record["run_name"]],
+                snap["design"],
+                str(snap["status"] or "-"),
+                correct_cell,
+                _fmt(i10["fast_p_best"].get("0.0"), 3),
+                _fmt(i10["fast_p_best"].get("1.0"), 3),
+                _fmt(i10["fast_p_best"].get("2.0"), 3),
+                _fmt(i10["speedup_best_geomean"], 4),
+                "-" if i10["speedup_best_n"] is None else str(i10["speedup_best_n"]),
+                _fmt(i30["fast_p_best"].get("0.0"), 3),
+                _fmt(i30["fast_p_best"].get("1.0"), 3),
+                _fmt(i30["fast_p_best"].get("2.0"), 3),
+                _fmt(i30["speedup_best_geomean"], 4),
+                "-" if i30["speedup_best_n"] is None else str(i30["speedup_best_n"]),
+            ]
+        )
+    lines += _md_table(headers, rows)
+    lines.append(
+        "_`@0/@1/@2` are `fast_p_best` at thresholds 0, 1, and 2. "
+        "Geomean is `speedup_best.geometric_mean`. Missing checkpoints render as `-`._"
+    )
+    lines.append("")
+    return lines
+
+
 def _delta_section(records: list[dict[str, Any]], baseline_run: str) -> list[str]:
     baseline = next((r for r in records if r["run_name"] == baseline_run), None)
     lines = [f"## Deltas vs baseline run `{baseline_run}`", ""]
@@ -530,6 +677,8 @@ def build_markdown(
         f"- baseline_timing_file: `{doc.get('baseline_file')}`",
         f"- speedup_aggregate_policy: `{doc.get('speedup_aggregate_policy')}`",
         f"- runs compared: {len(records)}",
+        "- analysis_rules: `scripts_integration/new_evolving_agent_analysis/ANALYSIS_RULES.md`",
+        "- required_checkpoints: iterations 10 and 30 with fast_p_best@0/1/2 and speedup_best geomean",
         "",
     ]
 
@@ -545,6 +694,7 @@ def build_markdown(
     aliases = build_aliases(records)
     lines += _legend_section(records, aliases)
     lines += _overview_section(records, aliases)
+    lines += _checkpoint_section(records, aliases)
     lines += _performance_section(records, aliases, thresholds)
     lines += _governance_section(records, aliases)
     if baseline_run:
