@@ -183,25 +183,31 @@ Authoritative rules, including native-baseline policy and the required
 iteration-10/30 table, live in [ANALYSIS_RULES.md](ANALYSIS_RULES.md). The
 notes below are the implementation details the scripts encode.
 
-- **Speedup aggregates and fast-p use correct, non-hack samples only.** Per the
+- **Speedup aggregates exclude failures; fast-p penalizes them.** Per the
   `generate_run_performance_stats.py` docstring: incorrect/failed problems are
   *excluded* from mean/median/geometric mean rather than scored as 0 or -1,
   while fast-p still penalizes failures through the full-problem denominator
   (`aligned_count`). Consequence: `aggregates` are not directly comparable
   across runs with different failure counts unless you also read
   `problem_count` / `total_correct`; **fast-p is the comparable headline metric.**
-- `fast_p_best` uses the running best runtime and does **not** filter the
-  `is_hack` flag, whereas `speedup_best` aggregates do. A run whose best kernel
-  is flagged as a hack can therefore show `fast_p_best > 0` with a
-  `speedup_best.geometric_mean` of `0.0`.
-- **Always read `speedup_*.n` (`best_n` / `cur_n` in the report) next to the
-  aggregate.** Because hack-flagged bests are dropped, the headline
-  `speedup_best.geometric_mean` can rest on a handful of problems: on
-  `base_agent_gpt_oss_120b_itr30_GH200_2026_08_03_04_51` the final-iteration
-  geomean of `1.0767` is computed over `n=3` of `50` problems (47 have
-  hack-flagged bests), while `fast_p_best@1.0 = 0.54` counts 27 of the 50. Deltas
-  between two runs' `best_geomean` are comparisons of two different, small,
-  self-selected subsets.
+- The **best** curves (`speedup_best`, `fast_p_best`) count every problem
+  holding a non-hack running best (`best_correct`). Hack *iterations* never
+  form a best, but a later hack does **not** revoke an earlier clean best.
+  `speedup_current` / `fast_p_current` use `correct and not is_hack` at that
+  iteration.
+- **`metrics_best.is_hack` is `run_had_hack`** — a run-level "any hack ever
+  seen" latch written at `governor.py:1215,1238`, *not* "this best kernel is a
+  hack". Never AND it into eligibility; `generate_run_performance_stats.py`
+  says so in its module docstring and at line 369.
+- **Always read `speedup_*.n` (`best_n` / `cur_n`) next to the aggregate** — but
+  read it correctly: because eligibility is `best_correct` alone, `best_n`
+  equals `total_correct` and shares the fast-p denominator. A geomean gap
+  between two runs is therefore **not** explained away as "two different
+  self-selected subsets" unless their `total_correct` actually differ.
+  *(Historical note: `aggregate_runs.py:552,601` ANDed the latch in until
+  2026-08-16, understating every `n` by roughly `problems_with_hack`. Any
+  report or example quoting a tiny `best_n` — e.g. "geomean over n=3 of 50" —
+  predates that fix and is wrong. No geomean or fast-p value was affected.)*
 - `best_speedup_overall` from `run_summary.json` is *not* a maximum: it is the
   speedup of the problem with the minimum non-outlier runtime after excluding
   likely reward hacks.

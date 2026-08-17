@@ -16,7 +16,7 @@ and iteration 30**:
 | correctness / `fast_p_best@0` | fraction of all aligned problems whose running-best speedup is ≥ 0 |
 | `fast_p_best@1` | same denominator, threshold 1.0 |
 | `fast_p_best@2` | same denominator, threshold 2.0 |
-| `speedup_best` geometric mean | correct, non-hack samples only; always print `n` next to it |
+| `speedup_best` geometric mean | every problem holding a non-hack running best; `n` equals `total_correct` — always print it |
 
 `compare_runs.py` emits this as **Required checkpoints: iterations 10 and 30**.
 Do not replace it with a geomean-only ranking or a single final-iteration row.
@@ -87,13 +87,25 @@ for levels 1 / 2 / 3). Default budget: 30 iterations.
   `metrics_best.is_hack` exclusion.
 - **`fast_p_current@p`** is the last observed submission, not the running best.
   A large best–current gap is a retention fact, not a scoring bug.
-- **`speedup_best` / `speedup_current` mean, median, geomean** include only
-  correct, non-hack samples. Always print `n`. Geomean deltas across runs
-  compare different self-selected subsets.
-- **`metrics_best.is_hack` is sticky** inside a problem: after any hack-flagged
-  iteration it can remain true even if a later clean kernel is the retained
-  best. That drops the whole problem from geomean while `fast_p_best` can
-  still count it.
+- **`speedup_best` mean, median, geomean** include every problem holding a
+  non-hack running best (`best_correct`). **`speedup_current`** uses
+  `correct and not is_hack` at that iteration. Always print `n`.
+- **`metrics_best.is_hack` is `run_had_hack`**, a run-level "any hack ever
+  seen" latch (`governor.py:1215,1238`) — **not** "this best kernel is a
+  hack". Hack *iterations* never form a running best, and a later hack does
+  not revoke an earlier clean best, so eligibility must **never** be ANDed
+  with `best_is_hack`; `generate_run_performance_stats.py` says so at its
+  module docstring and at line 369. Consequence: `speedup_best`'s `n` equals
+  `total_correct` and shares the same denominator as `fast_p_best`. A geomean
+  gap between two runs is **not** explained away by "different self-selected
+  subsets" unless their `total_correct` actually differ.
+  *(Fixed 2026-08-16 in `aggregate_runs.py:552,601`, which had been ANDing the
+  latch in and understating every `n` by roughly `problems_with_hack`. Only the
+  `n` columns moved; no geomean or fast-p value changed.)*
+- The sticky latch **does** still affect `analyze_feature_evidence.py` case
+  studies, which use the recorder's `run_finished` accepted-best predicate.
+  "No accepted best" swaps there are a different mechanism from geomean
+  eligibility.
 - **`best_speedup_overall`** in `run_summary.json` is not a literal maximum; it
   is the selected non-outlier best-runtime summary.
 - Tokens are endpoint-reported and may be lower bounds when usage fields are

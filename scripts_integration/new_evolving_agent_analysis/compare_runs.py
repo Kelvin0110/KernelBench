@@ -14,9 +14,12 @@ it in-process with ``--recompute``) and emits:
   geometric mean and fast-p@P, restricted to the iterations every compared run
   actually reached
 
-Speedup aggregates and fast-p come from ``generate_run_performance_stats``, which
-scores **correct, non-hack samples only**; failed problems are dropped from the
-mean/median/geomean and penalized through the fast-p denominator instead.
+Speedup aggregates and fast-p come from ``generate_run_performance_stats``. The
+**best** curves count every problem holding a non-hack running best: hack
+iterations never form a best, but a later hack does not revoke an earlier clean
+one, so ``metrics_best.is_hack`` (the run-level ``run_had_hack`` latch) must not
+gate eligibility. Failed problems are dropped from the mean/median/geomean and
+penalized through the fast-p denominator instead.
 
 Example:
     uv run python scripts_integration/new_evolving_agent_analysis/compare_runs.py \
@@ -424,11 +427,13 @@ def _performance_section(
     lines = ["## Final-iteration performance (fast-p is `fast_p_best`)", ""]
     lines += _md_table(headers, rows)
     lines.append(
-        "_Speedup aggregates use correct, non-hack samples only; `best_n`/`cur_n` are how "
-        "many of the `problems` actually entered those aggregates. fast-p keeps the "
-        "full-problem denominator so failures are penalized, and `fast_p_best` does **not** "
-        "drop hack-flagged bests - a small `best_n` next to a high fast-p means most bests "
-        "were hack-flagged._"
+        "_Speedup `best` aggregates use every problem with a non-hack running best "
+        "(`best_correct`); `current` aggregates use `correct and not is_hack` at the last "
+        "iteration. `best_n`/`cur_n` are how many of the `problems` actually entered those "
+        "aggregates. Hack **iterations** never form a best, but a later hack does not revoke "
+        "an earlier clean best, so `best_n` tracks `total_correct` - it is not reduced by "
+        "`metrics_best.is_hack`, which is the run-level `run_had_hack` latch. fast-p keeps "
+        "the full-problem denominator so failures are penalized._"
     )
     lines.append("")
     return lines
@@ -478,8 +483,9 @@ def _checkpoint_section(records: list[dict[str, Any]], aliases: dict[str, str]) 
         "Every design variant is scored at the same two iteration budgets. "
         "`fast_p_best@0` is the correctness-like coverage (fraction of all problems "
         "whose running-best speedup is at least 0). `fast_p_best@1` and `@2` use "
-        "the same full-problem denominator. `speedup_best` geomean uses only "
-        "correct, non-hack samples; read `n` next to it. Speedup is already "
+        "the same full-problem denominator. `speedup_best` geomean uses every "
+        "problem holding a non-hack running best, so its `n` tracks `total_correct`; "
+        "read `n` next to it. Speedup is already "
         "relative to this series' native torch baseline — do not rescore one "
         "host onto another host's baseline to compare models.",
         "",
