@@ -16,8 +16,9 @@ Rules: [ANALYSIS_RULES.md](../../ANALYSIS_RULES.md).
   deletion+merge+refine leads at **0.26**, then T0 **0.24**, folding **0.22**.
   Markov is last at **0.12**.
 - **Best-speedup geomean at iteration 30:** combined governance **1.3966
-  (n=36)** slightly above T0 **1.3855 (n=41)**. These are different selected
-  subsets; T0 still wins the full-denominator fast-p@1 ranking.
+  (n=48)** slightly above T0 **1.3855 (n=49)**. The denominators differ by one
+  problem, so this is a near-like-for-like edge — but it is a +0.8% gap, and
+  T0 still wins the full-denominator fast-p@1 ranking by 0.06.
 - **Current retention:** Markov has the strongest `fast_p_current@1.0`
   (**0.50**). T0 and selective tie at 0.46. Refinement is weakest at 0.30.
 - There is **no metric-independent winner**. Truncation is the speed-coverage
@@ -32,14 +33,14 @@ Native baseline:
 
 | design | correct | I10 @0 | I10 @1 | I10 @2 | I10 geomean (n) | I30 @0 | I30 @1 | I30 @2 | I30 geomean (n) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| truncation (T0) | 49/50 | 0.880 | **0.520** | 0.140 | 1.1700 (39) | 0.980 | **0.720** | 0.240 | 1.3855 (41) |
-| selective_retention | 48/50 | 0.920 | **0.540** | 0.080 | 1.0654 (39) | 0.960 | 0.700 | 0.180 | 1.2859 (37) |
-| truncation+deletion+merge@0.7+refine | 48/50 | 0.820 | 0.460 | **0.200** | 1.1531 (36) | 0.960 | 0.660 | **0.260** | **1.3966 (36)** |
-| truncation+deletion | 49/50 | 0.800 | 0.380 | 0.060 | 0.8606 (34) | 0.980 | 0.640 | 0.180 | 1.2518 (35) |
-| truncation+merge@0.7 | 49/50 | 0.880 | 0.460 | 0.120 | 1.0173 (36) | 0.980 | 0.640 | 0.160 | 1.2387 (35) |
-| truncation+refine | 47/50 | 0.840 | 0.520 | 0.100 | 1.1061 (36) | 0.940 | 0.620 | 0.140 | 1.2333 (32) |
-| folding | 48/50 | **0.940** | 0.500 | 0.160 | 1.0169 (45) | 0.960 | 0.600 | 0.220 | 1.2243 (38) |
-| markov_report | **50/50** | **0.960** | 0.460 | 0.080 | 0.8886 (42) | **1.000** | 0.600 | 0.120 | 1.0302 (36) |
+| truncation (T0) | 49/50 | 0.880 | **0.520** | 0.140 | **1.1700 (44)** | 0.980 | **0.720** | 0.240 | 1.3855 (49) |
+| selective_retention | 48/50 | 0.920 | **0.540** | 0.080 | 1.0654 (46) | 0.960 | 0.700 | 0.180 | 1.2859 (48) |
+| truncation+deletion+merge@0.7+refine | 48/50 | 0.820 | 0.460 | **0.200** | 1.1531 (41) | 0.960 | 0.660 | **0.260** | **1.3966 (48)** |
+| truncation+deletion | 49/50 | 0.800 | 0.380 | 0.060 | 0.8606 (40) | 0.980 | 0.640 | 0.180 | 1.2518 (49) |
+| truncation+merge@0.7 | 49/50 | 0.880 | 0.460 | 0.120 | 1.0173 (44) | 0.980 | 0.640 | 0.160 | 1.2387 (49) |
+| truncation+refine | 47/50 | 0.840 | 0.520 | 0.100 | 1.1061 (42) | 0.940 | 0.620 | 0.140 | 1.2333 (47) |
+| folding | 48/50 | **0.940** | 0.500 | 0.160 | 1.0169 (47) | 0.960 | 0.600 | 0.220 | 1.2243 (48) |
+| markov_report | **50/50** | **0.960** | 0.460 | 0.080 | 0.8886 (48) | **1.000** | 0.600 | 0.120 | 1.0302 (50) |
 
 The same table is in [comparison.md](comparison.md).
 
@@ -138,9 +139,13 @@ attribution.
 4. **Current vs best is a retention metric, not a scoring bug.** Markov
    keeps 0.50 of problems above 1.0 at the last attempt; refinement keeps
    0.30. Ranking on best@1 alone hides that split.
-5. **Geomean without `n` would mis-rank AllGov over T0.** AllGov’s 1.3966
-   uses 36 problems; T0’s 1.3855 uses 41. Fast-p keeps the 50-problem
-   denominator and still prefers T0 at 1.0.
+5. **Geomean and fast-p@1 genuinely disagree about AllGov vs T0.** AllGov
+   1.3966 (n=48) vs T0 1.3855 (n=49) is a near-shared-sample edge, so it
+   cannot be dismissed as a subset artifact. But fast-p keeps the 50-problem
+   denominator and prefers T0 at 1.0 by 0.06 (0.72 vs 0.66). Read together:
+   AllGov's *kept* kernels are marginally faster on average, while T0 gets
+   *more* problems over the 1.0 bar. The headline ranking metric
+   (`fast_p_best@1.0`, per ANALYSIS_RULES §4) is T0's.
 
 ## 6. Case studies (deterministic extractor vs T0)
 
@@ -232,7 +237,10 @@ Feature arms do not remove that pattern; selective has even more mismatches
 - `n=1` per design. No confidence interval.
 - Sequential shared L1 couples problems inside a run.
 - Every run is a resume.
-- Sticky `metrics_best.is_hack` changes geomean `n`.
+- The sticky `run_had_hack` latch still governs the `run_finished`
+  accepted-best predicate behind the §6 case studies (e.g. AllGov's
+  `level_1_problem_56` "sticky-hack best"). It does **not** gate geomean
+  eligibility — see the `n` correction in Provenance.
 - Fast-p@0 is coverage of speedup ≥ 0, which tracks `total_correct` at
   iteration 30 here but is not identical to `run_summary.total_correct` at
   earlier checkpoints.
@@ -245,3 +253,15 @@ See [MANIFEST.md](MANIFEST.md). Aggregates, `comparison.md`, and
 baseline. Source run caches were rebuilt only because artifacts were newer
 than the previous `performance_stats.json` (same CPU6 file, not a foreign
 baseline).
+
+**Correction (2026-08-16, second pass).** `aggregate_runs.py:552,601` had been
+ANDing `metrics_best.is_hack` into the geomean sample count. That field is the
+run-level `run_had_hack` latch, not "this best is a hack", and
+`generate_run_performance_stats.py` (module docstring, line 369) forbids using
+it as an eligibility gate. Every `n` in this report was therefore understated
+by roughly `problems_with_hack`; the corrected values are above and now equal
+`total_correct` at iteration 30. **No geomean, fast-p, or correctness value
+changed** — only `n`, and key insight #5, which had rested on it.
+`avg_wall_time_min` was also corrected: it had fallen through to the
+`total / problems_timed_this_session` fallback the code warns against, which
+reported ~66 h *per problem* instead of ~79 min.

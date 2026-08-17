@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-08-16T03:36:44.672332+00:00",
-  "runs_root": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b",
-  "baseline_file": "/home/kwtamai/KernelBench/results/timing/SONG_CPU6_A6000x4/baseline_time_torch.json",
+  "generated_at_utc": "2026-08-16T06:56:41.664502+00:00",
+  "runs_root": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b",
+  "baseline_file": "/localhome/local-tianzheng/KernelBench/results/timing/SONG_CPU6_A6000x4/baseline_time_torch.json",
   "fast_p_thresholds": [
     0.0,
     0.5,
@@ -21,7 +21,7 @@
   "runs": [
     {
       "run_name": "base_agent_gpt_oss_120b_itr30_2026_08_02_17_58",
-      "run_dir": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_gpt_oss_120b_itr30_2026_08_02_17_58",
+      "run_dir": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_gpt_oss_120b_itr30_2026_08_02_17_58",
       "status": "complete",
       "timestamp": "2026-08-13T13:17:09.601562+00:00",
       "run_name_timestamp": "2026-08-02T17:58",
@@ -88,8 +88,8 @@
         "batch_session_wall_time_sec": 3750.104,
         "total_wall_time_sec": 238280.215,
         "total_wall_time_hours": 66.1889,
-        "avg_wall_time_sec": 238280.215,
-        "avg_wall_time_min": 3971.3369,
+        "avg_wall_time_sec": 4714.726,
+        "avg_wall_time_min": 78.5788,
         "problems_timed_this_session": 1,
         "batch_timing_rows": 51,
         "batch_timing_status_counts": {
@@ -132,7 +132,7 @@
           "mean": 1.611135,
           "median": 1.252288,
           "geometric_mean": 1.385453,
-          "n": 41
+          "n": 49
         },
         "fast_p_best": {
           "0.0": 0.98,
@@ -782,137 +782,137 @@
             {
               "iteration": 4,
               "value": 0.884372,
-              "n": 27
+              "n": 28
             },
             {
               "iteration": 5,
               "value": 1.006335,
-              "n": 29
+              "n": 31
             },
             {
               "iteration": 6,
               "value": 1.018527,
-              "n": 31
+              "n": 34
             },
             {
               "iteration": 7,
               "value": 0.940487,
-              "n": 34
+              "n": 38
             },
             {
               "iteration": 8,
               "value": 1.151507,
-              "n": 37
+              "n": 41
             },
             {
               "iteration": 9,
               "value": 1.195189,
-              "n": 38
+              "n": 42
             },
             {
               "iteration": 10,
               "value": 1.170024,
-              "n": 39
+              "n": 44
             },
             {
               "iteration": 11,
               "value": 1.193654,
-              "n": 39
+              "n": 44
             },
             {
               "iteration": 12,
               "value": 1.204326,
-              "n": 40
+              "n": 45
             },
             {
               "iteration": 13,
               "value": 1.249171,
-              "n": 40
+              "n": 45
             },
             {
               "iteration": 14,
               "value": 1.25446,
-              "n": 40
+              "n": 45
             },
             {
               "iteration": 15,
               "value": 1.27885,
-              "n": 41
+              "n": 46
             },
             {
               "iteration": 16,
               "value": 1.269742,
-              "n": 42
+              "n": 47
             },
             {
               "iteration": 17,
               "value": 1.30628,
-              "n": 42
+              "n": 47
             },
             {
               "iteration": 18,
               "value": 1.30628,
-              "n": 42
+              "n": 47
             },
             {
               "iteration": 19,
               "value": 1.321044,
-              "n": 42
+              "n": 47
             },
             {
               "iteration": 20,
               "value": 1.321776,
-              "n": 42
+              "n": 47
             },
             {
               "iteration": 21,
               "value": 1.365937,
-              "n": 42
+              "n": 47
             },
             {
               "iteration": 22,
               "value": 1.36658,
-              "n": 42
+              "n": 47
             },
             {
               "iteration": 23,
               "value": 1.388916,
-              "n": 41
+              "n": 47
             },
             {
               "iteration": 24,
               "value": 1.398419,
-              "n": 40
+              "n": 47
             },
             {
               "iteration": 25,
               "value": 1.398615,
-              "n": 39
+              "n": 47
             },
             {
               "iteration": 26,
               "value": 1.399268,
-              "n": 39
+              "n": 47
             },
             {
               "iteration": 27,
               "value": 1.402018,
-              "n": 39
+              "n": 47
             },
             {
               "iteration": 28,
               "value": 1.392009,
-              "n": 40
+              "n": 48
             },
             {
               "iteration": 29,
               "value": 1.392435,
-              "n": 40
+              "n": 48
             },
             {
               "iteration": 30,
               "value": 1.385453,
-              "n": 41
+              "n": 49
             }
           ]
         },
@@ -2385,16 +2385,14 @@
           ]
         }
       },
-      "performance_stats_path": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_gpt_oss_120b_itr30_2026_08_02_17_58/visualizations/performance_stats.json",
-      "performance_stats_source": "regenerated_stale",
+      "performance_stats_path": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_gpt_oss_120b_itr30_2026_08_02_17_58/visualizations/performance_stats.json",
+      "performance_stats_source": "cached",
       "performance_stats_error": null,
-      "warnings": [
-        "performance_stats rebuilt: run artifacts are newer than cached performance_stats.json"
-      ]
+      "warnings": []
     },
     {
       "run_name": "base_agent_oss120b_deletion_itr30_2026_08_02_17_57",
-      "run_dir": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_deletion_itr30_2026_08_02_17_57",
+      "run_dir": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_deletion_itr30_2026_08_02_17_57",
       "status": "complete",
       "timestamp": "2026-08-13T22:01:38.942837+00:00",
       "run_name_timestamp": "2026-08-02T17:57",
@@ -2461,8 +2459,8 @@
         "batch_session_wall_time_sec": 4558.623,
         "total_wall_time_sec": 286382.73,
         "total_wall_time_hours": 79.5508,
-        "avg_wall_time_sec": 286382.73,
-        "avg_wall_time_min": 4773.0455,
+        "avg_wall_time_sec": 5381.504,
+        "avg_wall_time_min": 89.6917,
         "problems_timed_this_session": 1,
         "batch_timing_rows": 53,
         "batch_timing_status_counts": {
@@ -2512,7 +2510,7 @@
           "mean": 1.412363,
           "median": 1.139434,
           "geometric_mean": 1.251767,
-          "n": 35
+          "n": 49
         },
         "fast_p_best": {
           "0.0": 0.98,
@@ -3157,142 +3155,142 @@
             {
               "iteration": 3,
               "value": 0.661642,
-              "n": 20
+              "n": 22
             },
             {
               "iteration": 4,
               "value": 0.840403,
-              "n": 23
+              "n": 25
             },
             {
               "iteration": 5,
               "value": 0.82827,
-              "n": 29
+              "n": 32
             },
             {
               "iteration": 6,
               "value": 0.767789,
-              "n": 31
+              "n": 35
             },
             {
               "iteration": 7,
               "value": 0.887426,
-              "n": 32
+              "n": 36
             },
             {
               "iteration": 8,
               "value": 0.904216,
-              "n": 31
+              "n": 36
             },
             {
               "iteration": 9,
               "value": 0.837534,
-              "n": 33
+              "n": 38
             },
             {
               "iteration": 10,
               "value": 0.860618,
-              "n": 34
+              "n": 40
             },
             {
               "iteration": 11,
               "value": 0.895901,
-              "n": 35
+              "n": 43
             },
             {
               "iteration": 12,
               "value": 0.941565,
-              "n": 34
+              "n": 43
             },
             {
               "iteration": 13,
               "value": 1.043509,
-              "n": 34
+              "n": 43
             },
             {
               "iteration": 14,
               "value": 1.045089,
-              "n": 35
+              "n": 44
             },
             {
               "iteration": 15,
               "value": 1.060859,
-              "n": 36
+              "n": 46
             },
             {
               "iteration": 16,
               "value": 1.08819,
-              "n": 36
+              "n": 46
             },
             {
               "iteration": 17,
               "value": 1.095738,
-              "n": 37
+              "n": 47
             },
             {
               "iteration": 18,
               "value": 1.135614,
-              "n": 37
+              "n": 47
             },
             {
               "iteration": 19,
               "value": 1.138958,
-              "n": 37
+              "n": 47
             },
             {
               "iteration": 20,
               "value": 1.142812,
-              "n": 37
+              "n": 47
             },
             {
               "iteration": 21,
               "value": 1.147958,
-              "n": 37
+              "n": 47
             },
             {
               "iteration": 22,
               "value": 1.148212,
-              "n": 38
+              "n": 48
             },
             {
               "iteration": 23,
               "value": 1.156832,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 24,
               "value": 1.177008,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 25,
               "value": 1.181074,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 26,
               "value": 1.212951,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 27,
               "value": 1.249903,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 28,
               "value": 1.249831,
-              "n": 38
+              "n": 49
             },
             {
               "iteration": 29,
               "value": 1.251123,
-              "n": 37
+              "n": 49
             },
             {
               "iteration": 30,
               "value": 1.251767,
-              "n": 35
+              "n": 49
             }
           ]
         },
@@ -4765,16 +4763,14 @@
           ]
         }
       },
-      "performance_stats_path": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_deletion_itr30_2026_08_02_17_57/visualizations/performance_stats.json",
-      "performance_stats_source": "regenerated_stale",
+      "performance_stats_path": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_deletion_itr30_2026_08_02_17_57/visualizations/performance_stats.json",
+      "performance_stats_source": "cached",
       "performance_stats_error": null,
-      "warnings": [
-        "performance_stats rebuilt: run artifacts are newer than cached performance_stats.json"
-      ]
+      "warnings": []
     },
     {
       "run_name": "base_agent_oss120b_deletion_merge_refine_sim_07_itr30_2026_08_09_13_48",
-      "run_dir": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_deletion_merge_refine_sim_07_itr30_2026_08_09_13_48",
+      "run_dir": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_deletion_merge_refine_sim_07_itr30_2026_08_09_13_48",
       "status": "complete",
       "timestamp": "2026-08-15T18:12:45.029289+00:00",
       "run_name_timestamp": "2026-08-09T13:48",
@@ -4841,8 +4837,8 @@
         "batch_session_wall_time_sec": 6880.7,
         "total_wall_time_sec": 395201.315,
         "total_wall_time_hours": 109.7781,
-        "avg_wall_time_sec": 395201.315,
-        "avg_wall_time_min": 6586.6886,
+        "avg_wall_time_sec": 7654.0,
+        "avg_wall_time_min": 127.5667,
         "problems_timed_this_session": 1,
         "batch_timing_rows": 52,
         "batch_timing_status_counts": {
@@ -4898,7 +4894,7 @@
           "mean": 1.860601,
           "median": 1.170139,
           "geometric_mean": 1.396615,
-          "n": 36
+          "n": 48
         },
         "fast_p_best": {
           "0.0": 0.96,
@@ -5558,127 +5554,127 @@
             {
               "iteration": 6,
               "value": 1.155891,
-              "n": 33
+              "n": 34
             },
             {
               "iteration": 7,
               "value": 1.170053,
-              "n": 34
+              "n": 36
             },
             {
               "iteration": 8,
               "value": 1.066699,
-              "n": 35
+              "n": 39
             },
             {
               "iteration": 9,
               "value": 1.086775,
-              "n": 36
+              "n": 40
             },
             {
               "iteration": 10,
               "value": 1.153149,
-              "n": 36
+              "n": 41
             },
             {
               "iteration": 11,
               "value": 1.165195,
-              "n": 37
+              "n": 42
             },
             {
               "iteration": 12,
               "value": 1.176154,
-              "n": 39
+              "n": 44
             },
             {
               "iteration": 13,
               "value": 1.177822,
-              "n": 38
+              "n": 44
             },
             {
               "iteration": 14,
               "value": 1.190907,
-              "n": 37
+              "n": 44
             },
             {
               "iteration": 15,
               "value": 1.206304,
-              "n": 37
+              "n": 44
             },
             {
               "iteration": 16,
               "value": 1.204446,
-              "n": 37
+              "n": 45
             },
             {
               "iteration": 17,
               "value": 1.21318,
-              "n": 37
+              "n": 45
             },
             {
               "iteration": 18,
               "value": 1.308792,
-              "n": 37
+              "n": 46
             },
             {
               "iteration": 19,
               "value": 1.310357,
-              "n": 37
+              "n": 46
             },
             {
               "iteration": 20,
               "value": 1.311071,
-              "n": 37
+              "n": 46
             },
             {
               "iteration": 21,
               "value": 1.306083,
-              "n": 38
+              "n": 47
             },
             {
               "iteration": 22,
               "value": 1.321543,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 23,
               "value": 1.347907,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 24,
               "value": 1.356283,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 25,
               "value": 1.356371,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 26,
               "value": 1.361033,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 27,
               "value": 1.36121,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 28,
               "value": 1.361253,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 29,
               "value": 1.364601,
-              "n": 36
+              "n": 48
             },
             {
               "iteration": 30,
               "value": 1.396615,
-              "n": 36
+              "n": 48
             }
           ]
         },
@@ -7151,16 +7147,14 @@
           ]
         }
       },
-      "performance_stats_path": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_deletion_merge_refine_sim_07_itr30_2026_08_09_13_48/visualizations/performance_stats.json",
-      "performance_stats_source": "regenerated_stale",
+      "performance_stats_path": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_deletion_merge_refine_sim_07_itr30_2026_08_09_13_48/visualizations/performance_stats.json",
+      "performance_stats_source": "cached",
       "performance_stats_error": null,
-      "warnings": [
-        "performance_stats rebuilt: run artifacts are newer than cached performance_stats.json"
-      ]
+      "warnings": []
     },
     {
       "run_name": "base_agent_oss120b_folding_itr30_2026_08_09_13_47",
-      "run_dir": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_folding_itr30_2026_08_09_13_47",
+      "run_dir": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_folding_itr30_2026_08_09_13_47",
       "status": "complete",
       "timestamp": "2026-08-13T10:21:45.870521+00:00",
       "run_name_timestamp": "2026-08-09T13:47",
@@ -7227,8 +7221,8 @@
         "batch_session_wall_time_sec": 6012.06,
         "total_wall_time_sec": 324273.603,
         "total_wall_time_hours": 90.076,
-        "avg_wall_time_sec": 324273.603,
-        "avg_wall_time_min": 5404.5601,
+        "avg_wall_time_sec": 6466.934,
+        "avg_wall_time_min": 107.7822,
         "problems_timed_this_session": 1,
         "batch_timing_rows": 51,
         "batch_timing_status_counts": {
@@ -7271,7 +7265,7 @@
           "mean": 1.495547,
           "median": 1.076556,
           "geometric_mean": 1.224275,
-          "n": 38
+          "n": 48
         },
         "fast_p_best": {
           "0.0": 0.96,
@@ -7936,122 +7930,122 @@
             {
               "iteration": 7,
               "value": 1.005972,
-              "n": 40
+              "n": 41
             },
             {
               "iteration": 8,
               "value": 0.974455,
-              "n": 41
+              "n": 42
             },
             {
               "iteration": 9,
               "value": 0.987949,
-              "n": 43
+              "n": 45
             },
             {
               "iteration": 10,
               "value": 1.01687,
-              "n": 45
+              "n": 47
             },
             {
               "iteration": 11,
               "value": 1.020382,
-              "n": 44
+              "n": 47
             },
             {
               "iteration": 12,
               "value": 1.084548,
-              "n": 44
+              "n": 47
             },
             {
               "iteration": 13,
               "value": 1.10639,
-              "n": 43
+              "n": 47
             },
             {
               "iteration": 14,
               "value": 1.107925,
-              "n": 43
+              "n": 47
             },
             {
               "iteration": 15,
               "value": 1.110423,
-              "n": 43
+              "n": 48
             },
             {
               "iteration": 16,
               "value": 1.13376,
-              "n": 42
+              "n": 48
             },
             {
               "iteration": 17,
               "value": 1.164893,
-              "n": 41
+              "n": 48
             },
             {
               "iteration": 18,
               "value": 1.179035,
-              "n": 41
+              "n": 48
             },
             {
               "iteration": 19,
               "value": 1.185376,
-              "n": 40
+              "n": 48
             },
             {
               "iteration": 20,
               "value": 1.18656,
-              "n": 40
+              "n": 48
             },
             {
               "iteration": 21,
               "value": 1.189389,
-              "n": 40
+              "n": 48
             },
             {
               "iteration": 22,
               "value": 1.190001,
-              "n": 40
+              "n": 48
             },
             {
               "iteration": 23,
               "value": 1.198977,
-              "n": 39
+              "n": 48
             },
             {
               "iteration": 24,
               "value": 1.204644,
-              "n": 39
+              "n": 48
             },
             {
               "iteration": 25,
               "value": 1.208993,
-              "n": 38
+              "n": 48
             },
             {
               "iteration": 26,
               "value": 1.216021,
-              "n": 38
+              "n": 48
             },
             {
               "iteration": 27,
               "value": 1.220716,
-              "n": 38
+              "n": 48
             },
             {
               "iteration": 28,
               "value": 1.220876,
-              "n": 38
+              "n": 48
             },
             {
               "iteration": 29,
               "value": 1.223206,
-              "n": 38
+              "n": 48
             },
             {
               "iteration": 30,
               "value": 1.224275,
-              "n": 38
+              "n": 48
             }
           ]
         },
@@ -9524,16 +9518,14 @@
           ]
         }
       },
-      "performance_stats_path": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_folding_itr30_2026_08_09_13_47/visualizations/performance_stats.json",
-      "performance_stats_source": "regenerated_stale",
+      "performance_stats_path": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_folding_itr30_2026_08_09_13_47/visualizations/performance_stats.json",
+      "performance_stats_source": "cached",
       "performance_stats_error": null,
-      "warnings": [
-        "performance_stats rebuilt: run artifacts are newer than cached performance_stats.json"
-      ]
+      "warnings": []
     },
     {
       "run_name": "base_agent_oss120b_markov_itr30_2026_08_07_14_07",
-      "run_dir": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_markov_itr30_2026_08_07_14_07",
+      "run_dir": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_markov_itr30_2026_08_07_14_07",
       "status": "complete",
       "timestamp": "2026-08-15T20:07:38.050546+00:00",
       "run_name_timestamp": "2026-08-07T14:07",
@@ -9600,8 +9592,8 @@
         "batch_session_wall_time_sec": 3992.107,
         "total_wall_time_sec": 302656.729,
         "total_wall_time_hours": 84.0713,
-        "avg_wall_time_sec": 302656.729,
-        "avg_wall_time_min": 5044.2788,
+        "avg_wall_time_sec": 5736.016,
+        "avg_wall_time_min": 95.6003,
         "problems_timed_this_session": 1,
         "batch_timing_rows": 54,
         "batch_timing_status_counts": {
@@ -9644,7 +9636,7 @@
           "mean": 1.351417,
           "median": 1.040018,
           "geometric_mean": 1.030159,
-          "n": 36
+          "n": 50
         },
         "fast_p_best": {
           "0.0": 1.0,
@@ -10289,142 +10281,142 @@
             {
               "iteration": 3,
               "value": 0.638954,
-              "n": 22
+              "n": 23
             },
             {
               "iteration": 4,
               "value": 0.774609,
-              "n": 27
+              "n": 28
             },
             {
               "iteration": 5,
               "value": 0.823399,
-              "n": 31
+              "n": 32
             },
             {
               "iteration": 6,
               "value": 0.908669,
-              "n": 34
+              "n": 35
             },
             {
               "iteration": 7,
               "value": 0.951223,
-              "n": 38
+              "n": 40
             },
             {
               "iteration": 8,
               "value": 0.880217,
-              "n": 38
+              "n": 43
             },
             {
               "iteration": 9,
               "value": 0.887648,
-              "n": 41
+              "n": 47
             },
             {
               "iteration": 10,
               "value": 0.88861,
-              "n": 42
+              "n": 48
             },
             {
               "iteration": 11,
               "value": 0.894428,
-              "n": 42
+              "n": 48
             },
             {
               "iteration": 12,
               "value": 0.898921,
-              "n": 42
+              "n": 48
             },
             {
               "iteration": 13,
               "value": 0.902403,
-              "n": 41
+              "n": 48
             },
             {
               "iteration": 14,
               "value": 0.914738,
-              "n": 41
+              "n": 48
             },
             {
               "iteration": 15,
               "value": 0.922228,
-              "n": 41
+              "n": 48
             },
             {
               "iteration": 16,
               "value": 0.922759,
-              "n": 40
+              "n": 48
             },
             {
               "iteration": 17,
               "value": 0.945492,
-              "n": 40
+              "n": 49
             },
             {
               "iteration": 18,
               "value": 0.94849,
-              "n": 40
+              "n": 50
             },
             {
               "iteration": 19,
               "value": 0.964956,
-              "n": 40
+              "n": 50
             },
             {
               "iteration": 20,
               "value": 0.982615,
-              "n": 40
+              "n": 50
             },
             {
               "iteration": 21,
               "value": 0.988893,
-              "n": 40
+              "n": 50
             },
             {
               "iteration": 22,
               "value": 1.012323,
-              "n": 40
+              "n": 50
             },
             {
               "iteration": 23,
               "value": 1.012922,
-              "n": 39
+              "n": 50
             },
             {
               "iteration": 24,
               "value": 1.012953,
-              "n": 38
+              "n": 50
             },
             {
               "iteration": 25,
               "value": 1.013042,
-              "n": 38
+              "n": 50
             },
             {
               "iteration": 26,
               "value": 1.015245,
-              "n": 38
+              "n": 50
             },
             {
               "iteration": 27,
               "value": 1.016187,
-              "n": 37
+              "n": 50
             },
             {
               "iteration": 28,
               "value": 1.017665,
-              "n": 37
+              "n": 50
             },
             {
               "iteration": 29,
               "value": 1.028978,
-              "n": 37
+              "n": 50
             },
             {
               "iteration": 30,
               "value": 1.030159,
-              "n": 36
+              "n": 50
             }
           ]
         },
@@ -11897,16 +11889,14 @@
           ]
         }
       },
-      "performance_stats_path": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_markov_itr30_2026_08_07_14_07/visualizations/performance_stats.json",
-      "performance_stats_source": "regenerated_stale",
+      "performance_stats_path": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_markov_itr30_2026_08_07_14_07/visualizations/performance_stats.json",
+      "performance_stats_source": "cached",
       "performance_stats_error": null,
-      "warnings": [
-        "performance_stats rebuilt: run artifacts are newer than cached performance_stats.json"
-      ]
+      "warnings": []
     },
     {
       "run_name": "base_agent_oss120b_merge_only_sim_07_itr30_2026_08_05_15_49",
-      "run_dir": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_merge_only_sim_07_itr30_2026_08_05_15_49",
+      "run_dir": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_merge_only_sim_07_itr30_2026_08_05_15_49",
       "status": "complete",
       "timestamp": "2026-08-13T17:09:37.194644+00:00",
       "run_name_timestamp": "2026-08-05T15:49",
@@ -11973,8 +11963,8 @@
         "batch_session_wall_time_sec": 5196.614,
         "total_wall_time_sec": 323986.432,
         "total_wall_time_hours": 89.9962,
-        "avg_wall_time_sec": 323986.432,
-        "avg_wall_time_min": 5399.7739,
+        "avg_wall_time_sec": 6235.93,
+        "avg_wall_time_min": 103.9322,
         "problems_timed_this_session": 1,
         "batch_timing_rows": 54,
         "batch_timing_status_counts": {
@@ -12025,7 +12015,7 @@
           "mean": 1.434102,
           "median": 1.052459,
           "geometric_mean": 1.238735,
-          "n": 35
+          "n": 49
         },
         "fast_p_best": {
           "0.0": 0.98,
@@ -12670,142 +12660,142 @@
             {
               "iteration": 3,
               "value": 0.72474,
-              "n": 21
+              "n": 22
             },
             {
               "iteration": 4,
               "value": 0.982744,
-              "n": 28
+              "n": 30
             },
             {
               "iteration": 5,
               "value": 1.006445,
-              "n": 30
+              "n": 33
             },
             {
               "iteration": 6,
               "value": 0.899567,
-              "n": 31
+              "n": 35
             },
             {
               "iteration": 7,
               "value": 1.08448,
-              "n": 31
+              "n": 36
             },
             {
               "iteration": 8,
               "value": 1.109036,
-              "n": 32
+              "n": 37
             },
             {
               "iteration": 9,
               "value": 1.010777,
-              "n": 34
+              "n": 41
             },
             {
               "iteration": 10,
               "value": 1.017289,
-              "n": 36
+              "n": 44
             },
             {
               "iteration": 11,
               "value": 1.023992,
-              "n": 35
+              "n": 44
             },
             {
               "iteration": 12,
               "value": 1.036826,
-              "n": 35
+              "n": 45
             },
             {
               "iteration": 13,
               "value": 1.042558,
-              "n": 36
+              "n": 47
             },
             {
               "iteration": 14,
               "value": 1.063236,
-              "n": 36
+              "n": 47
             },
             {
               "iteration": 15,
               "value": 1.065527,
-              "n": 36
+              "n": 47
             },
             {
               "iteration": 16,
               "value": 1.146732,
-              "n": 36
+              "n": 47
             },
             {
               "iteration": 17,
               "value": 1.133444,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 18,
               "value": 1.134521,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 19,
               "value": 1.152241,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 20,
               "value": 1.154757,
-              "n": 36
+              "n": 48
             },
             {
               "iteration": 21,
               "value": 1.169706,
-              "n": 36
+              "n": 48
             },
             {
               "iteration": 22,
               "value": 1.170005,
-              "n": 36
+              "n": 48
             },
             {
               "iteration": 23,
               "value": 1.190399,
-              "n": 36
+              "n": 48
             },
             {
               "iteration": 24,
               "value": 1.192336,
-              "n": 36
+              "n": 48
             },
             {
               "iteration": 25,
               "value": 1.192484,
-              "n": 36
+              "n": 48
             },
             {
               "iteration": 26,
               "value": 1.200932,
-              "n": 36
+              "n": 48
             },
             {
               "iteration": 27,
               "value": 1.234001,
-              "n": 36
+              "n": 48
             },
             {
               "iteration": 28,
               "value": 1.232,
-              "n": 37
+              "n": 49
             },
             {
               "iteration": 29,
               "value": 1.232,
-              "n": 37
+              "n": 49
             },
             {
               "iteration": 30,
               "value": 1.238735,
-              "n": 35
+              "n": 49
             }
           ]
         },
@@ -14278,16 +14268,14 @@
           ]
         }
       },
-      "performance_stats_path": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_merge_only_sim_07_itr30_2026_08_05_15_49/visualizations/performance_stats.json",
-      "performance_stats_source": "regenerated_stale",
+      "performance_stats_path": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_merge_only_sim_07_itr30_2026_08_05_15_49/visualizations/performance_stats.json",
+      "performance_stats_source": "cached",
       "performance_stats_error": null,
-      "warnings": [
-        "performance_stats rebuilt: run artifacts are newer than cached performance_stats.json"
-      ]
+      "warnings": []
     },
     {
       "run_name": "base_agent_oss120b_selective_recent5_itr30_2026_08_05_15_56",
-      "run_dir": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_selective_recent5_itr30_2026_08_05_15_56",
+      "run_dir": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_selective_recent5_itr30_2026_08_05_15_56",
       "status": "complete",
       "timestamp": "2026-08-13T23:53:35.577918+00:00",
       "run_name_timestamp": "2026-08-05T15:56",
@@ -14354,8 +14342,8 @@
         "batch_session_wall_time_sec": 7860.474,
         "total_wall_time_sec": 312677.599,
         "total_wall_time_hours": 86.8549,
-        "avg_wall_time_sec": 156338.8,
-        "avg_wall_time_min": 2605.6467,
+        "avg_wall_time_sec": 6056.893,
+        "avg_wall_time_min": 100.9482,
         "problems_timed_this_session": 2,
         "batch_timing_rows": 56,
         "batch_timing_status_counts": {
@@ -14398,7 +14386,7 @@
           "mean": 1.482396,
           "median": 1.10802,
           "geometric_mean": 1.285906,
-          "n": 37
+          "n": 48
         },
         "fast_p_best": {
           "0.0": 0.96,
@@ -15053,132 +15041,132 @@
             {
               "iteration": 5,
               "value": 0.98577,
-              "n": 35
+              "n": 36
             },
             {
               "iteration": 6,
               "value": 1.020605,
-              "n": 36
+              "n": 38
             },
             {
               "iteration": 7,
               "value": 0.990137,
-              "n": 37
+              "n": 41
             },
             {
               "iteration": 8,
               "value": 1.003881,
-              "n": 40
+              "n": 45
             },
             {
               "iteration": 9,
               "value": 1.038929,
-              "n": 39
+              "n": 46
             },
             {
               "iteration": 10,
               "value": 1.065386,
-              "n": 39
+              "n": 46
             },
             {
               "iteration": 11,
               "value": 1.11644,
-              "n": 39
+              "n": 46
             },
             {
               "iteration": 12,
               "value": 1.133424,
-              "n": 39
+              "n": 47
             },
             {
               "iteration": 13,
               "value": 1.136834,
-              "n": 38
+              "n": 47
             },
             {
               "iteration": 14,
               "value": 1.142814,
-              "n": 37
+              "n": 47
             },
             {
               "iteration": 15,
               "value": 1.144617,
-              "n": 38
+              "n": 48
             },
             {
               "iteration": 16,
               "value": 1.176466,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 17,
               "value": 1.181654,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 18,
               "value": 1.183795,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 19,
               "value": 1.196435,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 20,
               "value": 1.199108,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 21,
               "value": 1.199866,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 22,
               "value": 1.226138,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 23,
               "value": 1.228294,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 24,
               "value": 1.228294,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 25,
               "value": 1.232957,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 26,
               "value": 1.253297,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 27,
               "value": 1.253978,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 28,
               "value": 1.26265,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 29,
               "value": 1.285675,
-              "n": 37
+              "n": 48
             },
             {
               "iteration": 30,
               "value": 1.285906,
-              "n": 37
+              "n": 48
             }
           ]
         },
@@ -16651,16 +16639,14 @@
           ]
         }
       },
-      "performance_stats_path": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_selective_recent5_itr30_2026_08_05_15_56/visualizations/performance_stats.json",
-      "performance_stats_source": "regenerated_stale",
+      "performance_stats_path": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_selective_recent5_itr30_2026_08_05_15_56/visualizations/performance_stats.json",
+      "performance_stats_source": "cached",
       "performance_stats_error": null,
-      "warnings": [
-        "performance_stats rebuilt: run artifacts are newer than cached performance_stats.json"
-      ]
+      "warnings": []
     },
     {
       "run_name": "base_agent_oss120b_skill_refinement_itr30_2026_08_02_17_57",
-      "run_dir": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_skill_refinement_itr30_2026_08_02_17_57",
+      "run_dir": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_skill_refinement_itr30_2026_08_02_17_57",
       "status": "complete",
       "timestamp": "2026-08-13T17:25:07.144628+00:00",
       "run_name_timestamp": "2026-08-02T17:57",
@@ -16727,8 +16713,8 @@
         "batch_session_wall_time_sec": 3678.899,
         "total_wall_time_sec": 263289.853,
         "total_wall_time_hours": 73.1361,
-        "avg_wall_time_sec": 263289.853,
-        "avg_wall_time_min": 4388.1642,
+        "avg_wall_time_sec": 5101.329,
+        "avg_wall_time_min": 85.0221,
         "problems_timed_this_session": 1,
         "batch_timing_rows": 52,
         "batch_timing_status_counts": {
@@ -16773,7 +16759,7 @@
           "mean": 1.419905,
           "median": 1.056962,
           "geometric_mean": 1.23332,
-          "n": 32
+          "n": 47
         },
         "fast_p_best": {
           "0.0": 0.94,
@@ -17418,142 +17404,142 @@
             {
               "iteration": 3,
               "value": 0.63831,
-              "n": 26
+              "n": 27
             },
             {
               "iteration": 4,
               "value": 0.75559,
-              "n": 28
+              "n": 31
             },
             {
               "iteration": 5,
               "value": 0.775371,
-              "n": 29
+              "n": 32
             },
             {
               "iteration": 6,
               "value": 0.807624,
-              "n": 31
+              "n": 34
             },
             {
               "iteration": 7,
               "value": 0.839358,
-              "n": 32
+              "n": 35
             },
             {
               "iteration": 8,
               "value": 1.028666,
-              "n": 36
+              "n": 39
             },
             {
               "iteration": 9,
               "value": 1.038789,
-              "n": 35
+              "n": 40
             },
             {
               "iteration": 10,
               "value": 1.106084,
-              "n": 36
+              "n": 42
             },
             {
               "iteration": 11,
               "value": 1.092732,
-              "n": 38
+              "n": 44
             },
             {
               "iteration": 12,
               "value": 1.124887,
-              "n": 37
+              "n": 44
             },
             {
               "iteration": 13,
               "value": 1.132999,
-              "n": 38
+              "n": 45
             },
             {
               "iteration": 14,
               "value": 1.136935,
-              "n": 38
+              "n": 46
             },
             {
               "iteration": 15,
               "value": 1.186783,
-              "n": 38
+              "n": 46
             },
             {
               "iteration": 16,
               "value": 1.189403,
-              "n": 38
+              "n": 46
             },
             {
               "iteration": 17,
               "value": 1.191488,
-              "n": 36
+              "n": 46
             },
             {
               "iteration": 18,
               "value": 1.198731,
-              "n": 35
+              "n": 46
             },
             {
               "iteration": 19,
               "value": 1.19459,
-              "n": 36
+              "n": 47
             },
             {
               "iteration": 20,
               "value": 1.198641,
-              "n": 36
+              "n": 47
             },
             {
               "iteration": 21,
               "value": 1.201955,
-              "n": 36
+              "n": 47
             },
             {
               "iteration": 22,
               "value": 1.20693,
-              "n": 35
+              "n": 47
             },
             {
               "iteration": 23,
               "value": 1.207526,
-              "n": 34
+              "n": 47
             },
             {
               "iteration": 24,
               "value": 1.208216,
-              "n": 34
+              "n": 47
             },
             {
               "iteration": 25,
               "value": 1.210697,
-              "n": 33
+              "n": 47
             },
             {
               "iteration": 26,
               "value": 1.22919,
-              "n": 33
+              "n": 47
             },
             {
               "iteration": 27,
               "value": 1.232643,
-              "n": 33
+              "n": 47
             },
             {
               "iteration": 28,
               "value": 1.232947,
-              "n": 32
+              "n": 47
             },
             {
               "iteration": 29,
               "value": 1.233112,
-              "n": 32
+              "n": 47
             },
             {
               "iteration": 30,
               "value": 1.23332,
-              "n": 32
+              "n": 47
             }
           ]
         },
@@ -19026,12 +19012,10 @@
           ]
         }
       },
-      "performance_stats_path": "/home/kwtamai/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_skill_refinement_itr30_2026_08_02_17_57/visualizations/performance_stats.json",
-      "performance_stats_source": "regenerated_stale",
+      "performance_stats_path": "/localhome/local-tianzheng/KernelBench/runs_evolving/inference_oss_120b/base_agent_oss120b_skill_refinement_itr30_2026_08_02_17_57/visualizations/performance_stats.json",
+      "performance_stats_source": "cached",
       "performance_stats_error": null,
-      "warnings": [
-        "performance_stats rebuilt: run artifacts are newer than cached performance_stats.json"
-      ]
+      "warnings": []
     }
   ]
 }

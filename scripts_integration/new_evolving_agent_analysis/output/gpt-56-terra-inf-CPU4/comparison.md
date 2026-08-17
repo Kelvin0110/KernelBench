@@ -1,9 +1,9 @@
 # Evolving-agent cross-run comparison
 
-- generated_at_utc: `2026-08-16T03:47:07.772377+00:00`
-- aggregate_generated_at_utc: `2026-08-16T03:36:42.004786+00:00`
-- runs_root: `/home/kwtamai/KernelBench/runs_evolving/inference_gpt_56_terra`
-- baseline_timing_file: `/home/kwtamai/KernelBench/results/timing/SONG_CPU4_A6000x2/baseline_time_torch.json`
+- generated_at_utc: `2026-08-16T06:58:22.702904+00:00`
+- aggregate_generated_at_utc: `2026-08-16T06:56:55.163264+00:00`
+- runs_root: `/localhome/local-tianzheng/KernelBench/runs_evolving/inference_gpt_56_terra`
+- baseline_timing_file: `/localhome/local-tianzheng/KernelBench/results/timing/SONG_CPU4_A6000x2/baseline_time_torch.json`
 - speedup_aggregate_policy: `correct_only_exclude_hack`
 - runs compared: 3
 - analysis_rules: `scripts_integration/new_evolving_agent_analysis/ANALYSIS_RULES.md`
@@ -21,19 +21,19 @@
 
 | id | context_mgmt | itr | problems | completed | correct | correct_rate | rate_basis | wall_h | avg_min/problem | suspicious |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| R1 | truncation | 30 | 50 | 50 | 49 | 0.980 | total_attempted | 104.11 | 6246.5 | 0 |
-| R2 | markov_report | 30 | 50 | 50 | 49 | 0.980 | total_attempted | 94.71 | 2841.3 | 0 |
+| R1 | truncation | 30 | 50 | 50 | 49 | 0.980 | total_attempted | 104.11 | 93.3 | 0 |
+| R2 | markov_report | 30 | 50 | 50 | 49 | 0.980 | total_attempted | 94.71 | 100.8 | 0 |
 | R3 | compress_trigger | 30 | 50 | 50 | 49 | 0.980 | total_attempted | 73.25 | 87.9 | 0 |
 
 ## Required checkpoints: iterations 10 and 30
 
-Every design variant is scored at the same two iteration budgets. `fast_p_best@0` is the correctness-like coverage (fraction of all problems whose running-best speedup is at least 0). `fast_p_best@1` and `@2` use the same full-problem denominator. `speedup_best` geomean uses only correct, non-hack samples; read `n` next to it. Speedup is already relative to this series' native torch baseline — do not rescore one host onto another host's baseline to compare models.
+Every design variant is scored at the same two iteration budgets. `fast_p_best@0` is the correctness-like coverage (fraction of all problems whose running-best speedup is at least 0). `fast_p_best@1` and `@2` use the same full-problem denominator. `speedup_best` geomean uses every problem holding a non-hack running best, so its `n` tracks `total_correct`; read `n` next to it. Speedup is already relative to this series' native torch baseline — do not rescore one host onto another host's baseline to compare models.
 
 | id | design | status | correct | I10 @0 | I10 @1 | I10 @2 | I10 geomean | I10 n | I30 @0 | I30 @1 | I30 @2 | I30 geomean | I30 n |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| R1 | truncation | complete | 49/50 | 0.960 | 0.700 | 0.200 | 1.5023 | 45 | 0.980 | 0.820 | 0.260 | 1.7796 | 44 |
-| R2 | markov_report | complete | 49/50 | 0.940 | 0.740 | 0.200 | 1.4437 | 43 | 0.980 | 0.820 | 0.300 | 1.8153 | 39 |
-| R3 | compress_trigger | complete | 49/50 | 0.980 | 0.680 | 0.200 | 1.4046 | 46 | 0.980 | 0.700 | 0.300 | 1.6438 | 43 |
+| R1 | truncation | complete | 49/50 | 0.960 | 0.700 | 0.200 | 1.5023 | 48 | 0.980 | 0.820 | 0.260 | 1.7796 | 49 |
+| R2 | markov_report | complete | 49/50 | 0.940 | 0.740 | 0.200 | 1.4437 | 47 | 0.980 | 0.820 | 0.300 | 1.8153 | 49 |
+| R3 | compress_trigger | complete | 49/50 | 0.980 | 0.680 | 0.200 | 1.4046 | 49 | 0.980 | 0.700 | 0.300 | 1.6438 | 49 |
 
 _`@0/@1/@2` are `fast_p_best` at thresholds 0, 1, and 2. Geomean is `speedup_best.geometric_mean`. Missing checkpoints render as `-`._
 
@@ -41,11 +41,11 @@ _`@0/@1/@2` are `fast_p_best` at thresholds 0, 1, and 2. Geomean is `speedup_bes
 
 | id | final_itr | problems | best_mean | best_median | best_geomean | best_n | cur_geomean | cur_n | best_speedup_overall | hack_itrs | problems_with_hack | fast_p@0.0 | fast_p@0.5 | fast_p@0.8 | fast_p@1.0 | fast_p@1.5 | fast_p@2.0 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| R1 | 30 | 50 | 2.4521 | 1.4291 | 1.7796 | 44 | 1.5851 | 45 | 9.5418 | 55 | 6 | 0.980 | 0.960 | 0.940 | 0.820 | 0.460 | 0.260 |
-| R2 | 30 | 50 | 2.4306 | 1.6065 | 1.8153 | 39 | 1.6506 | 39 | 4.8670 | 136 | 11 | 0.980 | 0.940 | 0.940 | 0.820 | 0.540 | 0.300 |
-| R3 | 30 | 50 | 2.3215 | 1.3115 | 1.6438 | 43 | 1.4981 | 47 | 5.8842 | 65 | 7 | 0.980 | 0.940 | 0.880 | 0.700 | 0.400 | 0.300 |
+| R1 | 30 | 50 | 2.4521 | 1.4291 | 1.7796 | 49 | 1.5851 | 45 | 9.5418 | 55 | 6 | 0.980 | 0.960 | 0.940 | 0.820 | 0.460 | 0.260 |
+| R2 | 30 | 50 | 2.4306 | 1.6065 | 1.8153 | 49 | 1.6506 | 39 | 4.8670 | 136 | 11 | 0.980 | 0.940 | 0.940 | 0.820 | 0.540 | 0.300 |
+| R3 | 30 | 50 | 2.3215 | 1.3115 | 1.6438 | 49 | 1.4981 | 47 | 5.8842 | 65 | 7 | 0.980 | 0.940 | 0.880 | 0.700 | 0.400 | 0.300 |
 
-_Speedup aggregates use correct, non-hack samples only; `best_n`/`cur_n` are how many of the `problems` actually entered those aggregates. fast-p keeps the full-problem denominator so failures are penalized, and `fast_p_best` does **not** drop hack-flagged bests - a small `best_n` next to a high fast-p means most bests were hack-flagged._
+_Speedup `best` aggregates use every problem with a non-hack running best (`best_correct`); `current` aggregates use `correct and not is_hack` at the last iteration. `best_n`/`cur_n` are how many of the `problems` actually entered those aggregates. Hack **iterations** never form a best, but a later hack does not revoke an earlier clean best, so `best_n` tracks `total_correct` - it is not reduced by `metrics_best.is_hack`, which is the run-level `run_had_hack` latch. fast-p keeps the full-problem denominator so failures are penalized._
 
 ## Skill governance
 
@@ -72,7 +72,7 @@ _Speedup aggregates use correct, non-hack samples only; `best_n`/`cur_n` are how
 | problems_with_hack | 6 | 11 | +5 | +83.3% | worse |
 | l1_entry_count | 345 | 293 | -52 | -15.1% | better |
 | total_wall_time_hours | 104.109 | 94.710 | -9.399 | -9.0% | better |
-| avg_wall_time_min | 6246.530 | 2841.294 | -3405.236 | -54.5% | better |
+| avg_wall_time_min | 93.316 | 100.849 | +7.533 | +8.1% | worse |
 
 ### `base_agent_terra_compress_trigger_itr30_2026_08_10_15_24`
 
@@ -89,7 +89,7 @@ _Speedup aggregates use correct, non-hack samples only; `best_n`/`cur_n` are how
 | problems_with_hack | 6 | 7 | +1 | +16.7% | worse |
 | l1_entry_count | 345 | 280 | -65 | -18.8% | better |
 | total_wall_time_hours | 104.109 | 73.247 | -30.862 | -29.6% | better |
-| avg_wall_time_min | 6246.530 | 87.897 | -6158.634 | -98.6% | better |
+| avg_wall_time_min | 93.316 | 87.897 | -5.419 | -5.8% | better |
 
 ## Per-iteration comparison (matched iterations)
 
@@ -129,8 +129,3 @@ _Matched over iterations 1..30 (intersection of all compared runs, stride 5)._
 | R2 | fast_p_best@1.0 | 30 | 0.820 | 0.820 | +0.000 | +0.0% |
 | R3 | best_geomean | 30 | 1.7796 | 1.6438 | -0.1358 | -7.6% |
 | R3 | fast_p_best@1.0 | 30 | 0.820 | 0.700 | -0.120 | -14.6% |
-
-## Notes
-
-- `base_agent_gpt_56_terra_truncation_itr30_2026_08_01_17_40`: performance_stats rebuilt: run artifacts are newer than cached performance_stats.json
-- `base_agent_terra_compress_trigger_itr30_2026_08_10_15_24`: performance_stats rebuilt: run artifacts are newer than cached performance_stats.json

@@ -18,9 +18,10 @@ This refresh includes a later truncation/Markov resume relative to the
   0.98`).
 - **High bar (`fast_p_best@2.0`):** Markov and compress-trigger **0.30**,
   truncation **0.26**.
-- **Best-speedup geomean at iteration 30:** Markov **1.8153 (n=39)**,
-  truncation **1.7796 (n=44)**, compress-trigger **1.6438 (n=43)**. Markov’s
-  geomean edge uses five fewer samples than truncation.
+- **Best-speedup geomean at iteration 30:** Markov **1.8153 (n=49)**,
+  truncation **1.7796 (n=49)**, compress-trigger **1.6438 (n=49)**. All three
+  are the **same 49 problems**, so Markov’s +0.036 edge over truncation is a
+  like-for-like comparison, not a smaller-sample artifact.
 - **Current retention:** truncation now leads `fast_p_current@1.0` at
   **0.70**, then compress-trigger 0.66, Markov 0.64. This reverses the
   2026-08-10 story, where Markov led current@1 0.50 vs truncation 0.26.
@@ -35,9 +36,9 @@ Native baseline:
 
 | design | correct | I10 @0 | I10 @1 | I10 @2 | I10 geomean (n) | I30 @0 | I30 @1 | I30 @2 | I30 geomean (n) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| truncation | 49/50 | 0.960 | 0.700 | 0.200 | **1.5023 (45)** | 0.980 | **0.820** | 0.260 | 1.7796 (44) |
-| markov_report | 49/50 | 0.940 | **0.740** | 0.200 | 1.4437 (43) | 0.980 | **0.820** | **0.300** | **1.8153 (39)** |
-| compress_trigger | 49/50 | **0.980** | 0.680 | 0.200 | 1.4046 (46) | 0.980 | 0.700 | **0.300** | 1.6438 (43) |
+| truncation | 49/50 | 0.960 | 0.700 | 0.200 | **1.5023 (48)** | 0.980 | **0.820** | 0.260 | 1.7796 (49) |
+| markov_report | 49/50 | 0.940 | **0.740** | 0.200 | 1.4437 (47) | 0.980 | **0.820** | **0.300** | **1.8153 (49)** |
+| compress_trigger | 49/50 | **0.980** | 0.680 | 0.200 | 1.4046 (49) | 0.980 | 0.700 | **0.300** | 1.6438 (49) |
 
 The same table is in [comparison.md](comparison.md). Folding is omitted
 because it is partial.
@@ -120,9 +121,13 @@ Excluded: `base_agent_terra_folding_itr30_2026_08_09_15_11` (15/50 completed,
 3. **Read iteration 10 and 30 together.** Markov’s I10 @1 lead (0.74 vs
    0.70) is real and gone by I30. Compress-trigger’s I10 @0 lead (0.98)
    does not predict I30 @1.
-4. **Geomean and fast-p disagree in the way the rules warn about.** Markov
-   geomean 1.815 (n=39) vs truncation 1.780 (n=44) is not evidence that
-   Markov produced faster kernels on a shared sample. Fast-p@1 is tied.
+4. **Geomean and fast-p disagree, and here the geomean is the sharper
+   instrument.** Markov 1.815 vs truncation 1.780 is measured over the **same
+   49 problems** (both n=49), so it *is* a shared-sample statement: Markov’s
+   retained bests are marginally faster in aggregate. Fast-p@1 is tied at 0.82
+   because the count of problems crossing the 1.0 bar is identical — the two
+   metrics are not in conflict, they answer different questions (how many
+   clear the bar vs how fast the kept kernels are).
 5. **Do not quote the 2026-08-10 Terra current@1 ranking.** Resume changed
    it.
 
@@ -187,7 +192,11 @@ collapse is an operational observation, not a kernel-quality result.
 - `n=1` per design. Compress-trigger is also the only non-resumed cell.
 - `compress_hot_rounds=3` is not the hot=15 recipe in
   `RUN_WITH_UV_INFER.md`; do not generalize to that configuration.
-- Sequential L1 coupling; sticky hack latch; CPU4-native speedup only.
+- Sequential L1 coupling; CPU4-native speedup only.
+- The sticky `run_had_hack` latch still governs the `run_finished`
+  accepted-best predicate used by the §6 case studies (the
+  `level_2_problem_13` / `level_2_problem_51` swaps). It does **not** gate
+  geomean eligibility — see the `n` correction in Provenance.
 - Folding is excluded until complete.
 - Do not rescore these numbers onto CPU6 for a cross-model ranking. See
   the synthesis report.
@@ -199,3 +208,14 @@ See [MANIFEST.md](MANIFEST.md). Aggregates, `comparison.md`, and
 baseline. Truncation/compress-trigger stats were rebuilt because run
 artifacts were newer than the cache. Markov’s cache was still current and
 was reused (still CPU4).
+
+**Correction (2026-08-16, second pass).** `aggregate_runs.py:552,601` had been
+ANDing `metrics_best.is_hack` into the geomean sample count. That field is the
+run-level `run_had_hack` latch, not "this best is a hack", and
+`generate_run_performance_stats.py` (module docstring, line 369) forbids using
+it as an eligibility gate. Every `n` in this report was therefore understated
+by roughly `problems_with_hack`; the corrected values are above. **No geomean,
+fast-p, or correctness value changed** — only `n`, and the reasoning that had
+been resting on it. `avg_wall_time_min` was also corrected: it had fallen
+through to the `total / problems_timed_this_session` fallback the code warns
+against.
