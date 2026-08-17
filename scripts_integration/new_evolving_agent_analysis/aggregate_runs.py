@@ -540,16 +540,18 @@ def summarize_stats(stats_doc: dict[str, Any] | None, thresholds: list[float]) -
     best = aggregates.get("best") if isinstance(aggregates.get("best"), dict) else {}
 
     # Sample size actually entering each aggregate. generate_run_performance_stats
-    # scores correct, non-hack samples only, so a run where nearly every best kernel
-    # is hack-flagged can report a headline geomean computed over a handful of
-    # problems; without n the cross-run tables are easy to over-read.
+    # gates the best curves on `best_correct` alone (hack iterations never form a
+    # best; a later hack does not revoke an earlier non-hack best). Do NOT AND with
+    # `best_is_hack` — that recorder field is run_had_hack, a run-level "any hack
+    # seen" latch, not "this best kernel is a hack". ANDing it understates n by
+    # roughly problems_with_hack while the geomean it annotates is unfiltered.
     points = final.get("points") if isinstance(final.get("points"), list) else []
     best_n = 0
     current_n = 0
     for point in points:
         if not isinstance(point, dict):
             continue
-        if point.get("best_correct") and not point.get("best_is_hack"):
+        if point.get("best_correct"):
             best_n += 1
         current_correct = point.get("current_correct")
         if current_correct is None:
@@ -598,7 +600,8 @@ def _best_n_by_iteration(stats_doc: dict[str, Any] | None) -> dict[int, int]:
         for point in points:
             if not isinstance(point, dict):
                 continue
-            if point.get("best_correct") and not point.get("best_is_hack"):
+            # Same gate as the generator's best curves; see aggregate n note above.
+            if point.get("best_correct"):
                 sample_n += 1
         out[iteration] = sample_n
     return out
