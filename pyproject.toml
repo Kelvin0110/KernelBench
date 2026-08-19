@@ -28,6 +28,11 @@ dependencies = [
     "einops",
     "python-dotenv",
     "numpy",
+    # DBSCAN for L1 skill merging (evolving_common/governor/skill_merge_cluster.py).
+    # Must stay a default dependency, not an extra: `uv run`/`uv sync` prune
+    # anything not declared here, which silently removes sklearn and makes every
+    # --skill-merging iteration die with coder_call_error.
+    "scikit-learn",
 
     # LLM providers
     "openai",
