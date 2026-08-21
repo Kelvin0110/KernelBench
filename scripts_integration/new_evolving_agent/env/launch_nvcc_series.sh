@@ -68,7 +68,7 @@ launch() {
   local gpu="$1" run_name="$2" ctx="$3"
   local log="${run_name}_${DATE_TAG}.log"
   echo ">> GPU $gpu -> $run_name (context-management=$ctx), log=$log"
-  CUDA_VISIBLE_DEVICES="$gpu" nohup uv run python \
+  CUDA_VISIBLE_DEVICES="$gpu" nohup uv run --no-sync python \
     scripts_integration/new_evolving_agent/evolve_kb_batch.py \
     --run-name "$run_name" \
     --results-root "$RESULTS_ROOT" \
@@ -99,7 +99,7 @@ Launched. Expect ~40-50h each (~2 min/iteration with real CUDA compiles).
 
 Early health check (gating signal is cuda_home_err, which must be 0):
 
-  uv run python scripts_integration/new_evolving_agent_analysis/checkpoint_run.py --auto
+  uv run --no-sync python scripts_integration/new_evolving_agent_analysis/checkpoint_run.py --auto
 
 Watch for trouble:
 

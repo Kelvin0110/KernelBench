@@ -70,7 +70,7 @@ END_ARGS=()
 echo ">> GPU $GPU  resume $RUN_NAME  ctx=$CTX  problems ${START}..${END:-end}"
 echo ">> log: $LOG"
 
-CUDA_VISIBLE_DEVICES="$GPU" nohup uv run python \
+CUDA_VISIBLE_DEVICES="$GPU" nohup uv run --no-sync python \
   scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
   --run-name "$RUN_NAME" \
@@ -99,5 +99,5 @@ cat <<EOF
 
 Backup: $BACKUP
 Watch:  tail -f $LOG
-Health: uv run python scripts_integration/new_evolving_agent_analysis/checkpoint_run.py --auto
+Health: uv run --no-sync python scripts_integration/new_evolving_agent_analysis/checkpoint_run.py --auto
 EOF

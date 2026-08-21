@@ -60,7 +60,7 @@ PY
 echo ">> GPU $GPU -> $RUN_NAME (context-management=$CTX) ${EXTRA[*]:-}"
 echo ">> log: $LOG"
 
-CUDA_VISIBLE_DEVICES="$GPU" nohup uv run python \
+CUDA_VISIBLE_DEVICES="$GPU" nohup uv run --no-sync python \
   scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --run-name "$RUN_NAME" \
   --results-root "$RESULTS_ROOT" \
@@ -84,6 +84,6 @@ grep -E "\[batch\]|kb-governor|Error|Traceback" "$LOG" | head -4 || echo "(none 
 cat <<EOF
 
 Watch:  tail -f $LOG
-Health: uv run python scripts_integration/new_evolving_agent_analysis/checkpoint_run.py --auto
+Health: uv run --no-sync python scripts_integration/new_evolving_agent_analysis/checkpoint_run.py --auto
         grep -c CUDA_HOME $LOG   # must stay 0
 EOF
