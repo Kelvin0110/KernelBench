@@ -11,7 +11,7 @@ cache/*
 !results/timing/
 .env
 _build_cache/
-CLAUDE.md
+# CLAUDE.md
 /analysis/
 *.log
 # *.sh
@@ -19,6 +19,7 @@ TUTORIAL.md
 .github/
 .claude/*
 !.claude/skills/
+*.tsv
 
 # log files
 logs/
