@@ -1057,3 +1057,79 @@ def test_resume_aborts_on_flag_mismatch(tmp_path: Path, monkeypatch) -> None:
         raise AssertionError("expected SystemExit")
     except SystemExit as exc:
         assert "skill_deletion" in str(exc) or exc.code not in (0, None)
+
+
+def test_main_dry_run_accepts_l2_flags(tmp_path: Path, monkeypatch) -> None:
+    """L2 promotion flags are accepted and recorded in run_summary.json."""
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n", encoding="utf-8")
+
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+
+    results_root = tmp_path / "results"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--subset-csv",
+            str(subset_csv),
+            "--run-name",
+            "l2_flags",
+            "--dry-run",
+            "--results-root",
+            str(results_root),
+            "--max-problems",
+            "1",
+            "--enable-l2",
+            "--l2-render",
+            "extract",
+            "--l2-min-tasks",
+            "3",
+            "--l2-min-selections",
+            "20",
+            "--l2-min-rate",
+            "0.5",
+            "--l2-min-new-bests",
+            "2",
+        ],
+    )
+    assert evolve_kb_batch.main() == 0
+
+    summary_paths = list(results_root.glob("l2_flags_*/run_summary.json"))
+    assert len(summary_paths) == 1
+    summary = json.loads(summary_paths[0].read_text(encoding="utf-8"))
+    assert summary["enable_l2"] is True
+    assert summary["l2_render"] == "extract"
+    assert summary["l2_min_tasks"] == 3
+    assert summary["l2_min_selections"] == 20
+    assert summary["l2_min_rate"] == 0.5
+    assert summary["l2_min_new_bests"] == 2
+    # No cap by default: the floors decide how many rules are promoted.
+    assert summary["l2_max_entries"] == 0
+    assert summary["l2_standing_count"] == 0
+
+
+def test_main_dry_run_l2_disabled_by_default(tmp_path: Path, monkeypatch) -> None:
+    subset_csv = tmp_path / "subset.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n", encoding="utf-8")
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+    results_root = tmp_path / "results"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evolve_kb_batch.py",
+            "--subset-csv", str(subset_csv),
+            "--run-name", "l2_default",
+            "--dry-run",
+            "--results-root", str(results_root),
+            "--max-problems", "1",
+        ],
+    )
+    assert evolve_kb_batch.main() == 0
+    summary = json.loads(
+        list(results_root.glob("l2_default_*/run_summary.json"))[0].read_text(encoding="utf-8")
+    )
+    assert summary["enable_l2"] is False
+    assert summary["l2_render"] == "verbatim"

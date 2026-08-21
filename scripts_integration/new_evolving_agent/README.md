@@ -105,6 +105,13 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `l1_skill_unit_test_timeout_sec` | `60.0` | LLM timeout for unit-test generation |
 | `l1_skill_unit_test_run_timeout_sec` | `120.0` | Subprocess timeout for running generated tests |
 | `enable_static_check` | `true` | Run `validate_kernel_static` before GPU eval (§3.3); `--no-static-check` to disable |
+| `enable_l2` | `false` | Promote proven L1 skills to the always-on L2 standing tier (see §3.4) |
+| `l2_render` | `verbatim` | `verbatim` \| `extract` \| `distill` — how a promoted skill is rendered |
+| `l2_min_tasks` | `4` | L2 floor: distinct tasks the skill was selected on |
+| `l2_min_selections` | `30` | L2 floor: total extractor selections |
+| `l2_min_rate` | `0.60` | L2 floor: selections ÷ iterations since the skill was created |
+| `l2_min_new_bests` | `5` | L2 floor: new-best iterations with the skill in play |
+| `l2_max_entries` | `0` | Optional cap after the floors (`0` = unlimited) |
 
 ### 3.3 Reward-hacking detection (`is_hack`)
 
@@ -182,6 +189,67 @@ uv run python scripts_integration/new_evolving_agent/repair/repair_is_hack_polic
 Updates `evolving_runs.json`, `eval_results*.json`, `run_summary.json`, workspace `metrics_by_iteration.jsonl`, `best_iter_*.py`, kernel exports, and `visualizations/performance_stats.json`. No GPU re-eval.
 
 Visualizer: orange **hack** timeline nodes, yellow **warn** nodes when `static_check_warnings` present without hack, `Hack: true/false` and warning count in status panel, **hack** badge on problem list (`GET …/problems` → `has_hack`). See `Self-Evolving-Agent/visualizations/kernelbench/README.md`.
+
+### 3.4 L2 standing-instruction tier (opt-in)
+
+Enable with `--enable-l2`. **Disabled by default**; when off the usage ledger,
+prompts, and loop are byte-for-byte unchanged. Design:
+[2026-08-20 spec](../../Self-Evolving-Agent/docs/superpowers/specs/2026-08-20-l2-standing-instructions-design.md).
+
+L1 skills are *retrieved* per iteration. L2 skills are **standing instructions**
+appended to every coder system prompt with no retrieval gate.
+
+**Why.** With `--no-skill-deletion` the extractor catalog is tail-capped at 50
+entries. At ~0.38 new skills per extractor call, a skill is visible for ~130 calls
+(~4 problems) and then scrolls out forever. L2 is the only mechanism that keeps a
+proven skill alive past that window.
+
+**Gate (floors, then optional rank).** A skill is promoted when it clears every
+floor: `l2_min_tasks` distinct tasks, `l2_min_selections` total selections,
+`l2_min_rate` selection *rate*, and `l2_min_new_bests` new-best attributions.
+`l2_max_entries=0` means the floors decide how many rules are promoted.
+
+The rate (`selections ÷ iterations since creation`) is what makes this fair: raw
+counts measure seniority, since a skill created late has far fewer chances.
+
+> **Floors are regime-dependent.** Defaults are calibrated for `--no-skill-deletion`
+> (short visibility windows → rates 0.6–0.96, ~8–10 skills promoted, ~4K always-on
+> tokens). With `--skill-deletion` the whole catalog stays visible, rates run
+> 0.2–0.74, and you must lower `--l2-min-rate` (~0.30) or nothing qualifies.
+
+**Timing.** The pass runs at each **problem boundary**, so the standing set is
+immutable within a problem and the coder system message is byte-identical across
+that problem's iterations (prompt-cache friendly). With `l2_min_tasks=4`, nothing is
+promotable before the 4th problem.
+
+**Rendering.** `verbatim` keeps the L1 content unchanged. `extract` deterministically
+keeps only the `Generalizable Rule` / `Anti-Pattern to Avoid` bullets and drops the
+retrospective narrative. `distill` runs an LLM rewrite and **fails soft to `extract`**.
+
+**Guards.** L2 skills are exempt from consecutive-unused GC (they are never
+"selected", so their streak would grow forever), excluded from merge clustering, and
+filtered out of the extractor catalog (listed there by title as "do not select").
+On `--resume`, `rollback_l2_for_resume` drops standing rules whose source problem was
+purged or whose provenance is at/after `--start-problem`.
+
+**Artifacts** (under `runs_evolving/<run_name>/`):
+- `l2_standing.jsonl` — the rendered standing set actually injected into prompts
+- `l2_promotions.jsonl` — append-only promote/demote audit with frozen metrics
+- `l1_skill_usage.json` — now also carries `total_selections`, `tasks_used`, `new_best_attributions`
+
+```bash
+CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agent/evolve_kb_batch.py \
+  --run-name base_agent_gpt_oss_120b_l2_itr30 \
+  --max-iterations 30 \
+  --model gpt-oss-120b \
+  --no-skill-deletion --no-skill-merging \
+  --enable-l2 \
+  >> base_agent_gpt_oss_120b_l2_itr30.log 2>&1 &
+```
+
+CLI: `--enable-l2`, `--l2-render`, `--l2-min-tasks`, `--l2-min-selections`,
+`--l2-min-rate`, `--l2-min-new-bests`, `--l2-max-entries`. All are recorded in
+`run_summary.json` and checked on resume.
 
 ### 3.1 Skill Refinement add-on (opt-in, SkillRevise-style)
 

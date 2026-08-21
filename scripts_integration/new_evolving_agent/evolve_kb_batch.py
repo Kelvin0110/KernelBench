@@ -46,6 +46,18 @@ from evolving_common.context_management import (
     DEFAULT_EVOLVING_REPORT_MAX_TOKENS,
     DEFAULT_EVOLVING_REPORT_TIMEOUT_SEC,
 )
+from evolving_common.governor.l2_promotion import (
+    DEFAULT_L2_MAX_ENTRIES,
+    DEFAULT_L2_MIN_NEW_BESTS,
+    DEFAULT_L2_MIN_RATE,
+    DEFAULT_L2_MIN_SELECTIONS,
+    DEFAULT_L2_MIN_TASKS,
+    DEFAULT_L2_RENDER,
+    L2_RENDER_MODES,
+    load_l2_standing,
+    resolve_l2_standing_path,
+    save_l2_standing,
+)
 from evolving_common.memory_manager import (
     DEFAULT_ENABLE_L1_SKILL_UNIT_TEST_GC,
     DEFAULT_L1_SKILL_CONSECUTIVE_UNUSED_DELETE_AFTER,
@@ -526,6 +538,72 @@ def _prune_l1_usage_skills(run_dir: Path, removed_ids: set[str]) -> int:
     return pruned
 
 
+def rollback_l2_for_resume(
+    run_dir: Path,
+    *,
+    rows: list[dict[str, Any]],
+    start_problem: int,
+    removed_entry_ids: set[str],
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Drop L2 standing rules that a resumed range must not already know.
+
+    L2 bypasses the extractor, so ``l1_allowed_entry_ids`` (which only filters
+    the picker catalog) cannot contain them. Two classes are removed:
+    rules whose source skill was purged, and rules whose provenance is at or
+    after *start_problem* — the latter would leak future knowledge into the
+    re-run as standing law.
+    """
+    l1_txt_path = run_dir / "shared_l1.txt"
+    standing = load_l2_standing(l1_txt_path)
+    summary: dict[str, Any] = {
+        "before": len(standing),
+        "removed_entry_ids": [],
+        "kept": len(standing),
+        "rewrote": False,
+    }
+    if not standing:
+        return summary
+
+    entries = _read_l1_jsonl_entries(l1_txt_path)
+    by_id = {
+        str(e.get("entry_id", "")).strip(): e
+        for e in entries
+        if str(e.get("entry_id", "")).strip()
+    }
+    index_by_slug, index_by_source = _build_subset_index_maps(rows)
+
+    kept_rows: list[dict[str, Any]] = []
+    removed: list[str] = []
+    for row in standing:
+        eid = str(row.get("entry_id", "")).strip()
+        if eid in removed_entry_ids:
+            removed.append(eid)
+            continue
+        entry = by_id.get(eid)
+        if entry is None:
+            removed.append(eid)
+            continue
+        indices = _entry_provenance_indices(
+            entry,
+            by_id=by_id,
+            index_by_slug=index_by_slug,
+            index_by_source=index_by_source,
+        )
+        if indices is None or max(indices) >= start_problem:
+            removed.append(eid)
+            continue
+        kept_rows.append(row)
+
+    summary["removed_entry_ids"] = removed
+    summary["kept"] = len(kept_rows)
+    if dry_run or not removed:
+        return summary
+    save_l2_standing(l1_txt_path, kept_rows)
+    summary["rewrote"] = True
+    return summary
+
+
 def rollback_l1_for_resume(
     run_dir: Path,
     *,
@@ -629,6 +707,13 @@ def _check_resume_config_mismatch(
         "enable_l1_skill_unit_test_gc",
         "enable_skill_refinement",
         "skill_refinement_max_rounds",
+        "enable_l2",
+        "l2_render",
+        "l2_min_tasks",
+        "l2_min_selections",
+        "l2_min_rate",
+        "l2_min_new_bests",
+        "l2_max_entries",
     )
     for key in flag_keys:
         if key not in prior:
@@ -643,7 +728,20 @@ def _check_resume_config_mismatch(
                         continue
                 except (TypeError, ValueError):
                     pass
-            if key in ("skill_merge_interval", "skill_refinement_max_rounds"):
+            if key in ("l2_min_rate",) and prior_val is not None and current_val is not None:
+                try:
+                    if abs(float(prior_val) - float(current_val)) < 1e-9:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            if key in (
+                "skill_merge_interval",
+                "skill_refinement_max_rounds",
+                "l2_min_tasks",
+                "l2_min_selections",
+                "l2_min_new_bests",
+                "l2_max_entries",
+            ):
                 try:
                     if int(prior_val) == int(current_val):
                         continue
@@ -1044,6 +1142,66 @@ def main() -> int:
         help="Subprocess timeout when executing generated skill_impl.py tests.",
     )
     parser.add_argument(
+        "--enable-l2",
+        action="store_true",
+        help="Enable the L2 standing-instruction tier: L1 skills with enough "
+        "cross-task usage and new-best attribution are promoted to permanent "
+        "rules injected into every coder system prompt (default: disabled).",
+    )
+    parser.add_argument(
+        "--l2-render",
+        choices=L2_RENDER_MODES,
+        default=DEFAULT_L2_RENDER,
+        help=(
+            "How a promoted skill is rendered as a standing rule: "
+            "verbatim keeps the full L1 content; extract keeps only the "
+            "'Generalizable Rule' / 'Anti-Pattern to Avoid' bullets; distill "
+            "runs an LLM rewrite (fails soft to extract). "
+            f"(default: {DEFAULT_L2_RENDER})"
+        ),
+    )
+    parser.add_argument(
+        "--l2-min-tasks",
+        type=int,
+        default=DEFAULT_L2_MIN_TASKS,
+        help=f"L2 floor: distinct tasks a skill must be selected on (default: {DEFAULT_L2_MIN_TASKS}).",
+    )
+    parser.add_argument(
+        "--l2-min-selections",
+        type=int,
+        default=DEFAULT_L2_MIN_SELECTIONS,
+        help=f"L2 floor: total extractor selections (default: {DEFAULT_L2_MIN_SELECTIONS}).",
+    )
+    parser.add_argument(
+        "--l2-min-rate",
+        type=float,
+        default=DEFAULT_L2_MIN_RATE,
+        help=(
+            "L2 floor: selection rate (selections / iterations since the skill was "
+            f"created), which normalizes away skill age (default: {DEFAULT_L2_MIN_RATE}). "
+            "Calibrated for --no-skill-deletion; relax it when skill deletion is on, "
+            "since the full catalog stays visible and rates run lower."
+        ),
+    )
+    parser.add_argument(
+        "--l2-min-new-bests",
+        type=int,
+        default=DEFAULT_L2_MIN_NEW_BESTS,
+        help=(
+            "L2 floor: iterations that became a new best while this skill was in "
+            f"play (default: {DEFAULT_L2_MIN_NEW_BESTS})."
+        ),
+    )
+    parser.add_argument(
+        "--l2-max-entries",
+        type=int,
+        default=DEFAULT_L2_MAX_ENTRIES,
+        help=(
+            "Optional cap on standing rules, applied after the floors and ranked by "
+            f"score. 0 means unlimited — the floors decide (default: {DEFAULT_L2_MAX_ENTRIES})."
+        ),
+    )
+    parser.add_argument(
         "--baseline-timing-file",
         type=str,
         default=None,
@@ -1163,6 +1321,16 @@ def main() -> int:
         parser.error("--compress-token-ratio must be in (0, 1]")
     if int(args.compress_every_n_iters) < 1:
         parser.error("--compress-every-n-iters must be >= 1")
+    if int(args.l2_min_tasks) < 1:
+        parser.error("--l2-min-tasks must be >= 1")
+    if int(args.l2_min_selections) < 1:
+        parser.error("--l2-min-selections must be >= 1")
+    if not (0.0 < float(args.l2_min_rate) <= 1.0):
+        parser.error("--l2-min-rate must be in (0, 1]")
+    if int(args.l2_min_new_bests) < 0:
+        parser.error("--l2-min-new-bests must be >= 0")
+    if int(args.l2_max_entries) < 0:
+        parser.error("--l2-max-entries must be >= 0 (0 = unlimited)")
 
     if args.baseline_timing_file:
         baseline_path = Path(args.baseline_timing_file)
@@ -1267,6 +1435,13 @@ def main() -> int:
                 "enable_l1_skill_unit_test_gc": bool(args.enable_l1_skill_unit_test_gc),
                 "enable_skill_refinement": bool(args.enable_skill_refinement),
                 "skill_refinement_max_rounds": int(args.skill_refinement_max_rounds),
+                "enable_l2": bool(args.enable_l2),
+                "l2_render": str(args.l2_render),
+                "l2_min_tasks": int(args.l2_min_tasks),
+                "l2_min_selections": int(args.l2_min_selections),
+                "l2_min_rate": float(args.l2_min_rate),
+                "l2_min_new_bests": int(args.l2_min_new_bests),
+                "l2_max_entries": int(args.l2_max_entries),
             },
             allow_mismatch=bool(args.allow_resume_config_mismatch),
         )
@@ -1287,6 +1462,19 @@ def main() -> int:
         if l1_rollback["removed_entry_ids"]:
             sample = l1_rollback["removed_entry_ids"][:12]
             print(f"[batch] resume L1 removed entry_ids (sample): {sample}")
+        if args.enable_l2:
+            l2_rollback = rollback_l2_for_resume(
+                run_dir,
+                rows=rows,
+                start_problem=int(args.start_problem),
+                removed_entry_ids=set(l1_rollback["removed_entry_ids"]),
+                dry_run=bool(args.dry_run),
+            )
+            print(
+                "[batch] resume L2 rollback: "
+                f"before={l2_rollback['before']} kept={l2_rollback['kept']} "
+                f"removed={l2_rollback['removed_entry_ids']}"
+            )
     else:
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1439,6 +1627,13 @@ def main() -> int:
                 compress_every_n_iters=int(args.compress_every_n_iters),
                 enable_static_check=bool(args.enable_static_check),
                 l1_allowed_entry_ids=l1_allowed_entry_ids,
+                enable_l2=bool(args.enable_l2),
+                l2_render=str(args.l2_render),
+                l2_min_tasks=int(args.l2_min_tasks),
+                l2_min_selections=int(args.l2_min_selections),
+                l2_min_rate=float(args.l2_min_rate),
+                l2_min_new_bests=int(args.l2_min_new_bests),
+                l2_max_entries=int(args.l2_max_entries),
                 verbose=True,
             )
             result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
@@ -1573,6 +1768,15 @@ def main() -> int:
         "skill_merge_interval": int(args.skill_merge_interval),
         "enable_skill_refinement": bool(args.enable_skill_refinement),
         "skill_refinement_max_rounds": int(args.skill_refinement_max_rounds),
+        "enable_l2": bool(args.enable_l2),
+        "l2_render": str(args.l2_render),
+        "l2_min_tasks": int(args.l2_min_tasks),
+        "l2_min_selections": int(args.l2_min_selections),
+        "l2_min_rate": float(args.l2_min_rate),
+        "l2_min_new_bests": int(args.l2_min_new_bests),
+        "l2_max_entries": int(args.l2_max_entries),
+        "l2_standing_path": str(resolve_l2_standing_path(shared_l1_path)),
+        "l2_standing_count": len(load_l2_standing(shared_l1_path)),
         "total_attempted": len(rows),
         "total_completed": len(runs),
         "total_correct": len(successful),
