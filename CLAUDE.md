@@ -169,6 +169,8 @@ KB_GPU_EVAL_LOCK_TIMEOUT_SEC=1800   # default; raise if you run many arms
   on a crashed arm — `flock` is released by the kernel on process death. On timeout an arm
   logs loudly and proceeds **unlocked** rather than blocking forever; `proceeding UNLOCKED`
   in a log means that eval's numbers are contended.
+  **But before the 2026-08-22 fix that warning could never fire** — see the regimes box
+  below. An empty `grep "proceeding UNLOCKED"` on a pre-fix log proves nothing.
 
 **Why the lock exists.** Speedup is `fixed_baseline / measured_runtime` where the baseline
 is an idle-GPU constant from `results/timing/<hw>/baseline_time_torch.json`, so contention
@@ -190,7 +192,7 @@ This matters because the lock is a single server, so it sets a hard concurrency 
 | hold per eval | ~45 s | **~4.9 s** (max 9.3 s) |
 | utilisation, 3 arms | ~92% | 26% |
 | utilisation, 6 arms | ~91% | 46% |
-| implied ceiling | **~3.9 arms/GPU** | far higher; LLM API/CPU bind first |
+| implied ceiling | **~3.9 arms/GPU** | see the two regimes below |
 
 Under the wide lock, arms past ~4 bought nothing — they just queued. Adding arms cannot
 beat the ceiling; only shrinking the critical section moves it.
@@ -199,6 +201,43 @@ beat the ceiling; only shrinking the critical section moves it.
 work can touch the GPU during your timing window. Timing windows remain strictly mutually
 exclusive (two arms can never time simultaneously), but this is a real fidelity trade that
 has not yet been A/B'd against the wide-lock numbers above.
+
+#### Two regimes: before and after the 2026-08-22 eval-deadline fix
+
+The narrow lock did **not** raise the ceiling on its own. Until 2026-08-22 the binding
+constraint was that **the eval deadline was shorter than the lock queue**. The lock is
+acquired *inside* the eval child (`kernelbench/eval.py:650`) while the deadline is enforced
+by the parent (`evaluate_in_subprocess` → `proc.join(evaluation_timeout_s)`, 600 s), so
+queueing was charged against the *work* budget. Waiters were SIGTERM'd mid-wait and the
+governor recorded a **fake compile failure** for a kernel that was never broken.
+
+| | pre-fix (before 2026-08-22) | post-fix |
+|---|---|---|
+| evals killed mid-wait, 6 arms/GPU | **109** (17–20 per arm) | 0 by construction |
+| eval-timeout rate, 6 arms | 3.9% | — |
+| eval-timeout rate, 3 arms | 0.93% | — |
+| safe concurrency | **3 arms/GPU** | higher; LLM API/CPU bind first |
+
+Two traps in any pre-fix log:
+
+- **`proceeding UNLOCKED` is unreachable.** Lock timeout is 1800 s (default) / 5400 s
+  (launcher) but the eval deadline is 600 s, so the child always died first. Contention
+  surfaced as `correct=False, compiled=False` instead — indistinguishable from a bad
+  kernel. Audit by counting **unpaired `waiting` lines** (a `waiting` with no matching
+  `acquired after`), not by grepping for UNLOCKED.
+- **Any "max observed lock wait" is censored.** A wait exceeding 600 s never got to log an
+  acquisition, so the distribution is truncated by construction and the observed max
+  (~550 s) cannot approach the real tail.
+
+The fix (submodule `7ac0e87`) has `gpu_lock` publish its running wait on every poll and the
+parent extend its deadline by it, so `timeout_s` bounds work only. **It applies to newly
+launched runs only** — `evaluate_in_subprocess` runs in the long-lived parent, which binds
+the function object at import time and never re-imports. Arms already running when the fix
+landed keep the old behaviour for their whole life.
+
+Impact on pre-fix data is real but modest: of 17 problems that lost iterations across the
+three completed merge reps, **15 (88%) still ended correct** — the metric is best-over-30
+-iterations, so even 13/30 lost usually does not move it.
 
 **`gpu_lock` is re-entrant** — nested acquisitions in one process pass through instead of
 re-locking. Without this a wide+narrow transition self-deadlocks, since `flock` is per
@@ -220,7 +259,10 @@ iterations. If you must edit mid-run, write to a temp file, validate with `ast.p
 Audit contention with:
 
 ```bash
-grep -h "gpu-eval-lock" <log>          # waits ≥5 s; "proceeding UNLOCKED" = timeout, investigate
+grep -h "gpu-eval-lock" <log>          # waits ≥5 s
+# Orphaned waits = evals killed mid-wait. Non-zero means contention corrupted this run.
+# (Pre-fix logs only; do NOT rely on "proceeding UNLOCKED" -- it cannot fire. See §3.4.)
+echo $(( $(grep -c "gpu-eval-lock.*waiting" <log>) - $(grep -c "gpu-eval-lock.*acquired" <log>) ))
 ```
 
 ### 3.5 Health checks while running
@@ -333,9 +375,12 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix)
    before running more deletion cells or they stay confounded. Details in project memory.
 4. **Rewrite `EXPERIMENT_REPORT.md`** — the current text is written against voided
    pre-nvcc-fix runs and its conclusions are reversed by the repaired data.
-5. **Governance matrix is incomplete** — 5 of 7 cells untouched. With the narrow lock
-   (§3.4) a GPU sustains 6 arms at ~full per-arm speed, so 2 GPUs clear the remaining
-   cells in roughly one wave rather than several.
+5. **Governance matrix is incomplete** — 5 of 7 cells untouched. Six arms/GPU is only
+   safe for runs launched **after** the 2026-08-22 eval-deadline fix (§3.4); before it,
+   6 arms lost 3.9% of evals to mid-wait kills versus 0.93% at 3. Post-fix, 2 GPUs clear
+   the remaining cells in roughly one wave. The fix is unvalidated under real contention —
+   smoke-test two arms on an idle GPU with `KB_GPU_EVAL_LOCK_TIMEOUT_SEC` lowered before
+   committing a full wave to it.
 6. **Replicate noise is ~20%, and it bounds every conclusion.** Two runs with
    *identical* config on the same GPU (`itr30` rep1 vs rep2, 2026-08-20) differ by 22%
    in `best_geomean` (0.799 vs 1.028, n=31 matched problems). Any arm-vs-arm delta below
