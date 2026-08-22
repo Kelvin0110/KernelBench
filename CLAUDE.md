@@ -133,21 +133,30 @@ bash .../env/launch_run.sh 1 base_agent_gpt_oss_120b_merge_sim085_itr30_GH200 tr
 
 ### 3.4 Running several arms on one GPU
 
-The agent is **LLM-bound, not GPU-bound** — an eval subprocess lives ~38 s but touches the
-GPU for well under a second of that (GPU idle 98.75% of 1 s samples). So a GPU comfortably
-hosts 2–3 arms. Measured on GH200, 3 level-3 problems × 5 iterations:
+The agent is **LLM-bound, not GPU-bound** — an eval subprocess lives ~38–45 s but touches
+the GPU for well under a second of that. Sharing a GPU is therefore close to free, and the
+limit is not the hardware but how much of each eval is serialised (see the lock below).
 
-| arms on one GPU | throughput | wall clock per arm |
-|---|---|---|
-| 1 | 1.0× | 1453 s |
-| 2 | 2.6× | 1127 / 1121 s |
-| 3 | 2.9× | 1406 / 1195 / 1522 s (≈5% slower than solo) |
+Full-scale measurements (50 problems × 30 iterations, matched per-problem against solo
+baselines). *Throughput* = total iterations/hour across all arms, as a multiple of one solo
+arm; N× means perfect linear scaling.
 
-**Two settings are mandatory when sharing a GPU:**
+| arms/GPU | throughput | per-arm slowdown | efficiency |
+|---|---|---|---|
+| 1 | 1.00× | — | — |
+| 3 | **3.07×** (steady state) | 0.98× (none) | ~100% |
+| 6 | 3.31× *(wide lock)* | 1.69× | 55% |
+
+Note the 3-arm figure is post-startup. Arms launched minutes apart begin in lockstep and
+collide hard on the first ~9 problems (1.35× penalty, 2.37× throughput), then desynchronise
+and the penalty disappears. Do not judge a configuration from its first problems.
+
+**Three settings when sharing a GPU:**
 
 ```bash
 KB_GPU_RESERVE_GB=0        # REQUIRED. Default 42 GB per arm.
-KB_GPU_EVAL_LOCK=1         # default; leave on. Serialises the GPU phase of eval.
+KB_GPU_EVAL_LOCK=1         # default; leave on.
+KB_GPU_EVAL_LOCK_TIMEOUT_SEC=1800   # default; raise if you run many arms
 ```
 
 - **`KB_GPU_RESERVE_GB=0`** — each governor otherwise pins a 42 GB block while waiting on
@@ -155,27 +164,60 @@ KB_GPU_EVAL_LOCK=1         # default; leave on. Serialises the GPU phase of eval
   can OOM whichever arm is mid-eval. Harmless to set: the block is released around eval
   anyway, so it never affected timing. Default stays 42 GB for single-arm runs.
 - **`KB_GPU_EVAL_LOCK`** — cross-process `flock` keyed by GPU UUID
-  (`evolving_common/governor/gpu_lock.py`), held only across the GPU phase of an eval.
-  nvcc runs *before* the lock is taken, so the critical section is ~0.4–4 s rather than the
-  full ~38 s eval. Free when uncontended (0.000 s wait across 129 solo evals), so it is on
-  by default and costs single-arm runs nothing. Escape hatches: `KB_GPU_EVAL_LOCK=0` to
-  disable, `KB_GPU_EVAL_LOCK_TIMEOUT_SEC` (default 1800) after which an arm logs loudly and
-  proceeds **unlocked** rather than blocking forever. It cannot deadlock on a crashed arm —
-  `flock` is released by the kernel on process death.
+  (`evolving_common/governor/gpu_lock.py`). Free when uncontended (0.000 s wait across 129
+  solo evals), so it is on by default and costs single-arm runs nothing. It cannot deadlock
+  on a crashed arm — `flock` is released by the kernel on process death. On timeout an arm
+  logs loudly and proceeds **unlocked** rather than blocking forever; `proceeding UNLOCKED`
+  in a log means that eval's numbers are contended.
 
-**Why the lock matters.** Speedup is `fixed_baseline / measured_runtime` where the baseline
+**Why the lock exists.** Speedup is `fixed_baseline / measured_runtime` where the baseline
 is an idle-GPU constant from `results/timing/<hw>/baseline_time_torch.json`, so contention
 can only ever *deflate* a speedup, never inflate it. The median hit is small (~3%), but the
 **tail** is what the lock removes — with 3 unlocked arms, one 0.9 ms kernel showed CV 155%
 and a worst sample of 22.3 ms; locked, CV 17% and worst 1.28 ms.
 
+#### The lock is narrow (2026-08-21) — and that is what sets the ceiling
+
+The lock is held **only across correctness trials + the two timing windows**
+(`kernelbench/eval.py::_gpu_timing_lock`). Reference-model construction, input generation
+and nvcc/ninja loading run **unlocked** — they are the bulk of the wall time and do not
+affect the numbers.
+
+This matters because the lock is a single server, so it sets a hard concurrency ceiling:
+
+| | wide lock (before) | narrow lock (now) |
+|---|---|---|
+| hold per eval | ~45 s | **~4.9 s** (max 9.3 s) |
+| utilisation, 3 arms | ~92% | 26% |
+| utilisation, 6 arms | ~91% | 46% |
+| implied ceiling | **~3.9 arms/GPU** | far higher; LLM API/CPU bind first |
+
+Under the wide lock, arms past ~4 bought nothing — they just queued. Adding arms cannot
+beat the ceiling; only shrinking the critical section moves it.
+
+**Trade-off, be aware:** because model construction is now unlocked, another arm's setup
+work can touch the GPU during your timing window. Timing windows remain strictly mutually
+exclusive (two arms can never time simultaneously), but this is a real fidelity trade that
+has not yet been A/B'd against the wide-lock numbers above.
+
+**`gpu_lock` is re-entrant** — nested acquisitions in one process pass through instead of
+re-locking. Without this a wide+narrow transition self-deadlocks, since `flock` is per
+open-file-description and a second `os.open()` blocks against the process's own lock.
+
 **Gotcha — the launcher refuses the 3rd arm.** `launch_run.sh:41` aborts when the GPU
 reports >1000 MiB used. An idle arm holds ~558 MiB, so arm 2 passes but arm 3 reads ~1.1 GB
-and is rejected. Raise that threshold (or bypass the guard) to launch three.
+and is rejected. Raise that threshold (or bypass the guard) to launch three or more.
 
-Expect ~25% of evals to wait at 3 arms (observed 12/45, 5–63 s, zero timeouts); heavy
-level-3 problems have the longest critical sections because model construction and
-correctness trials sit inside the lock too. Audit contention with:
+**Never edit code while runs are live.** Eval uses `multiprocessing` **spawn**
+(`execution.py:348`), so every eval re-imports `evolve_kb_batch.py` and `kernelbench/eval.py`
+**from disk**. Nothing is frozen at launch. On 2026-08-20 an edit at 16:51 that imported a
+module not created until 17:00 killed eval workers across all 9 live arms for 9 minutes —
+32 iterations recorded as `compiled=False` fake compile failures, which the governor then
+"debugged" as if the kernel were at fault. Young arms lost up to 45% of a problem's
+iterations. If you must edit mid-run, write to a temp file, validate with `ast.parse`, then
+`os.replace` it in atomically.
+
+Audit contention with:
 
 ```bash
 grep -h "gpu-eval-lock" <log>          # waits ≥5 s; "proceeding UNLOCKED" = timeout, investigate
@@ -267,10 +309,11 @@ Self-Evolving-Agent/               # git submodule
   evolving_common/memory_manager.py           # governance defaults
   evolving_common/governor/gen3_stages.py     # staged governor; deletion/merge call sites
   evolving_common/governor/skill_merge*.py    # DBSCAN clustering + LLM merge
-  evolving_common/governor/gpu_lock.py        # cross-process GPU-eval lock (concurrent arms)
+  evolving_common/governor/gpu_lock.py        # cross-process GPU-eval lock, re-entrant
   evolving_common/governor/gpu_reserver.py    # 42 GB idle reservation; KB_GPU_RESERVE_GB
   kernelbench_integration/eval_runner.py      # precompile-then-lock boundary
   kernelbench_integration/governor.py         # speedup computation
+src/kernelbench/eval.py            # _gpu_timing_lock: locks correctness+timing only
 runs_evolving/gpt-oss-120b/        # current series
 runs_evolving/inference_oss_120b/  # earlier series (only successful merge runs)
 runs_evolving/archived/            # VOID (pre-nvcc-fix)
@@ -290,11 +333,22 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix)
    before running more deletion cells or they stay confounded. Details in project memory.
 4. **Rewrite `EXPERIMENT_REPORT.md`** — the current text is written against voided
    pre-nvcc-fix runs and its conclusions are reversed by the repaired data.
-5. **Governance matrix is incomplete** — 5 of 7 cells untouched (~340 GPU-h at one arm
-   per GPU; ~2 GPU-weeks of wall clock collapses to a few days at 3 arms per GPU, see §3.4).
-6. **Commits are blocked** — git identity is unset in this repo; the user declined
-   `git config`. Submodule changes to `llm_client.py` / `memory_manager.py` and the
-   root `pyproject.toml` edit are all uncommitted.
+5. **Governance matrix is incomplete** — 5 of 7 cells untouched. With the narrow lock
+   (§3.4) a GPU sustains 6 arms at ~full per-arm speed, so 2 GPUs clear the remaining
+   cells in roughly one wave rather than several.
+6. **Replicate noise is ~20%, and it bounds every conclusion.** Two runs with
+   *identical* config on the same GPU (`itr30` rep1 vs rep2, 2026-08-20) differ by 22%
+   in `best_geomean` (0.799 vs 1.028, n=31 matched problems). Any arm-vs-arm delta below
+   that magnitude is indistinguishable from LLM stochasticity at n=1 run per arm. Several
+   deltas in `output/GH200x2/comparison.md` are in that range. **Run replicates for any
+   cell you intend to draw a conclusion from**, and report a paired log-ratio CI rather
+   than a bare geomean difference.
+7. **Solo baselines drift and must not be reused across dates.** The same 49 problems
+   took 87.8 min/problem (Aug 07), 79.8 (Aug 13), 80.1 (Aug 14), 64.7 (Aug 17) — a 26%
+   swing from inference-endpoint latency, not from anything in this repo. Because the
+   agent is LLM-bound, any throughput or speedup figure normalised against a baseline
+   from another date is inflated by that drift; efficiency >100% is the tell. Compare
+   only within a time window, or measure a fresh solo baseline alongside the runs.
 
 ---
 
