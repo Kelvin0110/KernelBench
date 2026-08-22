@@ -40,6 +40,39 @@ def get_error_name(e: Exception) -> str:
     return f"{e.__class__.__module__}.{e.__class__.__name__}"
 
 
+# Markers of genuine build-lock contention. Kept explicit rather than testing for
+# the bare substring "lock", which also matches "blockIdx" and "deadlock" in nvcc
+# diagnostics and so swallowed ordinary compile errors.
+_LOCK_ERROR_MARKERS = (
+    ".lock",
+    "lock file",
+    "lockfile",
+    "could not be acquired",
+    "waiting for lock",
+    "resource temporarily unavailable",
+)
+
+
+def is_transient_lock_error(e: Exception) -> bool:
+    """
+    True only for concurrent-build lock contention, which is worth retrying.
+
+    A failed ninja build leaves no shared object behind, so the load that follows
+    raises
+
+        ImportError: <name>.so: cannot open shared object file: No such file or directory
+
+    Treating "No such file or directory" as a lock error therefore reclassified
+    every real compile failure as retryable and dropped the compiler diagnostics,
+    leaving callers with a compile failure and no reason attached.
+    """
+    text = str(e)
+    if isinstance(e, ImportError) and "cannot open shared object file" in text:
+        return False
+    lowered = text.lower()
+    return any(marker in lowered for marker in _LOCK_ERROR_MARKERS)
+
+
 def fetch_ref_arch_from_problem_id(problem_id: int, dataset: "BaseDataset", with_name=False) -> Union[str, tuple[str, str]]:
     """
     Fetches the reference architecture for a given problem_id from the dataset.
@@ -578,11 +611,14 @@ def eval_kernel_against_ref(
         print(
             f"Failed to compile custom CUDA kernel: Record as compilation failure. \nError: {e}"
         )
-        # TODO: add metadata for compilation error (how to we get the compilation error message?)
+        # Record the diagnostics on every path, so a caller that only reads
+        # metadata still learns why the build failed.
+        metadata["compilation_error_name"] = get_error_name(e)
+        metadata["compilation_error"] = e
 
-        if "lock" in str(e) or "No such file or directory" in str(e):
-            # this is a lock file error, likely due to concurrent compilation
-            # this does not necessarily mean the compilation failed, but we should retry
+        if is_transient_lock_error(e):
+            # concurrent compilation contended on the build lock; this does not
+            # necessarily mean the compilation failed, so signal a retry
             print(
                 f"[Eval] Lock file error during compilation, Please retry. Error: {e}"
             )
@@ -591,8 +627,6 @@ def eval_kernel_against_ref(
             )
             return None
         else:
-            metadata["compilation_error_name"] = get_error_name(e)
-            metadata["compilation_error"] = e
             graceful_eval_cleanup(
                 original_context, device, tempfile, extra_contexts=[custom_context]
             )
