@@ -54,6 +54,36 @@ Confirm UEFI while you are here:
 
 ## 2. GH200 movable-memory onlining — not in any package
 
+> **Confirmed missing on `lego-c2g2-smc-035` (2026-08-22).** That host had already
+> been provisioned — Secure Boot disabled, `apt-daily`/`unattended-upgrades` masked,
+> driver packages installed — yet `systemctl list-unit-files | grep gh200` returned
+> nothing and `/sys/devices/system/memory/auto_online_blocks` read `online` rather
+> than `online_movable`. Do not assume a host that looks set up already has this
+> unit; check for it explicitly.
+>
+> Note that NUMA nodes 2/10 also read `0 MB` whenever the driver is not loaded, so an
+> empty `numactl -H` alone does **not** prove the unit is missing — check the unit and
+> `auto_online_blocks` directly.
+>
+> **Setting the policy after boot is not equivalent to having it at boot.** On `-035`
+> the unit was created on a running system and the driver was `modprobe`d immediately
+> after. `auto_online_blocks` correctly read `online_movable` and both GPUs came up
+> fully usable — `nvidia-smi` showed 2 × 146831 MiB, `Addressing Mode: ATS`, and a
+> 20 GB allocation plus a matmul succeeded on each — but nodes 2 and 10 stayed
+> **offline**:
+>
+> ```
+> $ cat /sys/devices/system/node/possible   # 0-17
+> $ cat /sys/devices/system/node/online     # 0-1,3-9,11-17   <- 2 and 10 absent
+> ```
+>
+> Note the shape of the failure: nodes 2/10 are *missing from sysfs*, not present at
+> `0 MB`. Reboot to bring them up now that the unit is enabled at `sysinit.target`;
+> it runs `Before=systemd-modules-load.service`, so on the next boot the policy is in
+> place before the driver's first load. Nothing in the KernelBench eval path needs
+> HBM-as-NUMA — kernels use ordinary device memory — so this does not block a run,
+> but reconcile it before comparing timings against `-034`.
+
 The source host runs a **hand-written** unit at
 `/etc/systemd/system/gh200-memory-online.service`. It is not shipped by the driver,
 by `nvidia-*` packages, or by Ubuntu. A stock image will not have it. Recreate it
