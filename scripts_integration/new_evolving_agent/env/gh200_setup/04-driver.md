@@ -11,6 +11,63 @@
 Install the **open** kernel-module driver at 580.x. The source host runs
 `580.173.02-0ubuntu0.24.04.1`.
 
+> ### ⚠ "open" is not a preference — the proprietary driver cannot drive a GH200
+>
+> Observed on `lego-c2g2-smc-035` (2026-08-22): the host came with
+> **`nvidia-driver-580`**, the *proprietary* metapackage, installed instead of
+> `nvidia-driver-580-open`. Everything looked healthy — DKMS reported
+> `nvidia/580.173.02, 6.8.0-136-generic, arm64: installed`, Secure Boot was
+> disabled, the modules had built cleanly — and yet `nvidia-smi` failed with
+> *"couldn't communicate with the NVIDIA driver"*, no `nvidia` module was loaded,
+> and there were no `/dev/nvidia*` nodes.
+>
+> The single reliable tell is the module **licence**:
+>
+> ```
+> $ modinfo nvidia | grep '^license:'
+> license:   NVIDIA          # proprietary -> cannot drive a GH200
+> license:   Dual MIT/GPL    # open        -> correct
+> ```
+>
+> Confirm with the package list, which is unambiguous:
+>
+> ```bash
+> modinfo nvidia | grep '^license:'             # want: Dual MIT/GPL
+> dpkg -l | grep -c 'nvidia-driver-580-open '   # 0 = wrong package installed
+> ```
+>
+> No amount of rebuilding, re-signing, or rebooting fixes the proprietary module.
+> Swapping to `-open` on `-035` made both GPUs appear immediately, with no reboot.
+>
+> **Do not use the firmware list as a diagnostic.** It is tempting — the module
+> advertises GSP firmware only for Turing and Ampere — but this was measured on
+> `-035` (2026-08-22) and it does **not** discriminate: *both* the proprietary and
+> the open 580.173.02 modules report exactly `gsp_tu10x.bin` and `gsp_ga10x.bin`,
+> and neither mentions GH100. Hopper GSP firmware is not exposed through
+> `MODULE_FIRMWARE`. `modinfo nvidia | grep -c gh100` returns `0` on a perfectly
+> working host, so it is a false negative, not a test.
+
+### Repairing a host that has the proprietary driver
+
+Use the scripted path — it is idempotent and verifies each step:
+
+```bash
+sudo bash scripts_integration/new_evolving_agent/env/gh200_setup/fix_closed_to_open_driver.sh
+```
+
+It creates the memory-onlining unit, flips `auto_online_blocks` to
+`online_movable`, previews then performs the `apt` swap to
+`nvidia-driver-580-open`, asserts the resulting module reports `Dual MIT/GPL`,
+`modprobe`s `nvidia` + `nvidia_uvm`, enables `nvidia-persistenced`, and finishes
+with `nvidia-smi` and a NUMA check.
+
+**No reboot is required when the nvidia modules are not currently loaded** — which
+is exactly the case on a host where the wrong driver never initialised. There is
+nothing to unload, and no HBM has been onlined yet under the wrong policy, so
+setting `online_movable` before the first `modprobe` is sufficient. Reboot only if
+`modprobe` or `nvidia-smi` still fails afterwards.
+
+
 ```bash
 sudo apt update
 sudo apt install -y build-essential linux-headers-$(uname -r)
