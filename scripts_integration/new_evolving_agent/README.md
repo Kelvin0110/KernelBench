@@ -107,10 +107,10 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `enable_static_check` | `true` | Run `validate_kernel_static` before GPU eval (§3.3); `--no-static-check` to disable |
 | `enable_l2` | `false` | Promote proven L1 skills to the always-on L2 standing tier (see §3.4) |
 | `l2_render` | `verbatim` | `verbatim` \| `extract` \| `distill` — how a promoted skill is rendered |
-| `l2_min_tasks` | `4` | L2 floor: distinct tasks the skill was selected on |
-| `l2_min_selections` | `30` | L2 floor: total extractor selections |
-| `l2_min_rate` | `0.60` | L2 floor: selections ÷ iterations since the skill was created |
-| `l2_min_new_bests` | `5` | L2 floor: new-best iterations with the skill in play |
+| `l2_min_tasks` | `3` | L2 floor: distinct tasks the skill was selected on |
+| `l2_min_selections` | `50` | L2 floor: total extractor selections |
+| `l2_min_rate` | `0.70` | L2 floor: selections ÷ iterations since creation (load-bearing) |
+| `l2_min_new_bests` | `0` | L2 floor: new-best iterations; `0` disables it |
 | `l2_max_entries` | `0` | Optional cap after the floors (`0` = unlimited) |
 
 ### 3.3 Reward-hacking detection (`is_hack`)
@@ -212,10 +212,28 @@ floor: `l2_min_tasks` distinct tasks, `l2_min_selections` total selections,
 The rate (`selections ÷ iterations since creation`) is what makes this fair: raw
 counts measure seniority, since a skill created late has far fewer chances.
 
-> **Floors are regime-dependent.** Defaults are calibrated for `--no-skill-deletion`
-> (short visibility windows → rates 0.6–0.96, ~8–10 skills promoted, ~4K always-on
-> tokens). With `--skill-deletion` the whole catalog stays visible, rates run
-> 0.2–0.74, and you must lower `--l2-min-rate` (~0.30) or nothing qualifies.
+**Floors are universal** — one set for both benchmarks and every catalog regime. The
+gate is a **conjunction**: a skill must clear *all* floors.
+
+| Floor | Default | Blocks |
+|---|---|---|
+| `--l2-min-tasks` | 3 | task-specific skills that never generalize |
+| `--l2-min-selections` | 50 | small-sample noise |
+| `--l2-min-rate` | 0.70 | high count purely from age (load-bearing floor) |
+| `--l2-min-new-bests` | 0 (disabled) | popular-but-inert skills |
+
+`min_rate` = `selections ÷ iterations since the skill was created`. The extractor picks
+~7 skills per call, so a random skill scores ~0.14 against a 50-entry catalog — 0.70 is
+~5× chance. It is regime-independent because promotions fire early (boundaries ~4–12),
+when the visible catalog is still ~40–100 entries in every regime.
+
+`--l2-min-new-bests 0` disables that floor: new-best credit is shared across the ~7
+skills in play each iteration, so it is correlational. Attribution is still recorded,
+still feeds the ranking score and the `l2_meta` audit, and `--l2-min-new-bests N`
+re-arms it.
+
+Measured by boundary-replay over five 50×30 `gpt-oss-120b` runs: **2–10 standing
+rules, ~1.5K–6.1K verbatim tokens** (~1–5% of a 128K window).
 
 **Timing.** The pass runs at each **problem boundary**, so the standing set is
 immutable within a problem and the coder system message is byte-identical across
@@ -250,6 +268,12 @@ CUDA_VISIBLE_DEVICES=0 nohup uv run python scripts_integration/new_evolving_agen
 CLI: `--enable-l2`, `--l2-render`, `--l2-min-tasks`, `--l2-min-selections`,
 `--l2-min-rate`, `--l2-min-new-bests`, `--l2-max-entries`. All are recorded in
 `run_summary.json` and checked on resume.
+
+**MLE-Bench** exposes the same flags on `Self-Evolving-Agent/cli.py` and resolves to
+the same floors. One caveat: MLE runs ~50 iterations per competition, so with
+`--no-skill-deletion` the 50-entry tail cap leaves only ~2.6 tasks of achievable
+breadth and `--l2-min-tasks 3` cannot be met — either keep skill deletion on (the MLE
+default, where the full catalog stays visible) or pass `--l2-min-tasks 2`.
 
 ### 3.1 Skill Refinement add-on (opt-in, SkillRevise-style)
 

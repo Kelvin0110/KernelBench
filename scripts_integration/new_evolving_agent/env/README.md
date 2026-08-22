@@ -136,6 +136,10 @@ PY
 
 ## Related
 
+- **Standing up a second 2 × GH200 host:** [gh200_setup/](gh200_setup/) — a
+  step-by-step clone of this environment (OS/boot prep, driver, uv, venv, this CUDA
+  toolkit, baselines, multi-arm settings), read off the live host on 2026-08-22.
+  Includes the `gh200-memory-online.service` unit, which ships in no package.
 - Baseline timings for this host: `results/timing/NVIDIA_GH200x2/`. Runs **must**
   pass `--hardware NVIDIA_GH200x2`; the batch script defaults to
   `SONG_CPU6_A6000x4`, which silently scores against A6000 baselines.
