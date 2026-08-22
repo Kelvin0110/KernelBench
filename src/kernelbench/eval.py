@@ -12,7 +12,7 @@ import sys
 import tempfile
 import traceback
 import types
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from io import StringIO
 from typing import Union, Optional
 
@@ -409,6 +409,38 @@ def _process_input_tensor(input, device, backend="cuda", precision=torch.float32
     return input_tensor.to(device=device)
 
 
+_GPU_LOCK_FN = None
+_GPU_LOCK_TRIED = False
+
+
+def _gpu_timing_lock(label: str = ""):
+    """Serialise only the GPU phase of an eval against other concurrent runs.
+
+    Correctness trials and the two timing windows are the parts whose *numbers*
+    GPU contention corrupts. Model construction and nvcc/ninja loading are far
+    longer and do not affect the measurement, so holding a lock across them
+    only serialises unrelated work and caps concurrency.
+
+    No-ops when the evolving-agent lock is unavailable, so stock KernelBench
+    usage is unaffected.
+    """
+    global _GPU_LOCK_FN, _GPU_LOCK_TRIED
+    if not _GPU_LOCK_TRIED:
+        _GPU_LOCK_TRIED = True
+        try:
+            from evolving_common.governor.gpu_lock import gpu_eval_lock as _f
+
+            _GPU_LOCK_FN = _f
+        except Exception:
+            _GPU_LOCK_FN = None
+    if _GPU_LOCK_FN is None:
+        return nullcontext()
+    try:
+        return _GPU_LOCK_FN(label=label)
+    except Exception:
+        return nullcontext()
+
+
 def eval_kernel_against_ref(
     original_model_src: str,
     custom_model_src: str,
@@ -609,6 +641,15 @@ def eval_kernel_against_ref(
 
     kernel_exec_result = None
 
+    # --- GPU phase begins: correctness trials + both timing windows ---------
+    # Everything above (source exec, reference-model construction, ninja load)
+    # runs unlocked: it is the bulk of the wall time and does not affect the
+    # numbers. There are no early returns between here and the release below;
+    # if an exception escapes, the eval subprocess exits and the kernel drops
+    # the flock, so the lock cannot leak beyond this eval.
+    _gpu_phase = _gpu_timing_lock(label="eval_gpu_phase")
+    _gpu_phase.__enter__()
+
     # Check Correctness
     if verbose:
         print("[Eval] Checking Correctness")
@@ -737,6 +778,8 @@ def eval_kernel_against_ref(
             print(f"[WARNING] Excessive speedup {effective_speedup:.2f}x over {excessive_speedup_threshold}x threshold detected")
             print(f"[WARNING] Double check your kernel carefully to ensure it is not reward hacking.")
 
+
+    _gpu_phase.__exit__(None, None, None)  # --- GPU phase ends ---
 
     graceful_eval_cleanup(
         original_context, device, tempfile, extra_contexts=[custom_context]
