@@ -9,6 +9,13 @@ export CUDA_HOME=$HOME/opt/cuda-12.8
 export PATH=$CUDA_HOME/bin:$REPO/.venv/bin:$PATH
 ```
 
+Or source the helper, which derives the repo root itself and warns if `nvcc` or
+`ninja` is missing:
+
+```bash
+source scripts_integration/new_evolving_agent/env/activate.sh
+```
+
 - **`CUDA_HOME` must be exported, not merely satisfiable.** Putting `nvcc` on `PATH`
   alone satisfies torch, but agent-written kernels literally test
   `os.getenv("CUDA_HOME")`; leaving it unset keeps those guards closed and
@@ -19,8 +26,10 @@ export PATH=$CUDA_HOME/bin:$REPO/.venv/bin:$PATH
 
 `launch_run.sh` sets both itself. Any hand-rolled invocation of `evolve_kb_batch.py`
 must set them too. Neither is in the source host's `.bashrc` — `~/.bashrc` only adds
-`$HOME/.local/bin` (for uv). Adding them to `.bashrc` on the new host is a
-reasonable improvement; just do not rely on it inside scripts.
+`$HOME/.local/bin` (for uv). Think twice before adding them there: prepending
+`.venv/bin` to `PATH` globally shadows the system `python` 3.12 with the project's
+3.10 in *every* shell you open. `activate.sh` exists so you can opt in per shell
+instead. Either way, do not rely on it inside scripts.
 
 ### `.env`
 
