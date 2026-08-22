@@ -177,12 +177,13 @@ def _build_baseline_lookup(baseline_results: dict[str, Any], level: int) -> dict
         baseline_entry = level_baseline.get(problem.name)
         if not isinstance(baseline_entry, dict):
             continue
-        mean_value = baseline_entry.get("mean")
+        # median, falling back to mean for pre-median baselines
+        value = baseline_entry.get("median", baseline_entry.get("mean"))
         try:
-            mean_float = float(mean_value)
+            value_float = float(value)
         except Exception:
             continue
-        lookup[int(pid)] = mean_float
+        lookup[int(pid)] = value_float
     return lookup
 
 

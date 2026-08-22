@@ -737,7 +737,7 @@ def eval_kernel_against_ref(
 
                 if verbose:
                     print(f"[Eval] Performance Stats: {runtime_stats}")
-                kernel_exec_result.runtime = runtime_stats["mean"]
+                kernel_exec_result.runtime = timing.runtime_from_stats(runtime_stats, default=-1.0)
                 kernel_exec_result.runtime_stats = runtime_stats
 
         except Exception as e:
@@ -786,7 +786,7 @@ def eval_kernel_against_ref(
             device=device,
         )
         reference_runtime_stats = timing.get_timing_stats(reference_elapsed_times, device=device)
-        kernel_exec_result.ref_runtime = reference_runtime_stats["mean"]
+        kernel_exec_result.ref_runtime = timing.runtime_from_stats(reference_runtime_stats, default=-1.0)
         kernel_exec_result.ref_runtime_stats = reference_runtime_stats
 
         # Prefer fixed baseline when provided (aligns flag with displayed governor speedup).

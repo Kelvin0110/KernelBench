@@ -187,7 +187,7 @@ def analyze_greedy_eval(run_name, hardware, baseline, level,
         
         is_correct_list.append(eval_entry["correctness"])
         actual_speed_list.append(eval_entry["runtime"])
-        baseline_speed_list.append(baseline_entry["mean"])
+        baseline_speed_list.append(baseline_entry.get("median", baseline_entry["mean"]))
 
     is_correct = np.array(is_correct_list)
     baseline_speed = np.array(baseline_speed_list)

@@ -201,7 +201,7 @@ NOTE: we have a WIP blogpost on this topic covering the various timing approache
 def time_execution_with_cuda_event(
     kernel_fn: callable,
     args: list[Any],
-    num_warmup: int = 3,
+    num_warmup: int = 5,
     num_trials: int = 10,
     discard_first: int = 1, # set to 0 to disable
     verbose: bool = True,
@@ -606,8 +606,13 @@ def get_timing_stats(elapsed_times: list[float], device: torch.device = None) ->
         elapsed_times: List of elapsed times in milliseconds
         device: CUDA device, record device info
     Returns:
-        Dict containing mean, std, min, max and num_trials
+        Dict containing mean, std, min, max, median and num_trials
         all timing are in ms
+
+    Note:
+        `median` is the summary used for speedup (see `runtime_from_stats`). The
+        full set is recorded so a run can be re-scored on any of them later
+        without re-timing; only the raw per-trial list is not kept.
     """
 
     stats = {
@@ -615,6 +620,7 @@ def get_timing_stats(elapsed_times: list[float], device: torch.device = None) ->
         "std": float(f"{np.std(elapsed_times):.3g}"),
         "min": float(f"{np.min(elapsed_times):.3g}"),
         "max": float(f"{np.max(elapsed_times):.3g}"),
+        "median": float(f"{np.median(elapsed_times):.3g}"),
         "num_trials": len(elapsed_times),
     }
 
@@ -623,4 +629,25 @@ def get_timing_stats(elapsed_times: list[float], device: torch.device = None) ->
         stats["device"] = str(device)  # for debugging
 
     return stats
+
+
+def runtime_from_stats(stats: dict | None, default: float | None = None) -> float | None:
+    """Return the runtime summary used for speedup: median, else mean.
+
+    Median is robust to the one-off allocator stall that large-footprint problems
+    show on their first recorded trial (a single ~500ms sample among 100 that are
+    otherwise within 2%). `mean` is kept as a fallback so baseline JSONs written
+    before median was recorded still load.
+    """
+    if not isinstance(stats, dict):
+        return None
+    for key in ("median", "mean"):
+        value = stats.get(key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return default
 

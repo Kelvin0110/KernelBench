@@ -272,10 +272,16 @@ def build_baseline_lookup(baseline_results: dict[str, Any], level: int) -> dict[
         baseline_entry = level_baseline.get(problem.name)
         if not isinstance(baseline_entry, dict):
             continue
-        baseline_mean = safe_float(baseline_entry.get("mean"))
-        if baseline_mean is None:
+        # Median, falling back to mean for baselines written before median was
+        # recorded. Must match the summary eval uses for the candidate
+        # (kernelbench.timing.runtime_from_stats) or the speedup ratio compares
+        # two different statistics.
+        baseline_runtime = safe_float(baseline_entry.get("median"))
+        if baseline_runtime is None:
+            baseline_runtime = safe_float(baseline_entry.get("mean"))
+        if baseline_runtime is None:
             continue
-        lookup[int(pid)] = baseline_mean
+        lookup[int(pid)] = baseline_runtime
     return lookup
 
 

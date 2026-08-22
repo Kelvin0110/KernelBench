@@ -98,7 +98,7 @@ def load_baseline_results() -> Dict[int, Dict[str, float]]:
             # Extract the ID part
             try:
                 problem_id = problem_name.split('_')[0]
-                baseline_runtime = metrics.get('mean', None)
+                baseline_runtime = metrics.get('median', metrics.get('mean', None))
                 if baseline_runtime is not None:
                     baseline_by_level[level][problem_id] = baseline_runtime
             except Exception as e:

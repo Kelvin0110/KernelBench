@@ -323,7 +323,7 @@ def main(config: ScriptConfig):
                                                     verbose=False,
                                                     precision=config.precision,
                                                     )
-        ref_exec_eager_time = ref_time_eager_result.get("mean", None)
+        ref_exec_eager_time = ref_time_eager_result.get("median", ref_time_eager_result.get("mean", None))
 
         # Measure Torch Compile time
         ref_time_compile_result = measure_ref_program_time(ref_arch_name="Reference Program",
@@ -335,7 +335,7 @@ def main(config: ScriptConfig):
                                                     verbose=False,
                                                     precision=config.precision,
                                                     )
-        ref_exec_compile_time = ref_time_compile_result.get("mean", None)
+        ref_exec_compile_time = ref_time_compile_result.get("median", ref_time_compile_result.get("mean", None))
 
     elif config.eval_mode == "modal":
         # Modal evaluation (remote execution)
@@ -368,7 +368,7 @@ def main(config: ScriptConfig):
                 gpu_arch=gpu_arch,
                 precision=config.precision,
             )
-            ref_exec_eager_time = ref_time_eager_result.get("mean", None)
+            ref_exec_eager_time = ref_time_eager_result.get("median", ref_time_eager_result.get("mean", None))
 
             # Measure Torch Compile time
             print("[INFO] Measuring reference program time (torch.compile)")
@@ -383,7 +383,7 @@ def main(config: ScriptConfig):
                 gpu_arch=gpu_arch,
                 precision=config.precision,
             )
-            ref_exec_compile_time = ref_time_compile_result.get("mean", None)
+            ref_exec_compile_time = ref_time_compile_result.get("median", ref_time_compile_result.get("mean", None))
 
     print("="*40)
     print(f"[Eval] Kernel eval result: {kernel_eval_result}")
