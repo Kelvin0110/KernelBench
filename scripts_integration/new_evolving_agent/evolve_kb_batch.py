@@ -1178,9 +1178,8 @@ def main() -> int:
         default=DEFAULT_L2_MIN_RATE,
         help=(
             "L2 floor: selection rate (selections / iterations since the skill was "
-            f"created), which normalizes away skill age (default: {DEFAULT_L2_MIN_RATE}). "
-            "Calibrated for --no-skill-deletion; relax it when skill deletion is on, "
-            "since the full catalog stays visible and rates run lower."
+            "created), which normalizes away skill age. This is the load-bearing "
+            f"floor (default: {DEFAULT_L2_MIN_RATE})."
         ),
     )
     parser.add_argument(
@@ -1188,8 +1187,9 @@ def main() -> int:
         type=int,
         default=DEFAULT_L2_MIN_NEW_BESTS,
         help=(
-            "L2 floor: iterations that became a new best while this skill was in "
-            f"play (default: {DEFAULT_L2_MIN_NEW_BESTS})."
+            "L2 floor: iterations that became a new best while this skill was in play. "
+            f"Default {DEFAULT_L2_MIN_NEW_BESTS} disables this floor; attribution is "
+            "still recorded and still feeds the ranking score and the audit."
         ),
     )
     parser.add_argument(
@@ -1438,9 +1438,9 @@ def main() -> int:
                 "enable_l2": bool(args.enable_l2),
                 "l2_render": str(args.l2_render),
                 "l2_min_tasks": int(args.l2_min_tasks),
-                "l2_min_selections": int(args.l2_min_selections),
-                "l2_min_rate": float(args.l2_min_rate),
-                "l2_min_new_bests": int(args.l2_min_new_bests),
+        "l2_min_selections": int(args.l2_min_selections),
+        "l2_min_rate": float(args.l2_min_rate),
+        "l2_min_new_bests": int(args.l2_min_new_bests),
                 "l2_max_entries": int(args.l2_max_entries),
             },
             allow_mismatch=bool(args.allow_resume_config_mismatch),
@@ -1629,11 +1629,11 @@ def main() -> int:
                 l1_allowed_entry_ids=l1_allowed_entry_ids,
                 enable_l2=bool(args.enable_l2),
                 l2_render=str(args.l2_render),
+                l2_max_entries=int(args.l2_max_entries),
                 l2_min_tasks=int(args.l2_min_tasks),
                 l2_min_selections=int(args.l2_min_selections),
                 l2_min_rate=float(args.l2_min_rate),
                 l2_min_new_bests=int(args.l2_min_new_bests),
-                l2_max_entries=int(args.l2_max_entries),
                 verbose=True,
             )
             result = safe_run_kb_governor(cfg, task_prompt=task_prompt)

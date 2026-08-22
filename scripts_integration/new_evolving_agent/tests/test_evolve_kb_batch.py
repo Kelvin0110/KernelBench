@@ -1104,7 +1104,7 @@ def test_main_dry_run_accepts_l2_flags(tmp_path: Path, monkeypatch) -> None:
     assert summary["l2_min_tasks"] == 3
     assert summary["l2_min_selections"] == 20
     assert summary["l2_min_rate"] == 0.5
-    assert summary["l2_min_new_bests"] == 2
+    assert summary["l2_min_new_bests"] == 2  # explicitly re-armed above
     # No cap by default: the floors decide how many rules are promoted.
     assert summary["l2_max_entries"] == 0
     assert summary["l2_standing_count"] == 0
@@ -1133,3 +1133,41 @@ def test_main_dry_run_l2_disabled_by_default(tmp_path: Path, monkeypatch) -> Non
     )
     assert summary["enable_l2"] is False
     assert summary["l2_render"] == "verbatim"
+
+
+def _dry_run_summary(tmp_path: Path, monkeypatch, name: str, extra: list[str]) -> dict:
+    subset_csv = tmp_path / f"{name}.csv"
+    subset_csv.write_text("level,problem_id\n1,100\n", encoding="utf-8")
+    monkeypatch.setattr(evolve_kb_batch.torch.cuda, "is_available", lambda: False)
+    results_root = tmp_path / "results"
+    monkeypatch.setattr(
+        sys, "argv",
+        ["evolve_kb_batch.py", "--subset-csv", str(subset_csv), "--run-name", name,
+         "--dry-run", "--results-root", str(results_root), "--max-problems", "1"] + extra,
+    )
+    assert evolve_kb_batch.main() == 0
+    return json.loads(
+        list(results_root.glob(f"{name}_*/run_summary.json"))[0].read_text(encoding="utf-8")
+    )
+
+
+def test_l2_floors_are_universal(tmp_path: Path, monkeypatch) -> None:
+    """The floors must not shift with skill governance — one set for every regime."""
+    expected = (3, 50, 0.70, 0)
+    for name, flags in (
+        ("l2_uni_off", ["--no-skill-deletion", "--no-skill-merging"]),
+        ("l2_uni_del", ["--skill-deletion", "--no-skill-merging"]),
+        ("l2_uni_mrg", ["--no-skill-deletion", "--skill-merging"]),
+    ):
+        s = _dry_run_summary(tmp_path, monkeypatch, name, ["--enable-l2"] + flags)
+        assert (
+            s["l2_min_tasks"], s["l2_min_selections"], s["l2_min_rate"], s["l2_min_new_bests"]
+        ) == expected, name
+
+
+def test_l2_explicit_floor_overrides_the_default(tmp_path: Path, monkeypatch) -> None:
+    summary = _dry_run_summary(
+        tmp_path, monkeypatch, "l2_ovr", ["--enable-l2", "--l2-min-rate", "0.42"]
+    )
+    assert summary["l2_min_rate"] == 0.42
+    assert summary["l2_min_tasks"] == 3  # unset floors keep their defaults
