@@ -35,6 +35,13 @@ image, and four things still bite.
 | 10 | [12-multi-arm-settings.md](12-multi-arm-settings.md) | `KB_GPU_*` knobs for sharing a GPU across arms |
 | 11 | [13-first-run.md](13-first-run.md) | launch + health checks |
 
+Scripts (in this directory):
+
+| script | what it does |
+|---|---|
+| [`fix_closed_to_open_driver.sh`](fix_closed_to_open_driver.sh) | repairs a host that has the **proprietary** driver instead of `-open`; creates the memory-onlining unit; no reboot needed |
+| [`acceptance_test.sh`](acceptance_test.sh) | the whole of [10-acceptance-test.md](10-acceptance-test.md) as one pass/fail run |
+
 Reference:
 
 - [14-failure-modes.md](14-failure-modes.md) — symptom → cause → fix, ranked by cost
@@ -89,19 +96,25 @@ UNIT
 sudo systemctl daemon-reload && sudo systemctl enable --now gh200-memory-online.service
 sudo systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service
 
-# 2. driver (sudo, once, then reboot)
+# 2. driver (sudo, once)  -- MUST be the -open module; the proprietary one cannot
+#    drive a GH200 no matter how cleanly DKMS builds it. See 04-driver.md.
 sudo apt update && sudo apt install -y build-essential linux-headers-$(uname -r) nvidia-driver-580-open
 sudo systemctl enable --now nvidia-persistenced && sudo reboot
-# after reboot: nvidia-smi ; dkms status ; numactl -H | grep -E "^node (2|10) size"
+# already-provisioned host with the WRONG driver? repair it without a reboot:
+#   sudo bash scripts_integration/new_evolving_agent/env/gh200_setup/fix_closed_to_open_driver.sh
+# after: nvidia-smi ; dkms status ; numactl -H | grep -E "^node (2|10) size"
 
 # 3. uv
 curl -LsSf https://astral.sh/uv/install.sh | sh && exec "$SHELL" -l
 
-# 4. repo
+# 4. repo   (Self-Evolving-Agent is PRIVATE -> its HTTPS submodule URL fails)
 export REPO=$HOME/KernelBench
 git clone git@github.com:Kelvin0110/KernelBench.git "$REPO" && cd "$REPO"
-git checkout features/evolving-agent-final && git submodule update --init --recursive
-git apply /tmp/kb-root.patch && git -C Self-Evolving-Agent apply /tmp/kb-sea.patch   # 06-repository.md
+git checkout features/evolving-agent-final
+git config --local submodule."Self-Evolving-Agent".url git@github.com:Kelvin0110/Self-Evolving-Agent.git
+git submodule update --init --recursive
+# the narrow GPU-eval lock is COMMITTED now -- no patch transfer. Assert the pin:
+[ "$(git -C Self-Evolving-Agent rev-parse HEAD)" = "$(git rev-parse HEAD:Self-Evolving-Agent)" ] || echo "PIN MISMATCH"
 
 # 5. venv  (uv fetches CPython 3.10.20 itself)
 uv sync --extra dev
@@ -115,7 +128,8 @@ export CUDA_HOME=$HOME/opt/cuda-12.8
 export PATH=$CUDA_HOME/bin:$REPO/.venv/bin:$PATH
 cp .env.example .env && $EDITOR .env          # NVIDIA_INF_API_KEY at minimum
 
-# 8. acceptance test  (10-acceptance-test.md) — must print OK
+# 8. acceptance test — must print OK
+bash scripts_integration/new_evolving_agent/env/gh200_setup/acceptance_test.sh
 
 # 9. baseline: nothing to generate — results/timing/NVIDIA_GH200x2/ already applies.
 #    Optionally validate it  (11-timing-baselines.md).
