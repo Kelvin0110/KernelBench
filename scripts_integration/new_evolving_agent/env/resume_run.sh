@@ -47,6 +47,19 @@ export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
 
 RESULTS_ROOT="runs_evolving/gpt-oss-120b/"
 RUN_DIR="${RESULTS_ROOT}${RUN_NAME}"
+
+# Hardware/baseline is a parameter so this script works on another server.
+# Unlike the launchers, resume DEFAULTS TO THE ORIGINAL RUN'S baseline: replaying
+# a range against a different one would make the repaired problems incomparable
+# with the untouched ones in the same run dir.
+# shellcheck source=./hardware_env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/hardware_env.sh"
+if [ -z "${HARDWARE:-}" ] && [ -f "$RUN_DIR/run_summary.json" ]; then
+  HARDWARE="$(./.venv/bin/python -c "import json,sys;print(json.load(open(sys.argv[1])).get('hardware_server',''))" "$RUN_DIR/run_summary.json" 2>/dev/null || true)"
+  [ -n "$HARDWARE" ] && echo ">> hardware from run_summary.json: $HARDWARE"
+fi
+ALLOW_MEAN_BASELINE=1 kb_require_hardware "$REPO_ROOT"
+
 LOG="${RUN_NAME%%_2026_*}_resume_$(date -u +%b_%-d).log"
 
 # --- preflight -------------------------------------------------------------
@@ -79,7 +92,7 @@ CUDA_VISIBLE_DEVICES="$GPU" nohup uv run --no-sync python \
   --max-iterations 30 \
   --start-problem "$START" \
   "${END_ARGS[@]}" \
-  --hardware NVIDIA_GH200x2 \
+  --hardware "$HARDWARE" \
   --nvidia-endpoint inference \
   --model gpt-oss-120b \
   --context-management "$CTX" \

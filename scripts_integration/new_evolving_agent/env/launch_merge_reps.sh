@@ -86,6 +86,13 @@ cd "$REPO_ROOT"
 export CUDA_HOME="${CUDA_HOME:-$HOME/opt/cuda-12.8}"
 export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
 
+# Hardware/baseline is a parameter so this script works on another server:
+#   HARDWARE=<folder under results/timing> bash <this script> ...
+# shellcheck source=./hardware_env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/hardware_env.sh"
+kb_resolve_hardware
+
+
 RESULTS_ROOT="runs_evolving/gpt-oss-120b/"
 STAMP="$(date -u +%b_%-d)"
 # Launch writes today's manifest; `status` must find the manifest from whatever
@@ -145,7 +152,7 @@ fi
 echo "=== preflight ==="
 command -v nvcc  >/dev/null || { echo "FATAL: nvcc not on PATH (CUDA_HOME=$CUDA_HOME)"; exit 1; }
 command -v ninja >/dev/null || { echo "FATAL: ninja not on PATH -- add .venv/bin"; exit 1; }
-[ -d "results/timing/NVIDIA_GH200x2" ] || { echo "FATAL: missing results/timing/NVIDIA_GH200x2"; exit 1; }
+kb_require_hardware "$REPO_ROOT"
 grep -q "NVIDIA_INF_API_KEY" .env 2>/dev/null || { echo "FATAL: NVIDIA_INF_API_KEY not in .env"; exit 1; }
 [ -f "subset_selection/selected_problems_50.csv" ] || { echo "FATAL: missing subset CSV"; exit 1; }
 echo "  nvcc: $(nvcc --version | tail -1)"
@@ -227,7 +234,7 @@ echo
 CMD_PREVIEW="CUDA_VISIBLE_DEVICES=$GPU KB_GPU_RESERVE_GB=0 nohup uv run --no-sync python \\
   scripts_integration/new_evolving_agent/evolve_kb_batch.py \\
   --run-name $RUN_NAME --results-root $RESULTS_ROOT \\
-  --max-problems 50 --max-iterations 30 --hardware NVIDIA_GH200x2 \\
+  --max-problems 50 --max-iterations 30 --hardware "$HARDWARE" \\
   --nvidia-endpoint inference --model gpt-oss-120b \\
   --context-management $CTX --coder-timeout-sec 600 \\
   --skill-merging --skill-merge-similarity $SIM"
@@ -275,7 +282,7 @@ for i in $(seq 1 "$REPS"); do
     --results-root "$RESULTS_ROOT" \
     --max-problems 50 \
     --max-iterations 30 \
-    --hardware NVIDIA_GH200x2 \
+    --hardware "$HARDWARE" \
     --nvidia-endpoint inference \
     --model gpt-oss-120b \
     --context-management "$CTX" \
