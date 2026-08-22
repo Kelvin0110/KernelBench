@@ -7,6 +7,19 @@
 Run all of it. Each check corresponds to a failure that once silently corrupted a
 ~70 h run.
 
+**All of it is scripted** — prefer this over pasting the blocks below, because it also
+asserts the submodule pin and the driver's module licence, which prose checks miss:
+
+```bash
+cd "$REPO"
+bash scripts_integration/new_evolving_agent/env/gh200_setup/acceptance_test.sh
+```
+
+It sets `CUDA_HOME` and `PATH` itself, prints one `PASS`/`FAIL` per check, and exits
+non-zero unless every check passes. `OK  N checks passed. Safe to launch.` is the only
+green light. The manual equivalents follow.
+
+
 ```bash
 cd "$REPO"
 export CUDA_HOME=$HOME/opt/cuda-12.8
