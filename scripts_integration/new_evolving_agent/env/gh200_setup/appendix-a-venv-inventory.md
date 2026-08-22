@@ -1,5 +1,12 @@
 # Appendix A — exact venv contents (source host, 139 packages)
 
+> **`-035` is wider.** It runs `--extra dev --extra vis --extra gpu --extra
+> evolving-agent` = **209 distributions** (`aideml` cannot install on aarch64; see
+> [Python environment](07-python-environment.md)). The pins below still all match
+> exactly — spot-checked 12/12 on 2026-08-22, including torch 2.11.0+cu128,
+> scikit-learn 1.5.0 and pandas 2.1.4. The extras are additive only: no package in
+> this appendix was removed or changed version.
+
 *Part of the [2 × GH200 host setup guide](README.md).*
 
 ---
