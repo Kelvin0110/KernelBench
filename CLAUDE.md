@@ -641,7 +641,9 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix)
 5. **Governance matrix is incomplete**, and every median-series cell is unfinished — the
    Aug-22 wave was killed at 0–4 of 50 problems on both GPUs. As of 2026-08-23 six gpt-oss
    cells are resuming on GPU 0 (`-`, markov, compress, deletion, merge_sim08, l2) and six
-   gpt-5.6-terra cells restarted fresh on GPU 1. `folding`, `selective_r5` and `refinement`
+   gpt-5.6-terra cells are resuming on GPU 1 (`-`, markov, selective_r5, compress,
+   deletion, l2), all from problem 4 except gpt-oss `deletion` (problem 1) and
+   `merge_sim08` (problem 5). `folding`, `selective_r5` and `refinement`
    remain untouched under the corrected metric. The old "N arms/GPU is safe" guidance is
    superseded by the concurrency measurement in §3.4: the binding constraint was the mutex,
    not the arm count, and it is now a 3-slot semaphore.
