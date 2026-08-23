@@ -2,7 +2,7 @@
 # Launch a WAVE of heterogeneous arms (different context modes AND different
 # skill-governance flags) on one GPU, staggered in time.
 #
-#   bash scripts_integration/new_evolving_agent/env/launch_wave.sh <gpu> <spec_file> [dry-run|status]
+#   bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_wave.sh <gpu> <spec_file> [dry-run|status]
 #
 # launch_arm_reps.sh only takes <context-mode>:<reps>, so it cannot express a
 # governance arm (--skill-deletion, --skill-merging, --enable-l2, ...). This
@@ -26,7 +26,31 @@
 KB_GPU_EVAL_LOCK_TIMEOUT_SEC="${KB_GPU_EVAL_LOCK_TIMEOUT_SEC:-5400}"
 export KB_GPU_EVAL_LOCK_TIMEOUT_SEC
 
+# Critical-section trims. Both default OFF in src/kernelbench/eval.py so that a
+# run already in flight is never perturbed -- eval.py is re-imported from disk by
+# every spawned eval child, so an unconditional change would reach live arms.
+# They are turned on HERE, i.e. only for newly launched waves.
+#   KB_EVAL_SKIP_DEAD_REF_TIMING -- drop the reference timing window when its
+#     result is provably unused: a fixed baseline is supplied (the governor
+#     overwrites the measured ref_runtime with it anyway), or the kernel is not
+#     correct (runtime stays -1.0, so the excessive-speedup flag cannot fire).
+#   KB_EVAL_HOIST_INPUT_GEN -- build get_inputs() tensors on the CPU before
+#     taking the lock. Pure-CPU torch.rand; the host-to-device transfer stays
+#     locked. Measured at 19.2s/eval of lock hold on level 1 problem 34.
+# Neither changes a recorded number. Both shorten the hold, so a wave launched
+# with them sees less contention deflation than one launched without -- compare
+# speedups across that boundary with the same care as across a baseline change.
+KB_EVAL_SKIP_DEAD_REF_TIMING="${KB_EVAL_SKIP_DEAD_REF_TIMING:-1}"
+KB_EVAL_HOIST_INPUT_GEN="${KB_EVAL_HOIST_INPUT_GEN:-1}"
+KB_EVAL_PHASE_TIMING="${KB_EVAL_PHASE_TIMING:-1}"
+export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN KB_EVAL_PHASE_TIMING
+
 set -euo pipefail
+
+# grep -c prints "0" AND exits 1 when there are no matches, so `|| echo 0`
+# emits two lines and breaks the arithmetic below. Count through this instead.
+cnt() { local n; n="$(grep -c "$1" "$2" 2>/dev/null | head -1)"; echo "${n:-0}"; }
+
 
 GPU="${1:?usage: launch_wave.sh <gpu> <spec_file> [dry-run|status]}"
 SPEC_FILE="${2:?missing spec file}"
@@ -37,7 +61,7 @@ MAX_ARMS_PER_GPU="${MAX_ARMS_PER_GPU:-6}"
 DIR_WAIT_SEC="${DIR_WAIT_SEC:-300}"
 MIN_FREE_MIB="${MIN_FREE_MIB:-20000}"
 # shellcheck source=./hardware_env.sh
-source "$(dirname "${BASH_SOURCE[0]}")/hardware_env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../hardware_env.sh"
 kb_resolve_hardware
 MAX_PROBLEMS="${MAX_PROBLEMS:-50}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-30}"
@@ -46,7 +70,7 @@ if [ "$LAG_SEC" -le 60 ]; then
   echo "FATAL: LAG_SEC=$LAG_SEC must be > 60 (run-name timestamp is minute-resolution)"; exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 cd "$REPO_ROOT"
 export CUDA_HOME="${CUDA_HOME:-$HOME/opt/cuda-12.8}"
 export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
@@ -70,15 +94,15 @@ if [ "$MODE" = "status" ]; then
     alive="dead"; kill -0 "$pid" 2>/dev/null && alive="$pid"
     prob="$(grep -E "^\[batch\] \([0-9]+/" "$log" 2>/dev/null | tail -1 | grep -oE '\([0-9]+/[0-9]+\)' || echo '-')"
     lmax="$(grep -oE 'acquired after [0-9.]+s' "$log" 2>/dev/null | grep -oE '[0-9.]+' | sort -g | tail -1 || true)"
-    w="$(grep -c "gpu-eval-lock.*waiting" "$log" 2>/dev/null || echo 0)"
-    a="$(grep -c "gpu-eval-lock.*acquired" "$log" 2>/dev/null || echo 0)"
+    w="$(cnt "gpu-eval-lock.*waiting" "$log")"
+    a="$(cnt "gpu-eval-lock.*acquired" "$log")"
     printf '%-4s %-26s %-9s %-9s %-8s %-8s %s\n' "$idx" "$tag" "$alive" "$prob" "${lmax:-0}s" "$((w - a))" "$(basename "$rundir")"
   done < "$MANIFEST"
   echo
   unlocked=0
   while IFS=$'\t' read -r idx tag pid rundir log; do
     [ "$idx" = "idx" ] && continue
-    n="$(grep -c "proceeding UNLOCKED" "$log" 2>/dev/null || true)"; unlocked=$((unlocked + ${n:-0}))
+    n="$(cnt "proceeding UNLOCKED" "$log")"; unlocked=$((unlocked + ${n:-0}))
   done < "$MANIFEST"
   echo "contended (UNLOCKED) evals: $unlocked   <-- MUST stay 0"
   echo "ORPHWAIT (waiting with no acquire) should also be 0; >0 means evals died mid-wait"
@@ -172,6 +196,7 @@ for ((i=0; i<TOTAL; i++)); do
 done
 echo "      ${MAX_PROBLEMS} problems x ${MAX_ITERATIONS} iterations"
 echo "      KB_GPU_RESERVE_GB=0, KB_GPU_EVAL_LOCK_TIMEOUT_SEC=$KB_GPU_EVAL_LOCK_TIMEOUT_SEC"
+echo "      KB_EVAL_SKIP_DEAD_REF_TIMING=$KB_EVAL_SKIP_DEAD_REF_TIMING, KB_EVAL_HOIST_INPUT_GEN=$KB_EVAL_HOIST_INPUT_GEN, KB_EVAL_PHASE_TIMING=$KB_EVAL_PHASE_TIMING"
 echo
 
 if [ "$MODE" = "dry-run" ]; then echo "(dry-run: nothing launched)"; exit 0; fi
@@ -191,6 +216,9 @@ for ((i=0; i<TOTAL; i++)); do
   # shellcheck disable=SC2086 -- flags must word-split into separate argv entries
   CUDA_VISIBLE_DEVICES="$GPU" KB_GPU_RESERVE_GB=0 \
   KB_GPU_EVAL_LOCK_TIMEOUT_SEC="$KB_GPU_EVAL_LOCK_TIMEOUT_SEC" \
+  KB_EVAL_SKIP_DEAD_REF_TIMING="$KB_EVAL_SKIP_DEAD_REF_TIMING" \
+  KB_EVAL_HOIST_INPUT_GEN="$KB_EVAL_HOIST_INPUT_GEN" \
+  KB_EVAL_PHASE_TIMING="$KB_EVAL_PHASE_TIMING" \
   setsid nohup uv run --no-sync python \
     scripts_integration/new_evolving_agent/evolve_kb_batch.py \
     --run-name "$RUN_NAME" \
