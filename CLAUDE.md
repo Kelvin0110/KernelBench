@@ -372,12 +372,24 @@ Two design changes follow, both gated and both on for waves launched after this 
   Verified peak concurrency 1/2/3/4 for slots 1/2/3/4; malformed values fail closed to 1;
   re-entrancy preserved. **Never mix slots=1 and slots>1 on one GPU** -- different file
   names, so they would not interlock.
-- **`KB_EVAL_UNLOCK_CORRECTNESS`** (`eval.py`) -- correctness trials run outside the lock,
+- **`KB_EVAL_UNLOCK_CORRECTNESS`** (`eval.py`) -- **reverted to OFF on 2026-08-23, see the
+  memory note below** -- correctness trials run outside the lock,
   which then covers only the timing window(s). A/B on L1P100, warm build: hold
   **1.96 s -> 0.78 s** with runtime unchanged (2.42/2.44 vs 2.38/2.45; solo control 2.41).
   This supersedes the "Not done: the shared/exclusive split" note below -- the probe above
   is strictly *more* aggressive than an SH/EX split, since it let timing windows overlap
   each other too, and still cost <3%.
+
+  **But that probe measured runtime, not memory, and this flag was reverted hours later.**
+  Concurrency of *device-resident* evals is bounded by the lock, and unlocking correctness
+  removed that bound: each eval reserves ~30 GB (level-1 problems) to ~52 GB (L1P34) because
+  the caching allocator retains input copy + output + intermediates + a second copy for the
+  timing window. Six arms/GPU took GPU 0 to 144.8 of 146.8 GB and 1.8% of evals to CUDA OOM,
+  each recorded as `compiled=True correct=False`. **Sizing rule with correctness locked:
+  concurrent residents = SLOTS, so budget ~30-52 GB x SLOTS and do not raise SLOTS while arms
+  are inside subset problems 1-5.** `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` would
+  cut the retention but allocation happens inside the timed forward while the baselines were
+  measured under the default allocator, so it is deliberately not set.
 
 **The other thing that was wrong: problems 1-5 are not representative.** Measured
 `get_inputs()` across all 50 subset problems -- the first five (`L1P100/22/26/33/34`, in
@@ -400,7 +412,7 @@ reaches live arms. Both trims are therefore gated, and turned on in
 | `KB_EVAL_HOIST_INPUT_GEN` | builds `get_inputs()` tensors on the CPU before taking the lock; H2D stays locked. Falls back to the in-lock path on any failure, and skips correctness pregeneration unless `num_correct_trials == 1` (5-trial callers would hold five input sets in host RAM). |
 | `KB_EVAL_SKIP_DEAD_REF_TIMING` | skips the reference *measurement* when a fixed baseline is supplied. **Only the measurement.** The excessive-speedup / reward-hack flag lives in the same `if` block but depends on `baseline_runtime` and the candidate runtime, never on the window -- gating it too would silently disable `is_hack`, the `is_new_best` veto, and hack filtering in `best_geomean`. That bug was caught in review; do not reintroduce it by skipping the whole block. |
 | `KB_EVAL_PHASE_LOG` | path to append one JSON line per eval: `held_sec`, `waited_sec`, `hoisted`, `unlocked_correctness`, `lock_slots`, `ref_window`, and a non-overlapping phase breakdown with an `other_sec` residual. Unset -> emits nothing. |
-| `KB_EVAL_UNLOCK_CORRECTNESS` | runs the correctness trials outside the lock, leaving only the timing window(s) held. Hold 1.96s -> 0.78s on L1P100 with the recorded runtime unchanged. When on, the correctness trio is excluded from the `other_sec` residual -- otherwise it goes negative. |
+| `KB_EVAL_UNLOCK_CORRECTNESS` | runs the correctness trials outside the lock, leaving only the timing window(s) held. Hold 1.96s -> 0.78s on L1P100 with the recorded runtime unchanged. When on, the correctness trio is excluded from the `other_sec` residual -- otherwise it goes negative. **Leave this OFF on a shared GPU.** It removes the bound on how many evals are DEVICE-resident at once (correctness does the H2D of the whole input set plus two model forwards), and each eval reserves ~30 GB on a level-1 problem / ~52 GB on L1P34. With 6 arms/GPU it drove GPU 0 to 144.8 of 146.8 GB and 1.8% of evals to CUDA OOM -- recorded as `compiled=True correct=False`, so the governor debugs a kernel that was never broken. Locking it again cut peak 141.4 -> 72.6 GB and OOM to 0, at the cost of ~5.7s of hold, with the lock still showing zero waits over 5s. |
 | `KB_GPU_EVAL_LOCK_SLOTS` | counting semaphore, default 1 (= the historical mutex, same lock file). Launchers set 3. See the measurement above. |
 
 Neither trim changes a recorded number, but both shorten the hold, so a wave launched with
