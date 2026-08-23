@@ -26,7 +26,13 @@ cd "$REPO_ROOT"
 export CUDA_HOME="${CUDA_HOME:-$HOME/opt/cuda-12.8}"
 export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
 
-LAG_SEC="${LAG_SEC:-180}"
+# 60s, not launch_wave.sh's 180s. That guard exists because launch_wave.sh mints
+# a NEW run dir stamped to minute resolution, so two arms inside one minute would
+# collide on the name. Resume reuses the existing dir and mints nothing, so the
+# constraint does not apply and the stagger only has to spread the startup burst.
+# Resumed arms also restart at different problems, so they are desynchronised by
+# construction -- the lockstep collision the long lag guarded against cannot occur.
+LAG_SEC="${LAG_SEC:-60}"
 MAX_ARMS_PER_GPU="${MAX_ARMS_PER_GPU:-6}"
 MODEL="${MODEL:-gpt-oss-120b}"
 RESULTS_ROOT="${RESULTS_ROOT:-runs_evolving/gpt-oss-120b/}"
