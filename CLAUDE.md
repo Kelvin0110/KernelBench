@@ -259,11 +259,87 @@ iterations. If you must edit mid-run, write to a temp file, validate with `ast.p
 Audit contention with:
 
 ```bash
-grep -h "gpu-eval-lock" <log>          # waits ≥5 s
-# Orphaned waits = evals killed mid-wait. Non-zero means contention corrupted this run.
-# (Pre-fix logs only; do NOT rely on "proceeding UNLOCKED" -- it cannot fire. See §3.4.)
-echo $(( $(grep -c "gpu-eval-lock.*waiting" <log>) - $(grep -c "gpu-eval-lock.*acquired" <log>) ))
+# WRONG -- always returns zero. eval_runner.py wraps eval_kernel_against_ref in
+# redirect_stdout(), so the lock never prints to the arm log.
+#   grep -h "gpu-eval-lock" <log>
+# RIGHT -- the lines are captured into the per-iteration eval record:
+python3 - <<'EOF'
+import json,glob,re,statistics as st
+pat=re.compile(r"acquired after ([\d.]+)s")
+w=[float(m.group(1)) for f in glob.glob("runs_evolving/**/evaluation_terminal_output.jsonl",recursive=True)
+   for l in open(f) for m in [pat.search(json.loads(l).get("terminal_output") or "")] if m]
+print(len(w),"waits >=5s; median",st.median(w) if w else 0,"max",max(w) if w else 0)
+EOF
 ```
+
+#### Arms/GPU is the lever. The 100-trial change is a red herring (2026-08-23)
+
+Submodule `7ba78c7` raised `num_perf_trials` 10 -> 100 and it is tempting -- I did it,
+and so did a subagent -- to blame it for the contention. **It is not the cause.**
+Non-lock-wait eval work on the *same* problem (L1P100), same GPU, same model:
+
+| | p25 | median |
+|---|---|---|
+| Aug-07 solo, N=10, no contention | 67.0 s | 68.6 s |
+| Aug-22 wave, N=100, 9 arms | 67.2 s | 71.8 s |
+
+The lock hold is a subset of that work, so **the hold grew by at most ~3 s**. The
+arithmetic agrees: at N=100 the two timing windows are 212 iterations, which for
+L1P100 (ref 7.94 ms, candidate 1.25 ms) is 0.97 s of kernel time versus 0.15 s at
+N=10 -- a 1.7 s delta, not a 10x critical section.
+
+**What actually changed is arm count.** Same narrow lock, same code path:
+
+| | evals waited >=5 s | median wait |
+|---|---|---|
+| Aug-20 reps, N=10, **3 arms** | 8% | 22 s |
+| Aug-22 wave, N=100, **9 arms** | 76% | 298 s |
+
+**The hold is ~20 s and always was** (busy-period inter-completion gap; consistent with
+the Aug-20 median wait of 22 s at 3 arms). Only ~1 s of it is the timing loop -- the
+rest is correctness trials, input generation, `empty_cache` and syncs. So:
+
+- `num_perf_trials` was cut 100 -> 25 on 2026-08-23 (`eval_runner.py:108`). It buys back
+  only ~2 s of a ~20 s hold, but it needed no restart -- see the propagation rule below.
+- Skipping the discarded live reference timing is still correct (see below) but it is
+  worth a few seconds, **not the "free 2x" an earlier version of this section claimed**.
+- The earlier "~4.9 s hold, ~6 arms/GPU" figures came from a probe on a different
+  problem mix (L3P4/9/42) and do not generalise. **Treat ~3 arms/GPU as the ceiling**
+  until someone profiles the inside of the locked section.
+
+Corollary: to actually raise the ceiling you must shrink the critical section, and
+that means finding the ~19 s that is *not* the timing loop. That has not been done.
+
+#### Which edits reach a live run, and which need a relaunch
+
+`evaluate_in_subprocess` uses `start_method="spawn"` (`execution.py:352`), so the child
+pickles `kernelbench_eval_worker` **by reference** and re-imports its module from disk
+every eval. That splits the codebase in two:
+
+| runs in | example | live runs pick it up? |
+|---|---|---|
+| eval **child** | `kernelbench_integration/eval_runner.py`, `src/kernelbench/eval.py` | **yes**, on the next eval spawned |
+| long-lived **parent** | `evolving_common/execution.py`, `evolve_kb_batch.py` governor loop | **no** -- bound at import, needs relaunch |
+
+This is why `7ac0e87` (eval deadline) applied only to newly launched runs while the
+`num_perf_trials` change took effect in ~3 minutes with no restart.
+
+**Two traps when verifying an edit landed.** An eval *spawned* before the edit keeps the
+old value and can complete long after it -- with 300-900 s lock waits, stale records keep
+arriving for 10+ minutes. So (a) match on the new value (`trials 25`), never on "any
+record newer than the edit", and (b) the value is only visible in
+`evaluation_terminal_output.jsonl`, not the arm log.
+
+**Always publish atomically:** temp file in the same directory -> `ast.parse` -> `os.replace`.
+An in-place write is readable mid-flight by a spawning child; that is the 2026-08-20
+nine-arm incident.
+
+**Still true and still worth fixing.** When `baseline_runtime` is supplied (always, for
+`NVIDIA_GH200x2_median`) the live reference timing inside the lock is computed and
+thrown away -- `governor.py:467` sets `ref_for_speedup = self._baseline_runtime`, and
+`eval.py` prefers the same baseline for the excessive-speedup flag. Removing it is free
+correctness-wise; just do not expect it to double throughput. Apply only when no run is
+live (spawn re-imports from disk).
 
 ### 3.5 Health checks while running
 
