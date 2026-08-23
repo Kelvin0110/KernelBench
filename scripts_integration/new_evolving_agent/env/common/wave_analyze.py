@@ -138,9 +138,11 @@ def main():
                 ph.setdefault(k, []).append(v)
         inside = {k: st.median(v) for k, v in ph.items() if st.median(v) > 0.005}
         print(f"  phase medians: {json.dumps({k: round(v,2) for k,v in inside.items()})}")
+        # unlocked_correctness is deliberately OFF: it removes the bound on how
+        # many evals are device-resident and OOM'd the box on 2026-08-23. The
+        # intended config is hoisted + skipped ref window + slots>1.
         bad = [b for b, r in recs_win
-               if not (r.get("hoisted") and r.get("unlocked_correctness")
-                       and r.get("lock_slots", 1) > 1)]
+               if not (r.get("hoisted") and r.get("lock_slots", 1) > 1)]
         if bad:
             print(f"  !! {len(bad)} eval(s) NOT fully optimised -- check the arm env")
 
