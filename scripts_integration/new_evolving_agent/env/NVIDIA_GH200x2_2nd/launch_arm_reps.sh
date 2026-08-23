@@ -2,7 +2,7 @@
 # Launch replicates of one or more CONTEXT-MANAGEMENT arms on a single GPU,
 # round-robin across modes and staggered in time.
 #
-#   bash scripts_integration/new_evolving_agent/env/launch_arm_reps.sh <gpu> <mode>:<reps> [<mode>:<reps> ...]
+#   bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_arm_reps.sh <gpu> <mode>:<reps> [<mode>:<reps> ...]
 #
 #   bash .../launch_arm_reps.sh 0 truncation:2 markov_report:2 folding:2
 #   bash .../launch_arm_reps.sh 0 dry-run truncation:2 markov_report:2 folding:2
@@ -55,7 +55,7 @@ if [ "$LAG_SEC" -le 60 ]; then
   echo "FATAL: LAG_SEC=$LAG_SEC must be > 60 (run-name timestamp is minute-resolution)"; exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 cd "$REPO_ROOT"
 export CUDA_HOME="${CUDA_HOME:-$HOME/opt/cuda-12.8}"
 export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
@@ -63,7 +63,7 @@ export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
 # Hardware/baseline is a parameter so this script works on another server:
 #   HARDWARE=<folder under results/timing> bash <this script> ...
 # shellcheck source=./hardware_env.sh
-source "$(dirname "${BASH_SOURCE[0]}")/hardware_env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../hardware_env.sh"
 kb_resolve_hardware
 
 
@@ -272,7 +272,7 @@ column -t -s$'\t' "$MANIFEST"
 cat <<EOF
 
 manifest: $MANIFEST
-Status:   bash scripts_integration/new_evolving_agent/env/launch_arm_reps.sh $GPU status
+Status:   bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_arm_reps.sh $GPU status
 
 WATCH THE LOCK. At 3 arms the worst wait was 525s against an 1800s timeout;
 this run has $TOTAL arms on one GPU with the timeout raised to ${KB_GPU_EVAL_LOCK_TIMEOUT_SEC}s.

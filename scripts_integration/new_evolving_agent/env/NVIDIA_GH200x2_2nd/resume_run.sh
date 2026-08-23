@@ -2,10 +2,10 @@
 # Resume a damaged range of an existing evolving-agent run on the repaired
 # toolchain + LLM-timeout harness.
 #
-#   bash scripts_integration/new_evolving_agent/env/resume_run.sh <gpu> <run_dir_name> <ctx_mode> <start> [end]
+#   bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/resume_run.sh <gpu> <run_dir_name> <ctx_mode> <start> [end]
 #
 # Example -- replay markov problems 39..50 (clean suffix, recovers L3P29/L3P48/L3P49):
-#   bash scripts_integration/new_evolving_agent/env/resume_run.sh \
+#   bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/resume_run.sh \
 #     1 base_agent_gpt_oss_120b_markov_itr30_GH200_2026_08_07_13_58 markov_report 39
 #
 # NARROW RANGES ARE SAFE -- two mechanisms cooperate
@@ -39,7 +39,7 @@ CTX="${3:?missing context-management mode}"
 START="${4:?missing --start-problem}"
 END="${5:-}"
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 cd "$REPO_ROOT"
 
 export CUDA_HOME="${CUDA_HOME:-$HOME/opt/cuda-12.8}"
@@ -53,7 +53,7 @@ RUN_DIR="${RESULTS_ROOT}${RUN_NAME}"
 # a range against a different one would make the repaired problems incomparable
 # with the untouched ones in the same run dir.
 # shellcheck source=./hardware_env.sh
-source "$(dirname "${BASH_SOURCE[0]}")/hardware_env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../hardware_env.sh"
 if [ -z "${HARDWARE:-}" ] && [ -f "$RUN_DIR/run_summary.json" ]; then
   HARDWARE="$(./.venv/bin/python -c "import json,sys;print(json.load(open(sys.argv[1])).get('hardware_server',''))" "$RUN_DIR/run_summary.json" 2>/dev/null || true)"
   [ -n "$HARDWARE" ] && echo ">> hardware from run_summary.json: $HARDWARE"

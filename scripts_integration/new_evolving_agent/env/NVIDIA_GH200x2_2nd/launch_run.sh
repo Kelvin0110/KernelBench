@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch ONE evolving-agent arm on a chosen GPU, on the repaired CUDA toolchain.
 #
-#   bash scripts_integration/new_evolving_agent/env/launch_run.sh <gpu> <run_name> <ctx_mode> [extra flags...]
+#   bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_run.sh <gpu> <run_name> <ctx_mode> [extra flags...]
 #
 # Examples:
 #   # compress_trigger arm
@@ -11,7 +11,7 @@
 #   # a skill-governance arm (context mode held at truncation)
 #   ... launch_run.sh 1 base_agent_gpt_oss_120b_deletion_itr30_GH200 truncation --skill-deletion
 #
-# Prerequisite: bash scripts_integration/new_evolving_agent/env/install_cuda128_local.sh
+# Prerequisite: bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/install_cuda128_local.sh
 # See ./README.md for why CUDA_HOME and .venv/bin on PATH are both mandatory.
 
 set -euo pipefail
@@ -22,7 +22,7 @@ CTX="${3:?missing context-management mode}"
 shift 3
 EXTRA=("$@")
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 cd "$REPO_ROOT"
 
 export CUDA_HOME="${CUDA_HOME:-$HOME/opt/cuda-12.8}"
@@ -31,7 +31,7 @@ export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
 # Hardware/baseline is a parameter so this script works on another server:
 #   HARDWARE=<folder under results/timing> bash <this script> ...
 # shellcheck source=./hardware_env.sh
-source "$(dirname "${BASH_SOURCE[0]}")/hardware_env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../hardware_env.sh"
 kb_resolve_hardware
 
 

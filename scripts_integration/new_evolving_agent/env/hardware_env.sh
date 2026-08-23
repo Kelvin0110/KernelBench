@@ -18,6 +18,15 @@
 # problems by >5% and inflates 26_GELU_/22_Tanh roughly 4x -- a silent metric
 # error, not a crash, which is exactly the kind this repo has been bitten by.
 
+# Default hardware = the name of the directory the CALLING script lives in.
+# Server-specific launchers sit in env/<HARDWARE>/, so copying that folder for a
+# new machine and renaming it is all that is needed -- no edit to any script.
+# Falls back to NVIDIA_GH200x2_2nd when sourced from somewhere else.
+_kb_caller_dir="$(cd "$(dirname "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")" 2>/dev/null && pwd)"
+_kb_caller_name="$(basename "${_kb_caller_dir:-}")"
+if [ -n "$_kb_caller_name" ] && [ -d "$(dirname "$(dirname "$(dirname "$_kb_caller_dir")")")/../results/timing/$_kb_caller_name" ] 2>/dev/null; then
+  KB_DEFAULT_HARDWARE="${KB_DEFAULT_HARDWARE:-$_kb_caller_name}"
+fi
 KB_DEFAULT_HARDWARE="${KB_DEFAULT_HARDWARE:-NVIDIA_GH200x2_2nd}"
 
 kb_resolve_hardware() {

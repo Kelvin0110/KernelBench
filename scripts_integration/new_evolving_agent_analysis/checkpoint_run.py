@@ -3,7 +3,7 @@
 
 Purpose
 -------
-After the CUDA toolchain fix (see ``env/install_cuda128_local.sh``), the runs
+After the CUDA toolchain fix (see ``env/NVIDIA_GH200x2_2nd/install_cuda128_local.sh``), the runs
 under ``runs_evolving/archived/with_NVCC_bug/`` are known-bad: ``nvcc`` was
 absent, so ``load_inline(cuda_sources=...)`` could never build and the agent
 learned to guard the build behind ``if os.getenv("CUDA_HOME")`` and silently

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch N replicate runs of the L1 skill-MERGE arm on one GPU, staggered in time.
 #
-#   bash scripts_integration/new_evolving_agent/env/launch_merge_reps.sh [subcommand] [overrides]
+#   bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_merge_reps.sh [subcommand] [overrides]
 #
 #   (no args)   preflight, then launch REPS runs staggered by LAG_SEC
 #   dry-run     preflight + print the exact commands, launch nothing
@@ -80,7 +80,7 @@ if [ "$LAG_SEC" -le 60 ]; then
   exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 cd "$REPO_ROOT"
 
 export CUDA_HOME="${CUDA_HOME:-$HOME/opt/cuda-12.8}"
@@ -89,7 +89,7 @@ export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
 # Hardware/baseline is a parameter so this script works on another server:
 #   HARDWARE=<folder under results/timing> bash <this script> ...
 # shellcheck source=./hardware_env.sh
-source "$(dirname "${BASH_SOURCE[0]}")/hardware_env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../hardware_env.sh"
 kb_resolve_hardware
 
 
@@ -357,7 +357,7 @@ echo "manifest: $MANIFEST   (run names are identical by design; this is the only
 cat <<EOF
 
 Watch:   tail -f ${RUN_NAME}_${STAMP}_rep1.log
-Status:  bash scripts_integration/new_evolving_agent/env/launch_merge_reps.sh status
+Status:  bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_merge_reps.sh status
 Health:  uv run --no-sync python scripts_integration/new_evolving_agent_analysis/checkpoint_run.py --auto
          grep -c CUDA_HOME ${RUN_NAME}_${STAMP}_rep1.log   # must stay 0
 

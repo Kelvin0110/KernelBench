@@ -121,7 +121,7 @@ uv sync --extra dev
 
 # 6. userspace CUDA 12.8  (after step 5 — it symlinks into .venv)
 PREFIX=$HOME/opt/cuda-12.8 VENV="$REPO/.venv" \
-  bash scripts_integration/new_evolving_agent/env/install_cuda128_local.sh
+  bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/install_cuda128_local.sh
 
 # 7. environment
 export CUDA_HOME=$HOME/opt/cuda-12.8
@@ -136,7 +136,7 @@ bash scripts_integration/new_evolving_agent/env/gh200_setup/acceptance_test.sh
 #    The launch scripts already pass --hardware NVIDIA_GH200x2; no edits needed.
 
 # 10. launch
-bash scripts_integration/new_evolving_agent/env/launch_run.sh 0 base_agent_gpt_oss_120b_itr30_GH200b truncation
+bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_run.sh 0 base_agent_gpt_oss_120b_itr30_GH200b truncation
 ```
 
 ---

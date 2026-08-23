@@ -13,7 +13,7 @@ Or source the helper, which derives the repo root itself and warns if `nvcc` or
 `ninja` is missing:
 
 ```bash
-source scripts_integration/new_evolving_agent/env/activate.sh
+source scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/activate.sh
 ```
 
 - **`CUDA_HOME` must be exported, not merely satisfiable.** Putting `nvcc` on `PATH`

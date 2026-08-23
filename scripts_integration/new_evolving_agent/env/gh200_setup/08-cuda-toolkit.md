@@ -38,7 +38,7 @@ the repo's own script runs unmodified:
 ```bash
 cd "$REPO"
 PREFIX=$HOME/opt/cuda-12.8 VENV="$REPO/.venv" \
-  bash scripts_integration/new_evolving_agent/env/install_cuda128_local.sh
+  bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/install_cuda128_local.sh
 ```
 
 Runs in ~15 s, downloads and installs ~421 MB. **Order matters: run this after

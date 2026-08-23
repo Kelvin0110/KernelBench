@@ -2,16 +2,16 @@
 # Launch the post-nvcc-fix L0 context-management series: truncation + markov_report,
 # 50 problems x 30 iterations, gpt-oss-120b on the inference endpoint.
 #
-#   bash scripts_integration/new_evolving_agent/env/launch_nvcc_series.sh
+#   bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_nvcc_series.sh
 #
 # Prerequisite: the CUDA 12.8 user prefix must already be installed --
 #   PREFIX=$HOME/opt/cuda-12.8 VENV=$PWD/.venv \
-#     bash scripts_integration/new_evolving_agent/env/install_cuda128_local.sh
+#     bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/install_cuda128_local.sh
 # See ./README.md for why this is required.
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 cd "$REPO_ROOT"
 
 export CUDA_HOME="${CUDA_HOME:-$HOME/opt/cuda-12.8}"
@@ -20,7 +20,7 @@ export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
 # Hardware/baseline is a parameter so this script works on another server:
 #   HARDWARE=<folder under results/timing> bash <this script> ...
 # shellcheck source=./hardware_env.sh
-source "$(dirname "${BASH_SOURCE[0]}")/hardware_env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../hardware_env.sh"
 kb_resolve_hardware
 
 

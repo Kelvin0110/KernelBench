@@ -68,7 +68,7 @@ the defect and the remaining 49 inherit the lesson.
 
 ```bash
 PREFIX=$HOME/opt/cuda-12.8 VENV=/localhome/local-tianzheng/KernelBench/.venv \
-  bash scripts_integration/new_evolving_agent/env/install_cuda128_local.sh
+  bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/install_cuda128_local.sh
 ```
 
 `dpkg -x` unpacks the CUDA 12.8 `ubuntu2404/sbsa` component debs into `$PREFIX`

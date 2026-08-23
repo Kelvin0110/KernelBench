@@ -50,7 +50,7 @@ nvcc --version        # expect: release 12.8, V12.8.93 (matches torch 2.11.0+cu1
 ```
 
 `launch_run.sh` sets both itself. If you invoke `evolve_kb_batch.py` by hand, you must.
-Reinstall with `scripts_integration/new_evolving_agent/env/install_cuda128_local.sh`.
+Reinstall with `scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/install_cuda128_local.sh`.
 Background: `scripts_integration/new_evolving_agent/env/README.md`.
 
 ### 2.2 Always use `uv run --no-sync`
@@ -93,7 +93,7 @@ endpoints with `scripts_integration/new_evolving_agent/env/probe_integrate_key.p
 ### 3.1 The launcher (use this, don't hand-roll nohup)
 
 ```bash
-bash scripts_integration/new_evolving_agent/env/launch_run.sh <gpu> <run_name> <ctx_mode> [extra flags...]
+bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_run.sh <gpu> <run_name> <ctx_mode> [extra flags...]
 ```
 
 It preflights nvcc, ninja, the GH200 baseline dir, the API key, GPU-idleness, a live
@@ -118,16 +118,16 @@ NVIDIA_GH200x2 --nvidia-endpoint inference --model gpt-oss-120b --coder-timeout-
 
 ```bash
 # context-management arm
-bash .../env/launch_run.sh 0 base_agent_gpt_oss_120b_markov_itr30_GH200 markov_report
+bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 0 base_agent_gpt_oss_120b_markov_itr30_GH200 markov_report
 
 # compress_trigger needs its tuning flags
-bash .../env/launch_run.sh 0 base_agent_gpt_oss_120b_compress_itr30_GH200 compress_trigger \
+bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 0 base_agent_gpt_oss_120b_compress_itr30_GH200 compress_trigger \
   --compress-hot-rounds 3 --compress-token-ratio 0.85 --compress-every-n-iters 15
 
 # governance arms — context held at truncation
-bash .../env/launch_run.sh 1 base_agent_gpt_oss_120b_deletion_itr30_GH200   truncation --skill-deletion
-bash .../env/launch_run.sh 1 base_agent_gpt_oss_120b_refinement_itr30_GH200 truncation --enable-skill-refinement
-bash .../env/launch_run.sh 1 base_agent_gpt_oss_120b_merge_sim085_itr30_GH200 truncation \
+bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 1 base_agent_gpt_oss_120b_deletion_itr30_GH200   truncation --skill-deletion
+bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 1 base_agent_gpt_oss_120b_refinement_itr30_GH200 truncation --enable-skill-refinement
+bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 1 base_agent_gpt_oss_120b_merge_sim085_itr30_GH200 truncation \
   --skill-merging --skill-merge-similarity 0.85
 ```
 
@@ -366,7 +366,7 @@ Both must be non-zero.
 ### 3.6 Resuming a damaged range
 
 ```bash
-bash scripts_integration/new_evolving_agent/env/resume_run.sh <gpu> <run_dir_name> <ctx_mode> <start> [end]
+bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/resume_run.sh <gpu> <run_dir_name> <ctx_mode> <start> [end]
 ```
 
 Narrow ranges are safe — two mechanisms cooperate:

@@ -5,7 +5,7 @@
 ---
 
 ```bash
-bash scripts_integration/new_evolving_agent/env/launch_run.sh \
+bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_run.sh \
   0 base_agent_gpt_oss_120b_itr30_GH200b truncation
 ```
 
