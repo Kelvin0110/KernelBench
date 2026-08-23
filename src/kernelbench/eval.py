@@ -475,6 +475,19 @@ def _gpu_timing_lock(label: str = ""):
         return nullcontext()
 
 
+def _gpu_lock_slots() -> int:
+    """Slot count actually in force, recorded into the phase log for provenance.
+
+    Read straight from the environment rather than importing gpu_lock, so this
+    stays correct (and cheap) even when the evolving-agent lock is unavailable
+    and _gpu_timing_lock degraded to a nullcontext.
+    """
+    try:
+        return max(1, int(os.environ.get("KB_GPU_EVAL_LOCK_SLOTS", "1")))
+    except (TypeError, ValueError):
+        return 1
+
+
 def _env_flag(name: str, default: bool = False) -> bool:
     """Read a boolean env switch, failing closed.
 
@@ -787,11 +800,29 @@ def eval_kernel_against_ref(
     # numbers. There are no early returns between here and the release below;
     # if an exception escapes, the eval subprocess exits and the kernel drops
     # the flock, so the lock cannot leak beyond this eval.
+    # KB_EVAL_UNLOCK_CORRECTNESS moves the correctness trials OUT of the lock, so
+    # the held region is only the timing window(s). Correctness runs two real
+    # forwards, so it is genuine GPU work -- but it is not a *measurement*, and
+    # the 2026-08-23 concurrency probe on this host measured what overlapping it
+    # actually costs: with the lock fully disabled, 6 kernels x 5 repeats at
+    # degree 2/3 inflated the measured runtime by 1.2%/0.7% median and 2.3%/2.8%
+    # worst -- an order of magnitude under the ~20-30% replicate noise. That probe
+    # is strictly more aggressive than this flag, since it let timing windows
+    # overlap each other too, which the lock still prevents.
+    #
+    # Pairs naturally with KB_GPU_EVAL_LOCK_SLOTS>1: slots bound how many timing
+    # windows coexist, this bounds what else has to queue behind them.
+    _unlock_correctness = _env_flag("KB_EVAL_UNLOCK_CORRECTNESS", default=False)
     _gpu_phase = _gpu_timing_lock(label="eval_gpu_phase")
+    _gpu_entered = False
+    _gpu_waited = 0.0
+    _gpu_held_t0 = None
     _gpu_wait_t0 = time.perf_counter()
-    _gpu_phase.__enter__()
-    _gpu_held_t0 = time.perf_counter()
-    _gpu_waited = _gpu_held_t0 - _gpu_wait_t0
+    if not _unlock_correctness:
+        _gpu_phase.__enter__()
+        _gpu_entered = True
+        _gpu_held_t0 = time.perf_counter()
+        _gpu_waited = _gpu_held_t0 - _gpu_wait_t0
 
     # Check Correctness
     if verbose:
@@ -825,6 +856,18 @@ def eval_kernel_against_ref(
         (time.perf_counter() - _t) - _phase["correct_input_gen"] - _phase["correct_h2d"]
     )
     _cpu_inputs_correct = None  # release the host copies as soon as they are dead
+
+    if _unlock_correctness and not _gpu_entered:
+        # Correctness ran unlocked; take the lock now so it covers only the timing
+        # window(s). Acquire unconditionally rather than skipping for incorrect
+        # kernels: the excessive-speedup block below reads kernel_exec_result and
+        # must sit inside the same held region for the phase accounting (and the
+        # single __exit__ below) to stay well defined.
+        _gpu_wait_t0 = time.perf_counter()
+        _gpu_phase.__enter__()
+        _gpu_entered = True
+        _gpu_held_t0 = time.perf_counter()
+        _gpu_waited = _gpu_held_t0 - _gpu_wait_t0
 
     # Measure Performance [Optional] | conditioned on compilation + correctness + no exception so far
     if measure_performance:
@@ -967,22 +1010,35 @@ def eval_kernel_against_ref(
 
 
     _cpu_inputs_timing = None
-    _gpu_phase.__exit__(None, None, None)  # --- GPU phase ends ---
-    _gpu_held = time.perf_counter() - _gpu_held_t0
+    if _gpu_entered:
+        _gpu_phase.__exit__(None, None, None)  # --- GPU phase ends ---
+        _gpu_held = time.perf_counter() - _gpu_held_t0
+    else:  # measure_performance=False and correctness unlocked -> never held
+        _gpu_held = 0.0
+
+    # Phases that ran OUTSIDE the held region, and so must not be subtracted from
+    # held_sec when forming the residual. input_gen_prelock is always outside;
+    # the correctness trio joins it under KB_EVAL_UNLOCK_CORRECTNESS. Getting this
+    # wrong drives other_sec negative and silently corrupts the only telemetry we
+    # have on where the hold goes.
+    _outside = {"input_gen_prelock"}
+    if _unlock_correctness:
+        _outside |= {"correct_input_gen", "correct_h2d", "correctness"}
 
     _emit_phase_record(
         {
             "held_sec": round(_gpu_held, 4),
             "waited_sec": round(_gpu_waited, 4),
             "hoisted": _hoisted,
+            "unlocked_correctness": _unlock_correctness,
+            "lock_slots": _gpu_lock_slots(),
             "ref_window": "ran" if kernel_exec_result.ref_runtime_stats else "skipped",
             # Non-overlapping; "other" is the residual -- empty_cache, syncs,
             # model .to(), get_timing_stats -- i.e. the part of the hold that no
             # named phase accounts for.
             "phases": {k: round(v, 4) for k, v in _phase.items()},
             "other_sec": round(
-                _gpu_held
-                - sum(v for k, v in _phase.items() if k != "input_gen_prelock"),
+                _gpu_held - sum(v for k, v in _phase.items() if k not in _outside),
                 4,
             ),
         }
