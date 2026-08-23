@@ -342,17 +342,66 @@ the transfer and cast, which stay.
 already-materialised tensors and brackets only `kernel_fn(*args)` between CUDA events, with
 warmup outside. Moving generation therefore cannot change any reported runtime.
 
+#### MEASURED: concurrent evals cost <3%, so the mutex was the wrong design (2026-08-23)
+
+Everything above this line about "~3 arms/GPU" and "parallelism is net negative" was
+inferred from throughput, never from a controlled measurement. It has now been measured
+directly and **the ceiling framing was wrong.**
+
+Method: 6 saved kernels spanning input volume and kernel duration (L1P100 4.3 GB/2.4 ms,
+L1P34 7.5 GB/5.4 ms, L2P19, L2P94 0.65 ms, L3P42 56 ms, L3P5), 5 repeats each, warm builds,
+trims on, **`KB_GPU_EVAL_LOCK=0` so evals genuinely overlapped**, each kernel compared
+against its own solo value on an otherwise idle GPU.
+
+| | median inflation | worst |
+|---|---|---|
+| degree 2 | **1.2%** | 2.3% |
+| degree 3 | **0.7%** | 2.8% |
+
+Against the ~20-30% replicate noise (open item 6) that is an order of magnitude below the
+noise floor. The decisive observation is L1P34: across repeats its **wall time swung
+21 s -> 425 s while its measured runtime never left 5.36-5.52 ms**. Contention lands on H2D
+and host memory, which sit *outside* the CUDA-event window, so it costs throughput and not
+fidelity. The strict mutex was buying ~1-3% of a number while paying 250-320 s median waits.
+
+Two design changes follow, both gated and both on for waves launched after this date:
+
+- **`KB_GPU_EVAL_LOCK_SLOTS`** (`gpu_lock.py`) -- a counting semaphore built from the same
+  crash-safe `flock`: one file per slot, acquiring any admits the eval, kernel still drops
+  all on process death. `slots=1` is byte-identical to the old mutex (same single file).
+  Verified peak concurrency 1/2/3/4 for slots 1/2/3/4; malformed values fail closed to 1;
+  re-entrancy preserved. **Never mix slots=1 and slots>1 on one GPU** -- different file
+  names, so they would not interlock.
+- **`KB_EVAL_UNLOCK_CORRECTNESS`** (`eval.py`) -- correctness trials run outside the lock,
+  which then covers only the timing window(s). A/B on L1P100, warm build: hold
+  **1.96 s -> 0.78 s** with runtime unchanged (2.42/2.44 vs 2.38/2.45; solo control 2.41).
+  This supersedes the "Not done: the shared/exclusive split" note below -- the probe above
+  is strictly *more* aggressive than an SH/EX split, since it let timing windows overlap
+  each other too, and still cost <3%.
+
+**The other thing that was wrong: problems 1-5 are not representative.** Measured
+`get_inputs()` across all 50 subset problems -- the first five (`L1P100/22/26/33/34`, in
+subset order) cost 12.5-21.7 s each and carry **74% of the entire benchmark's
+input-generation cost**; problems 6-50 average 0.65 s (median 0.12 s). Every wave this
+project has ever killed died inside problems 1-4, so **every contention number in this file
+was collected in the worst 5 problems of the benchmark.** The fast server's own log confirms
+it independently: its problems 1-5 averaged 78 min against 48 min for problems 6-17 (1.63x),
+and a completed solo run here shows 93.7 min vs 74.8 min. Do not extrapolate a wave's first
+days to its steady state.
+
 #### Two eval-lock switches (2026-08-23), both default OFF in code
 
 `src/kernelbench/eval.py` is re-imported by every eval spawn, so an unconditional change
 reaches live arms. Both trims are therefore gated, and turned on in
-`env/NVIDIA_GH200x2_2nd/launch_wave.sh` -- i.e. for newly launched waves only.
+`env/NVIDIA_GH200x2/launch_wave.sh` and `resume_run.sh` -- i.e. for newly launched waves only.
 
 | env var | what it does |
 |---|---|
 | `KB_EVAL_HOIST_INPUT_GEN` | builds `get_inputs()` tensors on the CPU before taking the lock; H2D stays locked. Falls back to the in-lock path on any failure, and skips correctness pregeneration unless `num_correct_trials == 1` (5-trial callers would hold five input sets in host RAM). |
 | `KB_EVAL_SKIP_DEAD_REF_TIMING` | skips the reference *measurement* when a fixed baseline is supplied. **Only the measurement.** The excessive-speedup / reward-hack flag lives in the same `if` block but depends on `baseline_runtime` and the candidate runtime, never on the window -- gating it too would silently disable `is_hack`, the `is_new_best` veto, and hack filtering in `best_geomean`. That bug was caught in review; do not reintroduce it by skipping the whole block. |
-| `KB_EVAL_PHASE_LOG` | path to append one JSON line per eval: `held_sec`, `waited_sec`, and a non-overlapping phase breakdown with an `other_sec` residual. Unset -> emits nothing. |
+| `KB_EVAL_PHASE_LOG` | path to append one JSON line per eval: `held_sec`, `waited_sec`, `hoisted`, `unlocked_correctness`, `lock_slots`, `ref_window`, and a non-overlapping phase breakdown with an `other_sec` residual. Unset -> emits nothing. |
+| `KB_EVAL_UNLOCK_CORRECTNESS` | runs the correctness trials outside the lock, leaving only the timing window(s) held. Hold 1.96s -> 0.78s on L1P100 with the recorded runtime unchanged. When on, the correctness trio is excluded from the `other_sec` residual -- otherwise it goes negative. |
+| `KB_GPU_EVAL_LOCK_SLOTS` | counting semaphore, default 1 (= the historical mutex, same lock file). Launchers set 3. See the measurement above. |
 
 Neither trim changes a recorded number, but both shorten the hold, so a wave launched with
 them sees less contention deflation than one launched without. Compare speedups across that
@@ -370,12 +419,12 @@ counted -- so "lock wait ~= 0" only ever means "no single wait exceeded 5 s".
 `KB_EVAL_PHASE_LOG` measures both uncensored from the `eval.py` side without touching the
 lock's reporter contract.
 
-**Not done: the shared/exclusive split.** Correctness must stay excluded from timing
-windows, but it need not serialise against *other arms' correctness* -- neither is a
-measurement. `flock` supports `LOCK_SH`/`LOCK_EX` directly. Deferred because `flock` has no
-writer preference (a timing window can starve behind continuous correctness traffic; needs a
-gate file) and N concurrent correctness runs raise peak GPU memory. Gate it on
-`KB_EVAL_PHASE_LOG` data showing correctness actually dominates the hold.
+**Superseded: the shared/exclusive split.** This was the planned next step -- `LOCK_SH` for
+correctness, `LOCK_EX` for timing. It is no longer worth building. `KB_EVAL_UNLOCK_CORRECTNESS`
+takes correctness out of the lock entirely, and `KB_GPU_EVAL_LOCK_SLOTS` admits N timing
+windows concurrently, which together go further than an SH/EX split would have -- and the
+2026-08-23 probe shows the fidelity cost of doing so is <3%. The `flock` writer-preference
+starvation problem that made the split awkward does not arise for a counting semaphore.
 
 #### Which edits reach a live run, and which need a relaunch
 
@@ -475,6 +524,45 @@ A replayed problem never sees skills learned after it. Verified: replaying index
 267/344 entries, provenance 1..38, zero leakage. **For multiple resumes, run the earlier
 index first.**
 
+#### Resuming a KILLED arm, and resuming a whole wave (2026-08-23)
+
+`resume_run.sh` could not resume any of the nine arms killed on 2026-08-23 -- four separate
+defects, each independently fatal, all now fixed:
+
+1. `RESULTS_ROOT` was hardcoded to `runs_evolving/gpt-oss-120b/`, so it could not address
+   anything under `median/` and exited `FATAL: no such run dir`.
+2. It hard-required `run_summary.json`, which is written only at run *end* -- so every
+   crash-resume, the one case resume exists for, was refused.
+3. **It passed no governance flags.** `evolve_kb_batch.py` rebuilds a run's treatment from
+   the CLI, and `_check_resume_config_mismatch` returns `[]` when the summary is absent
+   (`evolve_kb_batch.py:675`) -- precisely the killed-arm case. So resuming
+   `deletion`/`merge`/`refinement`/`l2` would have silently continued them as plain
+   truncation arms, with no error anywhere. **Always pass the arm's flags after `--`.**
+4. The GPU guard was `used > 1000 MiB`, but an idle arm holds ~558 MiB, so a multi-arm
+   resume wave was impossible. Now `MIN_FREE_MIB` (default 20000), as in `launch_wave.sh`.
+
+```bash
+# one arm; `auto` derives the start from batch_timing.jsonl (completed + 1)
+RESULTS_ROOT=runs_evolving/gpt-oss-120b/median/ \
+  bash .../env/NVIDIA_GH200x2/resume_run.sh 0 <run_dir_name> truncation auto -- --skill-deletion
+
+# a whole wave, one arm per spec line, flags taken from the spec (see defect 3)
+KB_GPU_EVAL_LOCK_SLOTS=3 MAX_ARMS_PER_GPU=6 RESULTS_ROOT=runs_evolving/gpt-oss-120b/median/ \
+  bash .../env/NVIDIA_GH200x2/resume_wave.sh 0 .../wave_median_oss6_resume.spec [dry-run]
+```
+
+`DRYRUN=1` (single arm) and `dry-run` (wave) resolve every run dir, resume point and flag
+set without launching. Use them -- they are the only cheap check that defect 3 has not
+recurred. `DO_BACKUP=0` skips the pre-resume tar for a barely-started arm.
+
+**Resuming inherits protocol seams.** A resumed run's prefix keeps whatever protocol it was
+measured under. The Aug-22 wave carries two: problem 1 was evaluated at
+`num_perf_trials=100` and problems 2+ at 25 (`63bfc2b` reached live arms via spawn
+re-import; the compress arm is split *mid-problem*, 21 evals at 100 and 6 at 25), and the
+prefix ran with the trims off under 9-arm contention while the suffix runs with them on.
+Contention only ever deflates speedup, so the prefix is systematically penalised relative to
+the suffix **inside one run**. Restart instead of resume when the prefix is small.
+
 ---
 
 ## 4. Analysis
@@ -508,7 +596,11 @@ scripts_integration/new_evolving_agent/
   env/
     install_cuda128_local.sh      # userspace CUDA 12.8 (no sudo)
     launch_run.sh                 # ← launch arms with this
-    resume_run.sh                 # narrow-range replay
+    launch_wave.sh                # ← multi-arm wave from a spec file
+    resume_run.sh                 # resume one arm (killed or finished); `auto` start
+    resume_wave.sh                # resume a whole wave from the same spec format
+    wave_median_oss6_resume.spec  # the 6 gpt-oss cells currently resuming on GPU 0
+    wave_median_terra6.spec       # the 6 gpt-5.6-terra cells
     probe_integrate_key.py        # isolate key vs model failures
     eval_embed_duplicates.py      # rank embedding models by near-duplicate retrieval
     eval_embed_quality.py         # merge-outcome AUC (null result; kept as evidence)
@@ -522,11 +614,11 @@ Self-Evolving-Agent/               # git submodule
   evolving_common/memory_manager.py           # governance defaults
   evolving_common/governor/gen3_stages.py     # staged governor; deletion/merge call sites
   evolving_common/governor/skill_merge*.py    # DBSCAN clustering + LLM merge
-  evolving_common/governor/gpu_lock.py        # cross-process GPU-eval lock, re-entrant
+  evolving_common/governor/gpu_lock.py        # GPU-eval lock: re-entrant, N-slot semaphore
   evolving_common/governor/gpu_reserver.py    # 42 GB idle reservation; KB_GPU_RESERVE_GB
   kernelbench_integration/eval_runner.py      # precompile-then-lock boundary
   kernelbench_integration/governor.py         # speedup computation
-src/kernelbench/eval.py            # _gpu_timing_lock: locks correctness+timing only
+src/kernelbench/eval.py            # _gpu_timing_lock; trims + KB_EVAL_UNLOCK_CORRECTNESS
 runs_evolving/gpt-oss-120b/        # current series
 runs_evolving/inference_oss_120b/  # earlier series (only successful merge runs)
 runs_evolving/archived/            # VOID (pre-nvcc-fix)
@@ -546,12 +638,13 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix)
    before running more deletion cells or they stay confounded. Details in project memory.
 4. **Rewrite `EXPERIMENT_REPORT.md`** — the current text is written against voided
    pre-nvcc-fix runs and its conclusions are reversed by the repaired data.
-5. **Governance matrix is incomplete** — 5 of 7 cells untouched. Six arms/GPU is only
-   safe for runs launched **after** the 2026-08-22 eval-deadline fix (§3.4); before it,
-   6 arms lost 3.9% of evals to mid-wait kills versus 0.93% at 3. Post-fix, 2 GPUs clear
-   the remaining cells in roughly one wave. The fix is unvalidated under real contention —
-   smoke-test two arms on an idle GPU with `KB_GPU_EVAL_LOCK_TIMEOUT_SEC` lowered before
-   committing a full wave to it.
+5. **Governance matrix is incomplete**, and every median-series cell is unfinished — the
+   Aug-22 wave was killed at 0–4 of 50 problems on both GPUs. As of 2026-08-23 six gpt-oss
+   cells are resuming on GPU 0 (`-`, markov, compress, deletion, merge_sim08, l2) and six
+   gpt-5.6-terra cells restarted fresh on GPU 1. `folding`, `selective_r5` and `refinement`
+   remain untouched under the corrected metric. The old "N arms/GPU is safe" guidance is
+   superseded by the concurrency measurement in §3.4: the binding constraint was the mutex,
+   not the arm count, and it is now a 3-slot semaphore.
 6. **Replicate noise is ~20%, and it bounds every conclusion.** Two runs with
    *identical* config on the same GPU (`itr30` rep1 vs rep2, 2026-08-20) differ by 22%
    in `best_geomean` (0.799 vs 1.028, n=31 matched problems). Any arm-vs-arm delta below
