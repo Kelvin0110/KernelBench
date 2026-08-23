@@ -42,8 +42,7 @@ export KB_GPU_EVAL_LOCK_TIMEOUT_SEC
 # speedups across that boundary with the same care as across a baseline change.
 KB_EVAL_SKIP_DEAD_REF_TIMING="${KB_EVAL_SKIP_DEAD_REF_TIMING:-1}"
 KB_EVAL_HOIST_INPUT_GEN="${KB_EVAL_HOIST_INPUT_GEN:-1}"
-KB_EVAL_PHASE_TIMING="${KB_EVAL_PHASE_TIMING:-1}"
-export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN KB_EVAL_PHASE_TIMING
+export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN
 
 set -euo pipefail
 
@@ -196,7 +195,7 @@ for ((i=0; i<TOTAL; i++)); do
 done
 echo "      ${MAX_PROBLEMS} problems x ${MAX_ITERATIONS} iterations"
 echo "      KB_GPU_RESERVE_GB=0, KB_GPU_EVAL_LOCK_TIMEOUT_SEC=$KB_GPU_EVAL_LOCK_TIMEOUT_SEC"
-echo "      KB_EVAL_SKIP_DEAD_REF_TIMING=$KB_EVAL_SKIP_DEAD_REF_TIMING, KB_EVAL_HOIST_INPUT_GEN=$KB_EVAL_HOIST_INPUT_GEN, KB_EVAL_PHASE_TIMING=$KB_EVAL_PHASE_TIMING"
+echo "      KB_EVAL_SKIP_DEAD_REF_TIMING=$KB_EVAL_SKIP_DEAD_REF_TIMING, KB_EVAL_HOIST_INPUT_GEN=$KB_EVAL_HOIST_INPUT_GEN, phase log per arm"
 echo
 
 if [ "$MODE" = "dry-run" ]; then echo "(dry-run: nothing launched)"; exit 0; fi
@@ -208,6 +207,10 @@ for ((i=0; i<TOTAL; i++)); do
   tag="${Q_TAG[$i]}"; ctx="${Q_CTX[$i]}"; flags="${Q_FLAGS[$i]}"
   RUN_NAME="$(run_name_for_tag "$tag")"
   LOG="${RUN_NAME}_${STAMP}_wave.log"
+  # One JSON line per eval: held_sec, waited_sec and a non-overlapping phase
+  # breakdown. A FILE, never stdout -- eval stdout is spliced into the agent's
+  # prompt (governor.py:1203), so printing telemetry would change LLM input.
+  PHASE_LOG="${RUN_NAME}_${STAMP}_phase.jsonl"
   : > "$LOG"
 
   before="$(ls -1d ${RESULTS_ROOT}${RUN_NAME}_2* 2>/dev/null | sort || true)"
@@ -218,7 +221,7 @@ for ((i=0; i<TOTAL; i++)); do
   KB_GPU_EVAL_LOCK_TIMEOUT_SEC="$KB_GPU_EVAL_LOCK_TIMEOUT_SEC" \
   KB_EVAL_SKIP_DEAD_REF_TIMING="$KB_EVAL_SKIP_DEAD_REF_TIMING" \
   KB_EVAL_HOIST_INPUT_GEN="$KB_EVAL_HOIST_INPUT_GEN" \
-  KB_EVAL_PHASE_TIMING="$KB_EVAL_PHASE_TIMING" \
+  KB_EVAL_PHASE_LOG="$REPO_ROOT/$PHASE_LOG" \
   setsid nohup uv run --no-sync python \
     scripts_integration/new_evolving_agent/evolve_kb_batch.py \
     --run-name "$RUN_NAME" \

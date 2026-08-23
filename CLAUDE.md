@@ -307,8 +307,75 @@ rest is correctness trials, input generation, `empty_cache` and syncs. So:
   problem mix (L3P4/9/42) and do not generalise. **Treat ~3 arms/GPU as the ceiling**
   until someone profiles the inside of the locked section.
 
-Corollary: to actually raise the ceiling you must shrink the critical section, and
-that means finding the ~19 s that is *not* the timing loop. That has not been done.
+Corollary: to actually raise the ceiling you must shrink the critical section.
+
+#### The ~19 s that is not the timing loop is `get_inputs()` (2026-08-23) -- solved
+
+Measured, not inferred. `get_inputs()` is called **three times inside the lock** --
+`eval.py:887` (correctness trial), `:720` (candidate window), `:772` (reference window) --
+and it is pure-CPU `torch.rand`. Wall-clock cost of those three calls, measured on this
+box with `torch.set_num_threads(4)`:
+
+| | per eval, 3 calls |
+|---|---|
+| **L1P34** (7.5 GB of inputs) | **19.2 s** |
+| L2P19 (2.15 GB) | 5.5 s |
+| L2 median | 1.5 s |
+| L3 median | 0.7 s |
+
+That accounts for essentially the whole unexplained hold. It also explains why lock wait
+tracked the *problem list* rather than the calendar: see project memory
+`per-problem-cost-is-input-volume.md`.
+
+**The design rule this implies.** The lock is not protecting the holder's numbers -- it is
+stopping the holder's GPU work from landing inside somebody else's timing window, where
+contention can only deflate their speedup. So:
+
+> Any GPU touch must be mutually exclusive with any timing window. Pure-CPU work must not be.
+
+Under that rule `get_inputs()` (pure CPU) can leave the lock, but `_process_input_tensor`
+(`eval.py:441`, ends in `.to(device=...)`) cannot. Correctness trials cannot either -- they
+run two real model forwards. Only ~1/3 of the input cost is the CPU generation; the rest is
+the transfer and cast, which stay.
+
+**`get_inputs()` is not timed.** `timing.time_execution_with_cuda_event` receives
+already-materialised tensors and brackets only `kernel_fn(*args)` between CUDA events, with
+warmup outside. Moving generation therefore cannot change any reported runtime.
+
+#### Two eval-lock switches (2026-08-23), both default OFF in code
+
+`src/kernelbench/eval.py` is re-imported by every eval spawn, so an unconditional change
+reaches live arms. Both trims are therefore gated, and turned on in
+`env/NVIDIA_GH200x2_2nd/launch_wave.sh` -- i.e. for newly launched waves only.
+
+| env var | what it does |
+|---|---|
+| `KB_EVAL_HOIST_INPUT_GEN` | builds `get_inputs()` tensors on the CPU before taking the lock; H2D stays locked. Falls back to the in-lock path on any failure, and skips correctness pregeneration unless `num_correct_trials == 1` (5-trial callers would hold five input sets in host RAM). |
+| `KB_EVAL_SKIP_DEAD_REF_TIMING` | skips the reference *measurement* when a fixed baseline is supplied. **Only the measurement.** The excessive-speedup / reward-hack flag lives in the same `if` block but depends on `baseline_runtime` and the candidate runtime, never on the window -- gating it too would silently disable `is_hack`, the `is_new_best` veto, and hack filtering in `best_geomean`. That bug was caught in review; do not reintroduce it by skipping the whole block. |
+| `KB_EVAL_PHASE_LOG` | path to append one JSON line per eval: `held_sec`, `waited_sec`, and a non-overlapping phase breakdown with an `other_sec` residual. Unset -> emits nothing. |
+
+Neither trim changes a recorded number, but both shorten the hold, so a wave launched with
+them sees less contention deflation than one launched without. Compare speedups across that
+boundary with the same care as across a baseline change.
+
+**Why the phase breakdown is a file and not a print.** Eval stdout is *not* a log here --
+`eval_runner.py` captures it and `governor.py:1203` splices it into
+`KERNEL_BENCH_EVAL_TERMINAL_OUTPUT`, which reaches the agent's prompt (78 of 93
+`chat_history.jsonl` records on one problem carry it). Printing telemetry would mutate LLM
+input mid-run. Anything added to eval stdout is an experiment change, not an observation.
+
+**`gpu_lock` still records no hold time.** It yields `{acquired, waited_sec, timed_out}`
+only, and `_SLOW_WAIT_LOG_SEC = 5.0` (`gpu_lock.py:41`) means sub-5 s waits are never even
+counted -- so "lock wait ~= 0" only ever means "no single wait exceeded 5 s".
+`KB_EVAL_PHASE_LOG` measures both uncensored from the `eval.py` side without touching the
+lock's reporter contract.
+
+**Not done: the shared/exclusive split.** Correctness must stay excluded from timing
+windows, but it need not serialise against *other arms' correctness* -- neither is a
+measurement. `flock` supports `LOCK_SH`/`LOCK_EX` directly. Deferred because `flock` has no
+writer preference (a timing window can starve behind continuous correctness traffic; needs a
+gate file) and N concurrent correctness runs raise peak GPU memory. Gate it on
+`KB_EVAL_PHASE_LOG` data showing correctness actually dominates the hold.
 
 #### Which edits reach a live run, and which need a relaunch
 
@@ -334,12 +401,18 @@ record newer than the edit", and (b) the value is only visible in
 An in-place write is readable mid-flight by a spawning child; that is the 2026-08-20
 nine-arm incident.
 
-**Still true and still worth fixing.** When `baseline_runtime` is supplied (always, for
-`NVIDIA_GH200x2_median`) the live reference timing inside the lock is computed and
-thrown away -- `governor.py:467` sets `ref_for_speedup = self._baseline_runtime`, and
-`eval.py` prefers the same baseline for the excessive-speedup flag. Removing it is free
-correctness-wise; just do not expect it to double throughput. Apply only when no run is
-live (spawn re-imports from disk).
+**Fixed 2026-08-23, behind `KB_EVAL_SKIP_DEAD_REF_TIMING`.** When `baseline_runtime` is
+supplied the reference timing inside the lock is dead work: `governor.py:467` sets
+`ref_for_speedup = self._baseline_runtime` for the speedup, `governor.py:490` *overwrites*
+the measured `ref_runtime` with the same baseline before it reaches any metric or prompt
+(verified: 209 correct iterations of L1P22 across nine arms all report exactly `2.96`, the
+`baseline_time_torch.json` median), and `ref_runtime_stats` has no reader anywhere in the
+repo. Do not expect a throughput jump -- it is worth a get_inputs + H2D + `empty_cache` +
+31 reference executions per eval.
+
+**How to verify a live edit is inert.** Constant-fold the flags to their defaults and diff
+the ASTs of the affected functions, rather than eyeballing the patch. That is what caught
+the `excessive_speedup` nesting bug above; a hand review had passed the same diff.
 
 ### 3.5 Health checks while running
 

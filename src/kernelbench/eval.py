@@ -10,6 +10,7 @@ import os, subprocess
 import random
 import sys
 import tempfile
+import time
 import traceback
 import types
 from contextlib import nullcontext, redirect_stderr, redirect_stdout
@@ -474,6 +475,60 @@ def _gpu_timing_lock(label: str = ""):
         return nullcontext()
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Read a boolean env switch, failing closed.
+
+    Only an explicit truthy value turns a switch on, so a typo (``fasle``,
+    ``disabled``) leaves it off rather than silently enabling it. Unset or empty
+    falls through to ``default``, because an exported-but-empty variable is a
+    common shell accident and should not mean "off".
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _emit_phase_record(record: dict) -> None:
+    """Append one eval's phase breakdown to $KB_EVAL_PHASE_LOG, if set.
+
+    Deliberately NOT printed. The evolving-agent eval worker captures eval stdout
+    and the governor splices it into the agent's prompt, so anything written to
+    stdout here would change LLM input mid-run. Unset -> emit nothing at all,
+    which keeps this file inert for a run already in flight.
+    """
+    path = os.environ.get("KB_EVAL_PHASE_LOG")
+    if not path or not path.strip():
+        return
+    try:
+        with open(path.strip(), "a") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception:  # telemetry must never fail an eval
+        pass
+
+
+def _pregenerate_correctness_inputs(
+    get_inputs_fn: callable, num_correct_trials: int, seed: int
+) -> list:
+    """Build the per-trial correctness inputs on the CPU, outside the GPU lock.
+
+    Mirrors ``run_and_check_correctness``' seed derivation exactly, so the tensors
+    are the ones it would have built itself. That function re-seeds before each
+    model ``.to()`` regardless, so skipping its in-loop generation leaves the RNG
+    state seen by the rest of it unchanged.
+    """
+    torch.manual_seed(seed)
+    trial_seeds = [
+        torch.randint(0, 2**32 - 1, (1,)).item() for _ in range(num_correct_trials)
+    ]
+    inputs_by_trial = []
+    with torch.no_grad():
+        for trial_seed in trial_seeds:
+            set_seed(trial_seed)
+            inputs_by_trial.append(get_inputs_fn())
+    return inputs_by_trial
+
+
 def eval_kernel_against_ref(
     original_model_src: str,
     custom_model_src: str,
@@ -675,6 +730,57 @@ def eval_kernel_against_ref(
 
     kernel_exec_result = None
 
+    # --- Pre-lock input generation (opt-in) ---------------------------------
+    # get_inputs() is pure-CPU torch.rand in every KernelBench problem -- it
+    # touches no device -- and the timing functions receive already-materialised
+    # tensors (timing.time_execution_with_cuda_event brackets only kernel_fn(*args)
+    # between CUDA events), so building them here changes no measured number. Only
+    # the host-to-device transfer inside _process_input_tensor is GPU work, and it
+    # stays under the lock.
+    #
+    # Both timing windows re-seed with seed_num and build byte-identical tensors,
+    # so one CPU master serves both; each window still takes its own fresh device
+    # copy, preserving the existing guarantee that the reference window sees
+    # pristine inputs even if the candidate mutated its own in place.
+    #
+    # Correctness pregeneration is limited to the single-trial case: at
+    # num_correct_trials=5 (several scripts/ callers) this would hold five whole
+    # input sets in host RAM at once, which for the largest dataset problems is
+    # tens of GB for no benefit -- the correctness loop is not the part being
+    # pulled out of the lock.
+    _phase = {
+        "input_gen_prelock": 0.0,
+        "correct_input_gen": 0.0,
+        "correct_h2d": 0.0,
+        "timing_input_gen": 0.0,
+        "timing_h2d": 0.0,
+        "correctness": 0.0,
+        "candidate": 0.0,
+        "reference": 0.0,
+    }
+    _hoisted = False
+    _cpu_inputs_timing = None
+    _cpu_inputs_correct = None
+    if _env_flag("KB_EVAL_HOIST_INPUT_GEN", default=False):
+        # Falls back to the in-lock path on any failure, so a bad allocation is
+        # still reported through the existing recoverable channel instead of
+        # escaping as a worker error the governor would log as a compile failure.
+        _t = time.perf_counter()
+        try:
+            if measure_performance:
+                with torch.no_grad():
+                    set_seed(seed_num)
+                    _cpu_inputs_timing = get_inputs()
+            if num_correct_trials == 1:
+                _cpu_inputs_correct = _pregenerate_correctness_inputs(
+                    get_inputs, num_correct_trials, seed_num
+                )
+            _hoisted = True
+        except Exception:
+            _cpu_inputs_timing = None
+            _cpu_inputs_correct = None
+        _phase["input_gen_prelock"] = time.perf_counter() - _t
+
     # --- GPU phase begins: correctness trials + both timing windows ---------
     # Everything above (source exec, reference-model construction, ninja load)
     # runs unlocked: it is the bulk of the wall time and does not affect the
@@ -682,11 +788,15 @@ def eval_kernel_against_ref(
     # if an exception escapes, the eval subprocess exits and the kernel drops
     # the flock, so the lock cannot leak beyond this eval.
     _gpu_phase = _gpu_timing_lock(label="eval_gpu_phase")
+    _gpu_wait_t0 = time.perf_counter()
     _gpu_phase.__enter__()
+    _gpu_held_t0 = time.perf_counter()
+    _gpu_waited = _gpu_held_t0 - _gpu_wait_t0
 
     # Check Correctness
     if verbose:
         print("[Eval] Checking Correctness")
+    _t = time.perf_counter()
     try:
         kernel_exec_result = run_and_check_correctness(
             original_model,
@@ -694,6 +804,8 @@ def eval_kernel_against_ref(
             get_inputs,
             metadata=metadata,
             num_correct_trials=num_correct_trials,
+            pregenerated_inputs=_cpu_inputs_correct,
+            phase_timers=_phase,
             verbose=verbose,
             seed=seed_num,
             device=device,
@@ -707,6 +819,12 @@ def eval_kernel_against_ref(
         kernel_exec_result = KernelExecResult(
             compiled=True, correctness=False, metadata=metadata
         )
+    # Net of the input work, which is accounted separately, so the phases
+    # partition the hold instead of overlapping.
+    _phase["correctness"] = (
+        (time.perf_counter() - _t) - _phase["correct_input_gen"] - _phase["correct_h2d"]
+    )
+    _cpu_inputs_correct = None  # release the host copies as soon as they are dead
 
     # Measure Performance [Optional] | conditioned on compilation + correctness + no exception so far
     if measure_performance:
@@ -716,16 +834,21 @@ def eval_kernel_against_ref(
                     print("[Eval] Measuring Performance as Sample is Correct")
 
                 torch.cuda.synchronize(device=device)
+                _t = time.perf_counter()
                 set_seed(seed_num)
-                inputs = get_inputs()
+                inputs = _cpu_inputs_timing if _cpu_inputs_timing is not None else get_inputs()
+                _phase["timing_input_gen"] += time.perf_counter() - _t
                 # Convert inputs for performance measurement
+                _t = time.perf_counter()
                 inputs = [_process_input_tensor(x, device, backend, precision) for x in inputs]
-                
+                _phase["timing_h2d"] += time.perf_counter() - _t
+
                 model_new = custom_model.to(device=device, dtype=precision)
                 torch.cuda.synchronize(device=device)
 
                 # support multiple timing backend
                 timing_fn = timing.get_timing_function(timing_method)
+                _t = time.perf_counter()
                 elapsed_times = timing_fn(
                     model_new,
                     inputs,
@@ -733,6 +856,7 @@ def eval_kernel_against_ref(
                     verbose=verbose,
                     device=device,
                 )
+                _phase["candidate"] += time.perf_counter() - _t
                 runtime_stats = timing.get_timing_stats(elapsed_times, device=device)
 
                 if verbose:
@@ -756,38 +880,67 @@ def eval_kernel_against_ref(
     ##############################################################
 
     if measure_performance and check_for_excessive_speedup:  # experimental: hence able to shut off codepath if needed
-    
+
+        # The reference *measurement* is dead work under the GPU lock whenever a
+        # fixed baseline is supplied: the flag below prefers the baseline, and the
+        # evolving-agent governor overwrites the measured ref_runtime with that
+        # same baseline before it reaches any metric or prompt. Skipping is opt-in
+        # so it cannot perturb a run already in flight.
+        #
+        # Only the measurement is skipped. The excessive-speedup / reward-hack flag
+        # depends on baseline_runtime and the candidate runtime, never on this
+        # window, and must keep running -- it gates is_hack, which gates the
+        # is_new_best veto and the primary aggregate metric.
+        _skip_ref_measurement = False
+        if _env_flag("KB_EVAL_SKIP_DEAD_REF_TIMING", default=False):
+            try:
+                _skip_ref_measurement = (
+                    baseline_runtime is not None and float(baseline_runtime) > 0
+                )
+            except (TypeError, ValueError):
+                _skip_ref_measurement = False
+
         if verbose:
             print("[Eval] Additional checks to flag excessive speedup")
 
-        # Drop custom model before reference timing to reduce peak GPU memory.
-        del custom_model
-        custom_model = None
-        torch.cuda.synchronize(device=device)
-        with torch.cuda.device(device):
-            torch.cuda.empty_cache()
+        if not _skip_ref_measurement:
+            # Drop custom model before reference timing to reduce peak GPU memory.
+            del custom_model
+            custom_model = None
+            torch.cuda.synchronize(device=device)
+            with torch.cuda.device(device):
+                torch.cuda.empty_cache()
 
-        torch.cuda.synchronize(device=device)
-        set_seed(seed_num)
-        inputs = get_inputs()
-        # Convert inputs for performance measurement
-        inputs = [_process_input_tensor(x, device, backend, precision) for x in inputs]
-        
-        torch.cuda.synchronize(device=device)
+            torch.cuda.synchronize(device=device)
+            _t = time.perf_counter()
+            set_seed(seed_num)
+            inputs = _cpu_inputs_timing if _cpu_inputs_timing is not None else get_inputs()
+            _phase["timing_input_gen"] += time.perf_counter() - _t
+            # Convert inputs for performance measurement -- a fresh device copy, so
+            # the reference sees pristine values even if the candidate mutated its own.
+            _t = time.perf_counter()
+            inputs = [_process_input_tensor(x, device, backend, precision) for x in inputs]
+            _phase["timing_h2d"] += time.perf_counter() - _t
 
-        # time PyTorch reference function
-        # same timing_fn as specified from before
-        timing_fn = timing.get_timing_function(timing_method)
-        reference_elapsed_times = timing_fn(
-            original_model,
-            inputs, # ideally cloned for extra safety but handled already in correctness check
-            num_trials=num_perf_trials,
-            verbose=verbose,
-            device=device,
-        )
-        reference_runtime_stats = timing.get_timing_stats(reference_elapsed_times, device=device)
-        kernel_exec_result.ref_runtime = timing.runtime_from_stats(reference_runtime_stats, default=-1.0)
-        kernel_exec_result.ref_runtime_stats = reference_runtime_stats
+            torch.cuda.synchronize(device=device)
+
+            # time PyTorch reference function
+            # same timing_fn as specified from before
+            timing_fn = timing.get_timing_function(timing_method)
+            _t = time.perf_counter()
+            reference_elapsed_times = timing_fn(
+                original_model,
+                inputs, # ideally cloned for extra safety but handled already in correctness check
+                num_trials=num_perf_trials,
+                verbose=verbose,
+                device=device,
+            )
+            _phase["reference"] += time.perf_counter() - _t
+            reference_runtime_stats = timing.get_timing_stats(reference_elapsed_times, device=device)
+            kernel_exec_result.ref_runtime = timing.runtime_from_stats(reference_runtime_stats, default=-1.0)
+            kernel_exec_result.ref_runtime_stats = reference_runtime_stats
+        elif verbose:
+            print("[Eval] Reference timing window skipped (fixed baseline supplied)")
 
         # Prefer fixed baseline when provided (aligns flag with displayed governor speedup).
         ref_for_speedup = (
@@ -813,7 +966,27 @@ def eval_kernel_against_ref(
             print(f"[WARNING] Double check your kernel carefully to ensure it is not reward hacking.")
 
 
+    _cpu_inputs_timing = None
     _gpu_phase.__exit__(None, None, None)  # --- GPU phase ends ---
+    _gpu_held = time.perf_counter() - _gpu_held_t0
+
+    _emit_phase_record(
+        {
+            "held_sec": round(_gpu_held, 4),
+            "waited_sec": round(_gpu_waited, 4),
+            "hoisted": _hoisted,
+            "ref_window": "ran" if kernel_exec_result.ref_runtime_stats else "skipped",
+            # Non-overlapping; "other" is the residual -- empty_cache, syncs,
+            # model .to(), get_timing_stats -- i.e. the part of the hold that no
+            # named phase accounts for.
+            "phases": {k: round(v, 4) for k, v in _phase.items()},
+            "other_sec": round(
+                _gpu_held
+                - sum(v for k, v in _phase.items() if k != "input_gen_prelock"),
+                4,
+            ),
+        }
+    )
 
     graceful_eval_cleanup(
         original_context, device, tempfile, extra_contexts=[custom_context]
@@ -857,6 +1030,8 @@ def run_and_check_correctness(
     device: Optional[torch.device] =None,
     backend: str ="cuda",
     precision: torch.dtype =torch.float32,
+    pregenerated_inputs: Optional[list] = None,
+    phase_timers: Optional[dict] = None,
 ) -> KernelExecResult:
     """
     run the model and check correctness,
@@ -883,10 +1058,21 @@ def run_and_check_correctness(
             if verbose:
                 print(f"[Eval] Generating Random Input with seed {trial_seed}")
 
+            _t = time.perf_counter()
             set_seed(trial_seed)
-            inputs = get_inputs_fn()
+            if pregenerated_inputs is not None:
+                # Built on the CPU before the lock was taken; same seed sequence,
+                # same tensors.
+                inputs = pregenerated_inputs[trial]
+            else:
+                inputs = get_inputs_fn()
+            if phase_timers is not None:
+                phase_timers["correct_input_gen"] += time.perf_counter() - _t
             # Convert inputs to appropriate dtypes for GPU computation
+            _t = time.perf_counter()
             inputs = [_process_input_tensor(x, device, backend, precision) for x in inputs]
+            if phase_timers is not None:
+                phase_timers["correct_h2d"] += time.perf_counter() - _t
 
             set_seed(trial_seed)
     
