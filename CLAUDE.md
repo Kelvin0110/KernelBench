@@ -398,6 +398,28 @@ record newer than the edit", and (b) the value is only visible in
 `evaluation_terminal_output.jsonl`, not the arm log.
 
 **Always publish atomically:** temp file in the same directory -> `ast.parse` -> `os.replace`.
+
+#### Killed arms leave live-looking directories -- filter on processes, not dirs
+
+A killed arm's run directory stays in `runs_evolving/.../median/` with all its evals
+intact. Any glob over run directories therefore mixes its **pre-kill, higher-contention**
+evals into what you think is the current state. This produced three separate wrong
+numbers in one session, including a lock-wait p50 of 284 s where the true live figure
+was 86 s. Always intersect with the live process list:
+
+```bash
+ps -eo cmd= | grep -oP '(?<=--run-name )\S+' | sort -u   # the only source of truth
+```
+
+**Lock-hold estimates from these artifacts are not trustworthy.** Busy-period
+inter-completion gap, 1/throughput-assuming-saturation, and wait/(arms-1) disagree with
+each other by 5x (20 s vs 83 s vs 112 s) and each is biased in a different direction.
+Per-eval *work* (coder-turn -> eval-record, minus logged wait) is the one robust
+quantity: 72-88 s median, and it barely moves with input size (0.2 GB problem 74.6 s,
+6.4 GB problem 88.4 s). Do not repeat the claim that hold scales with tensor size --
+that correlation was an arm-count confound. Settling the hold requires instrumenting
+the locked region, which nobody has done.
+
 An in-place write is readable mid-flight by a spawning child; that is the 2026-08-20
 nine-arm incident.
 
