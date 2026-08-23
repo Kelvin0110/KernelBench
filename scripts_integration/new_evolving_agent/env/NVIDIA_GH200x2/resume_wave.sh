@@ -65,8 +65,16 @@ echo "=== resume plan: $TOTAL arm(s) on GPU $GPU, staggered ${LAG_SEC}s ==="
 DIRS=(); STARTS=()
 for i in $(seq 0 $((TOTAL - 1))); do
   base="$(run_name_for "${TAGS[$i]}")"
-  # newest timestamped dir for this arm
-  dir="$(ls -1d ${RESULTS_ROOT}${base}_2* 2>/dev/null | sort | tail -1 || true)"
+  # Newest timestamped DIRECTORY for this arm. The -d test is load-bearing: a
+  # previous resume drops <run>.preresume.<stamp>.tar.gz alongside the run dir,
+  # and that name sorts AFTER the directory, so a bare `ls | tail -1` selects the
+  # tarball. Every arm then reports done=0 / resume@1 and the tarball name is
+  # passed as --run-name -- which resume_run.sh's own [ -d ] guard rejects, but
+  # only after the wave has already printed a plan that looks like a full restart.
+  dir=""
+  for cand in $(ls -1d ${RESULTS_ROOT}${base}_2* 2>/dev/null | sort); do
+    [ -d "$cand" ] && dir="$cand"
+  done
   [ -n "$dir" ] || { echo "FATAL: no existing run dir for '$base' under $RESULTS_ROOT"; exit 1; }
   name="$(basename "$dir")"
   if [ -f "$dir/batch_timing.jsonl" ]; then done_n="$(wc -l < "$dir/batch_timing.jsonl")"; else done_n=0; fi
