@@ -58,7 +58,14 @@ for p in $(pgrep -f "evolve_kb_batch" 2>/dev/null || true); do
   # eval_runner.run_kernelbench_eval captures via redirect_stdout into
   # terminal_output. They never reach the arm log -- grepping it (as CLAUDE.md
   # 3.4 still says to) reports clean no matter what happens. Read the jsonl.
-  rundir="$(ls -1dt runs_evolving/gpt-oss-120b/${name}_2* 2>/dev/null | head -1)"
+  # Honour RESULTS_ROOT, else search BOTH layouts: the flat legacy root and the
+  # per-series subdir (runs_evolving/<model>/median/...). The old glob hardcoded
+  # runs_evolving/gpt-oss-120b/ with no median/ segment, so every median-series
+  # run resolved to "" and LOCKMAX/ORPHWAIT/UNLOCK/TMOUT all printed 0 -- falsely
+  # clean, for exactly the runs we care about.
+  rundir="$(ls -1dt ${RESULTS_ROOT:-runs_evolving}/${name}_2* \
+                    runs_evolving/*/${name}_2* \
+                    runs_evolving/*/*/${name}_2* 2>/dev/null | head -1)"
   read -r w a u lmax nto ch <<<"$(LOCK_RUNDIR="$rundir" ./.venv/bin/python - <<'PYEOF'
 import json, glob, os, re
 d = os.environ.get("LOCK_RUNDIR", "")

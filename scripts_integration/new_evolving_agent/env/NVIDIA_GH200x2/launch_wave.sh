@@ -42,7 +42,16 @@ export KB_GPU_EVAL_LOCK_TIMEOUT_SEC
 # speedups across that boundary with the same care as across a baseline change.
 KB_EVAL_SKIP_DEAD_REF_TIMING="${KB_EVAL_SKIP_DEAD_REF_TIMING:-1}"
 KB_EVAL_HOIST_INPUT_GEN="${KB_EVAL_HOIST_INPUT_GEN:-1}"
-export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN
+#   KB_EVAL_UNLOCK_CORRECTNESS -- run the correctness trials outside the lock,
+#     leaving only the timing window(s) held. A/B on L1P100: hold 1.96s -> 0.78s,
+#     measured runtime unchanged.
+#   KB_GPU_EVAL_LOCK_SLOTS -- counting semaphore: how many evals may hold the GPU
+#     at once. 1 == the historical mutex. The 2026-08-23 probe measured degree 2/3
+#     at 1.2%/0.7% median runtime inflation (2.3%/2.8% worst), against ~20-30%
+#     replicate noise. NEVER mix slots=1 and slots>1 on one GPU -- different files.
+KB_EVAL_UNLOCK_CORRECTNESS="${KB_EVAL_UNLOCK_CORRECTNESS:-1}"
+KB_GPU_EVAL_LOCK_SLOTS="${KB_GPU_EVAL_LOCK_SLOTS:-3}"
+export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN KB_EVAL_UNLOCK_CORRECTNESS KB_GPU_EVAL_LOCK_SLOTS
 
 set -euo pipefail
 
@@ -101,21 +110,39 @@ if [ "$MODE" = "status" ]; then
   [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ] || { echo "no manifest matching $MANIFEST_GLOB"; exit 1; }
   echo "manifest: $MANIFEST"
   printf '%-4s %-26s %-9s %-9s %-8s %-8s %s\n' IDX TAG PID PROBLEM LOCKMAX ORPHWAIT RUNDIR
+  unlocked=0
   while IFS=$'\t' read -r idx tag pid rundir log; do
     [ "$idx" = "idx" ] && continue
     alive="dead"; kill -0 "$pid" 2>/dev/null && alive="$pid"
     prob="$(grep -E "^\[batch\] \([0-9]+/" "$log" 2>/dev/null | tail -1 | grep -oE '\([0-9]+/[0-9]+\)' || echo '-')"
-    lmax="$(grep -oE 'acquired after [0-9.]+s' "$log" 2>/dev/null | grep -oE '[0-9.]+' | sort -g | tail -1 || true)"
-    w="$(cnt "gpu-eval-lock.*waiting" "$log")"
-    a="$(cnt "gpu-eval-lock.*acquired" "$log")"
-    printf '%-4s %-26s %-9s %-9s %-8s %-8s %s\n' "$idx" "$tag" "$alive" "$prob" "${lmax:-0}s" "$((w - a))" "$(basename "$rundir")"
+    # Lock messages are printed by the eval CHILD, whose stdout eval_runner
+    # captures via redirect_stdout into terminal_output -- they NEVER reach the
+    # arm log. Grepping "$log" (as this block used to) made LOCKMAX/ORPHWAIT and
+    # the "MUST stay 0" line below vacuously clean regardless of reality.
+    read -r lmax w u <<<"$(LOCK_RUNDIR="$rundir" ./.venv/bin/python - <<'PYEOF'
+import json, glob, os, re
+d = os.environ.get("LOCK_RUNDIR", "")
+orph = unl = 0; mx = 0.0
+for f in glob.glob(os.path.join(d, "workspaces", "*", "evaluation_terminal_output.jsonl")) if d else []:
+    try: fh = open(f)
+    except OSError: continue
+    with fh:
+        for line in fh:
+            if not line.strip(): continue
+            try: t = str(json.loads(line).get("terminal_output", ""))
+            except Exception: continue
+            ha = "acquired after" in t; hu = "proceeding UNLOCKED" in t
+            if "waiting for another eval" in t and not (ha or hu): orph += 1
+            unl += t.count("proceeding UNLOCKED")
+            for m in re.finditer(r"acquired after ([0-9.]+)s", t):
+                mx = max(mx, float(m.group(1)))
+print(f"{mx:.0f}", orph, unl)
+PYEOF
+)"
+    printf '%-4s %-26s %-9s %-9s %-8s %-8s %s\n' "$idx" "$tag" "$alive" "$prob" "${lmax:-0}s" "${w:-0}" "$(basename "$rundir")"
+    unlocked=$((unlocked + ${u:-0}))
   done < "$MANIFEST"
   echo
-  unlocked=0
-  while IFS=$'\t' read -r idx tag pid rundir log; do
-    [ "$idx" = "idx" ] && continue
-    n="$(cnt "proceeding UNLOCKED" "$log")"; unlocked=$((unlocked + ${n:-0}))
-  done < "$MANIFEST"
   echo "contended (UNLOCKED) evals: $unlocked   <-- MUST stay 0"
   echo "ORPHWAIT (waiting with no acquire) should also be 0; >0 means evals died mid-wait"
   exit 0
@@ -210,7 +237,7 @@ for ((i=0; i<TOTAL; i++)); do
 done
 echo "      ${MAX_PROBLEMS} problems x ${MAX_ITERATIONS} iterations"
 echo "      KB_GPU_RESERVE_GB=0, KB_GPU_EVAL_LOCK_TIMEOUT_SEC=$KB_GPU_EVAL_LOCK_TIMEOUT_SEC"
-echo "      KB_EVAL_SKIP_DEAD_REF_TIMING=$KB_EVAL_SKIP_DEAD_REF_TIMING, KB_EVAL_HOIST_INPUT_GEN=$KB_EVAL_HOIST_INPUT_GEN, phase log per arm"
+echo "      SKIP_REF=$KB_EVAL_SKIP_DEAD_REF_TIMING HOIST=$KB_EVAL_HOIST_INPUT_GEN UNLOCK_CORR=$KB_EVAL_UNLOCK_CORRECTNESS LOCK_SLOTS=$KB_GPU_EVAL_LOCK_SLOTS, phase log per arm"
 echo
 
 if [ "$MODE" = "dry-run" ]; then echo "(dry-run: nothing launched)"; exit 0; fi
@@ -236,6 +263,8 @@ for ((i=0; i<TOTAL; i++)); do
   KB_GPU_EVAL_LOCK_TIMEOUT_SEC="$KB_GPU_EVAL_LOCK_TIMEOUT_SEC" \
   KB_EVAL_SKIP_DEAD_REF_TIMING="$KB_EVAL_SKIP_DEAD_REF_TIMING" \
   KB_EVAL_HOIST_INPUT_GEN="$KB_EVAL_HOIST_INPUT_GEN" \
+  KB_EVAL_UNLOCK_CORRECTNESS="$KB_EVAL_UNLOCK_CORRECTNESS" \
+  KB_GPU_EVAL_LOCK_SLOTS="$KB_GPU_EVAL_LOCK_SLOTS" \
   KB_EVAL_PHASE_LOG="$REPO_ROOT/$PHASE_LOG" \
   setsid nohup uv run --no-sync python \
     scripts_integration/new_evolving_agent/evolve_kb_batch.py \

@@ -54,7 +54,12 @@ timeout_stats() {
   ./.venv/bin/python - <<'PY' 2>/dev/null || echo "0 0 0"
 import json, glob
 ev = to = 0
-for f in glob.glob('runs_evolving/gpt-oss-120b/base_agent_gpt_oss_120b_*/workspaces/*/evaluation_terminal_output.jsonl'):
+# Both layouts: the flat legacy root AND runs_evolving/<model>/<series>/...
+# The old single hardcoded glob missed every median-series run, so the eval
+# timeout rate printed 0/0 no matter what was happening.
+_pats = ('runs_evolving/*/*/workspaces/*/evaluation_terminal_output.jsonl',
+         'runs_evolving/*/*/*/workspaces/*/evaluation_terminal_output.jsonl')
+for f in sorted({p for _pat in _pats for p in glob.glob(_pat)}):
     try:
         fh = open(f)
     except OSError:
