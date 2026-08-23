@@ -44,3 +44,7 @@ subset_selection/*.json
 # memory files
 .agent_memory/
 chroma_db/
+# Per-server memory. CLAUDE.md is shared across every machine; this file holds
+# the facts true only of THIS host (baseline folder, launcher folder, local
+# incidents) and must never be committed, or servers would overwrite each other.
+CLAUDE.local.md
