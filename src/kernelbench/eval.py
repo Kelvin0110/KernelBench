@@ -13,7 +13,7 @@ import tempfile
 import time
 import traceback
 import types
-from contextlib import nullcontext, redirect_stderr, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from io import StringIO
 from typing import Union, Optional
 
@@ -475,6 +475,88 @@ def _gpu_timing_lock(label: str = ""):
         return nullcontext()
 
 
+@contextmanager
+def _device_memory_reservation(need_bytes: int, device, timeout_sec: float):
+    """Admission control on ESTIMATED device bytes, on top of the slot semaphore.
+
+    The slot semaphore bounds how many evals are device-resident; it does not bound
+    how much memory they need. On 2026-08-23 that gap cost 18 OOMs: 3 slots x ~52 GB
+    on L1P34 (7.5 GB inputs) overruns a 143 GB card, and 16 of the 18 were that one
+    problem. Each OOM is recorded as ``compiled=True correct=False``, so the governor
+    then debugs a kernel that was never broken.
+
+    A plain "is there free memory right now" check is racy in exactly the case that
+    matters -- three evals can all observe free memory and then peak together. So this
+    reserves *estimated* bytes instead, under a flock, which makes the check-and-set
+    atomic. Effective concurrency becomes min(slots, budget / need).
+
+    Dead reservers are pruned by liveness check, so a killed eval cannot leak budget.
+    On timeout it proceeds anyway rather than blocking forever -- degrading to the
+    current behaviour, the same contract as the GPU lock's own timeout.
+    """
+    if need_bytes <= 0:
+        yield None
+        return
+    try:
+        import fcntl
+        from evolving_common.governor.gpu_lock import gpu_lock_key, lock_path
+        budget_frac = float(os.environ.get("KB_EVAL_MEM_GATE_FRAC", "0.85"))
+        total = torch.cuda.mem_get_info(device)[1]
+        budget = int(total * budget_frac)
+        path = str(lock_path()) + ".memresv"
+        key = str(os.getpid())
+    except Exception:  # never fail an eval over telemetry-grade machinery
+        yield None
+        return
+
+    def _rw(mutate):
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o666)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                raw = os.read(fd, 1 << 20).decode() or "{}"
+                data = json.loads(raw)
+            except Exception:
+                data = {}
+            data = {k: v for k, v in data.items()
+                    if k == key or os.path.exists(f"/proc/{k}")}  # prune dead reservers
+            out = mutate(data)
+            os.lseek(fd, 0, 0)
+            os.ftruncate(fd, 0)
+            os.write(fd, json.dumps(data).encode())
+            return out
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    def _try_reserve(data):
+        used = sum(v for k, v in data.items() if k != key)
+        if used + need_bytes <= budget or not used:  # `not used` => never wedge alone
+            data[key] = need_bytes
+            return True
+        return False
+
+    t0 = time.time()
+    while True:
+        try:
+            if _rw(_try_reserve):
+                break
+        except Exception:
+            break
+        if time.time() - t0 >= timeout_sec:
+            print(f"[Eval] memory gate: waited {time.time()-t0:.0f}s for "
+                  f"{need_bytes/2**30:.1f} GiB; proceeding anyway", flush=True)
+            break
+        time.sleep(0.25)
+    try:
+        yield round(time.time() - t0, 3)
+    finally:
+        try:
+            _rw(lambda d: d.pop(key, None))
+        except Exception:
+            pass
+
+
 def _gpu_lock_slots() -> int:
     """Slot count actually in force, recorded into the phase log for provenance.
 
@@ -813,6 +895,34 @@ def eval_kernel_against_ref(
     # Pairs naturally with KB_GPU_EVAL_LOCK_SLOTS>1: slots bound how many timing
     # windows coexist, this bounds what else has to queue behind them.
     _unlock_correctness = _env_flag("KB_EVAL_UNLOCK_CORRECTNESS", default=False)
+
+    # Estimated device need for THIS eval, from the tensors we already built on the
+    # host. k covers the correctness copy + the timing copy + activations; measured
+    # peak was ~7x input size on a level-1 problem, but the two copies are what the
+    # slot semaphore multiplies, so k defaults to 2.5. Factor 0 (the default) leaves
+    # the gate entirely off, so a run already in flight is untouched.
+    try:
+        _mem_k = float(os.environ.get("KB_EVAL_MEM_GATE_FACTOR", "0"))
+    except (TypeError, ValueError):
+        _mem_k = 0.0
+    _need = 0
+    if _mem_k > 0 and _cpu_inputs_timing is not None:
+        try:
+            _need = int(_mem_k * sum(
+                t.numel() * t.element_size()
+                for t in _cpu_inputs_timing if torch.is_tensor(t)))
+        except Exception:
+            _need = 0
+    try:
+        _mem_gate_timeout = float(os.environ.get("KB_EVAL_MEM_GATE_TIMEOUT_SEC", "600"))
+    except (TypeError, ValueError):
+        _mem_gate_timeout = 600.0
+
+    # Reserve BEFORE queueing for a slot, not after: holding a slot while waiting on
+    # memory would block evals that could have run. Released after the GPU phase.
+    _mem_resv = _device_memory_reservation(_need, device, _mem_gate_timeout)
+    _mem_gate_waited = _mem_resv.__enter__()
+
     _gpu_phase = _gpu_timing_lock(label="eval_gpu_phase")
     _gpu_entered = False
     _gpu_waited = 0.0
@@ -1015,6 +1125,7 @@ def eval_kernel_against_ref(
         _gpu_held = time.perf_counter() - _gpu_held_t0
     else:  # measure_performance=False and correctness unlocked -> never held
         _gpu_held = 0.0
+    _mem_resv.__exit__(None, None, None)  # release the byte reservation
 
     # Phases that ran OUTSIDE the held region, and so must not be subtracted from
     # held_sec when forming the residual. input_gen_prelock is always outside;
@@ -1032,6 +1143,8 @@ def eval_kernel_against_ref(
             "hoisted": _hoisted,
             "unlocked_correctness": _unlock_correctness,
             "lock_slots": _gpu_lock_slots(),
+            "mem_need_gb": round(_need / 2**30, 3) if _need else 0,
+            "mem_gate_waited_sec": _mem_gate_waited or 0,
             "ref_window": "ran" if kernel_exec_result.ref_runtime_stats else "skipped",
             # Non-overlapping; "other" is the residual -- empty_cache, syncs,
             # model .to(), get_timing_stats -- i.e. the part of the hold that no
