@@ -131,8 +131,8 @@ Set in `kernelbench_integration/static_check.resolve_is_hack()` and the governor
 
 **Examples**
 
-- **Workload shrink** (redefined `batch_size` / `get_inputs`, including copy-paste from reference boilerplate): `workload_shrink` warning → `is_hack=false`; real shrink cheats fail correctness or hit `excessive_speedup` (>10×) under eval namespace isolation.
-- **Library shortcut** (e.g. `nn.RNN` instead of a Python loop on full tensors): often `pytorch_wrap` / `torch_computation_ops` warning with `is_hack=false`; if >10×, `excessive_speedup` also sets `is_hack=true`.
+- **Workload shrink** (redefined `batch_size` / `get_inputs`, including copy-paste from reference boilerplate): `workload_shrink` warning → `is_hack=false`; real shrink cheats fail correctness or hit `excessive_speedup` (>30×) under eval namespace isolation.
+- **Library shortcut** (e.g. `nn.RNN` instead of a Python loop on full tensors): often `pytorch_wrap` / `torch_computation_ops` warning with `is_hack=false`; if >30×, `excessive_speedup` also sets `is_hack=true`.
 - **STRICT** missing CUDA kernel: eval skipped, `is_hack=true`.
 - **`code_bypass` / `pass`**: only real Python `pass` / `try` statements (AST); prose like `"forward pass"` in docstrings does **not** block eval.
 
@@ -155,7 +155,7 @@ Coder prompts (`kernelbench_integration/prompts.py`) describe **hybrid mode**: a
 |------|----------|----------|----------------|
 | **STRICT error** | `code_bypass`, missing `cuda_impl`, timer patches, threading, lazy tensors | **Skipped** | `KERNEL_BENCH_ERROR` + `KERNEL_BENCH_STATIC_ERRORS` in terminal / L0 |
 | **WARNING** | `pytorch_wrap`, `torch_computation_ops`, `workload_shrink`, streams, precision downgrade | Runs | **Not** in terminal; stored in `metrics_by_iteration.jsonl` / viz only |
-| **Runtime** | `excessive_speedup` (>10×) | Runs | `KERNEL_BENCH_IS_HACK: True`; may block best promotion |
+| **Runtime** | `excessive_speedup` (>30×) | Runs | `KERNEL_BENCH_IS_HACK: True`; may block best promotion |
 
 Hybrid PyTorch warnings are intentional audit signals — they do not block evaluation and are not passed to the coder prompt context.
 

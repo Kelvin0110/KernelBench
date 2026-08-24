@@ -640,7 +640,7 @@ def eval_kernel_against_ref(
 
     # Guard against potential reward hacking [optional but ongoing enhancement]
     check_for_excessive_speedup: bool = True,
-    excessive_speedup_threshold: float = 10, # flag if the kernel is more than <excessive_speedup_threshold>x faster than the reference
+    excessive_speedup_threshold: float = 30, # flag if the kernel is more than <excessive_speedup_threshold>x faster than the reference
     baseline_runtime: float | None = None,  # fixed baseline for excessive-speedup flag (display speedup uses governor baseline)
 ) -> KernelExecResult:
     """
@@ -1107,7 +1107,8 @@ def eval_kernel_against_ref(
             effective_speedup = 0.0
 
         # TODO: integrate SoL estimation for each unique program on designated hardware
-        # for now, we will use a heuristics such as 5-10x which is very hard to achieve
+        # 30x (was 10x): algebraic collapse after a huge op (e.g. conv-transpose + GAP)
+        # can legitimately land in the 10-20x band, so 10x false-positived real kernels.
 
         if verbose:
             print(f"[Eval] Effective Speedup is {effective_speedup:.2f}x using timing method {timing_method}")
