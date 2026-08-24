@@ -2,36 +2,70 @@
 
 Working notes for the `features/evolving-agent-final` branch.
 
+> **This file is shared across every server that runs these experiments and is
+> committed.** Keep it host-agnostic: protocol, mechanism, analysis rules.
+> Anything true of only one machine — hostname, GPU count, driver, which
+> `results/timing/` folder is *ours*, which runs are live right now, local venv
+> drift, local incidents — belongs in **`CLAUDE.local.md`**, which is per-host
+> and gitignored. Read that file first; it tells you which server you are on.
+>
+> Two servers currently run this series. They are distinguished only by their
+> `$HARDWARE` name, which selects both a timing baseline and a launcher folder:
+>
+> ```
+> results/timing/<HARDWARE>/                          # that host's baseline
+> scripts_integration/new_evolving_agent/env/<HARDWARE>/   # that host's launchers
+> scripts_integration/new_evolving_agent/env/common/       # shared by both
+> ```
+>
+> `env/hardware_env.sh` derives `$HARDWARE` from the directory name of the
+> launcher you invoked, so **run the launcher inside your own host's folder and
+> never pass `--hardware` by hand.** Copying that folder and renaming it is *usually*
+> all it takes to add a machine — but the name must also be a valid
+> `results/timing/` folder carrying a `median`. When it is not, the launcher must
+> pre-set `KB_DEFAULT_HARDWARE`, as `env/NVIDIA_GH200x2/launch_run.sh` and
+> `resume_run.sh` already do to redirect onto a median-bearing baseline.
+
 ---
 
 ## 1. What this project is
 
 KernelBench evaluates LLM agents that write custom CUDA kernels for PyTorch
-modules. This branch runs an **evolving agent** with two memory levels:
+modules. This branch runs an **evolving agent** with a tiered memory:
 
 - **L0** — per-problem iteration history (context management applies here)
 - **L1** — a skill catalog shared across all problems in a batch
   (`shared_l1.jsonl`), governed by deletion / merging / refinement
+- **L2** — *(newer, off by default)* standing instructions: L1 skills with
+  enough cross-task usage and new-best attribution are promoted to permanent
+  rules injected into every coder system prompt (`--enable-l2`,
+  `evolving_common/governor/l2_promotion.py`)
 
 We are running a controlled experiment series measuring how **L0 context-management
 mode** and **L1 skill-governance** affect kernel quality.
 
-Two independent axes:
+Axes:
 
 | axis | values |
 |---|---|
 | L0 context management | `truncation` (default/baseline), `folding`, `markov_report`, `selective_retention`, `compress_trigger` |
 | L1 skill governance | `--skill-deletion`, `--skill-merging`, `--enable-skill-refinement` (7 non-empty combinations) |
+| L2 promotion | `--enable-l2` (+ `--l2-render`, `--l2-min-rate`, …) — a third axis, not yet part of the planned matrix |
 
-Governance arms hold context at `truncation` so the two axes stay separable.
+Governance and L2 arms hold context at `truncation` so the axes stay separable.
 
-**Fixed protocol for every arm:** 50 problems (`subset_selection/selected_problems_50.csv`),
-30 iterations, `gpt-oss-120b`, hardware `NVIDIA_GH200x2`. One arm ≈ **65–75 GPU-hours**.
+**Fixed protocol for every arm:** 50 problems (`subset_selection/selected_problems_50.csv`;
+10 × L1, then 15 × L2, then 25 × L3 — in that order), 30 iterations, `gpt-oss-120b`,
+`$HARDWARE` per host.
 
-Current results and cross-run comparisons live in
-`scripts_integration/new_evolving_agent_analysis/output/GH200x2/`. Known defects and
-experiment-design caveats are recorded in project memory
-(`skill-governance-gotchas.md`) and `env/README.md`.
+**Run cost is not a constant — measure it, don't budget from this file.** Historical
+arms were 65–75 GPU-hours; the Aug-22 wave projects **42–51 h/arm**. The difference is
+inference-endpoint latency drift (open item 10) plus the mid-run `num_perf_trials`
+100→25 change, not anything about the protocol.
+
+Current results and cross-run comparisons live under
+`scripts_integration/new_evolving_agent_analysis/output/`. Known defects and
+experiment-design caveats are recorded in `env/README.md` and in project memory.
 
 ---
 
@@ -45,32 +79,38 @@ fall back to plain PyTorch while still scoring `correct=True`:
 
 ```bash
 export CUDA_HOME=$HOME/opt/cuda-12.8
-export PATH=$CUDA_HOME/bin:/localhome/local-tianzheng/KernelBench/.venv/bin:$PATH
+export PATH=$CUDA_HOME/bin:<repo>/.venv/bin:$PATH
 nvcc --version        # expect: release 12.8, V12.8.93 (matches torch 2.11.0+cu128)
 ```
 
-`launch_run.sh` sets both itself. If you invoke `evolve_kb_batch.py` by hand, you must.
-Reinstall with `scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/install_cuda128_local.sh`.
+Or source `env/common/activate.sh`, which sets both. Every launcher sets them itself;
+if you invoke `evolve_kb_batch.py` by hand, you must. Reinstall with
+`env/common/install_cuda128_local.sh` (each `env/<HARDWARE>/` symlinks it).
 Background: `scripts_integration/new_evolving_agent/env/README.md`.
+Host-specific paths and verified versions: `CLAUDE.local.md`.
 
 ### 2.2 Always use `uv run --no-sync`
 
-A bare `uv run` **re-syncs the venv and prunes packages**. Verified:
+A bare `uv run` **re-syncs the venv and prunes packages**, e.g.
 
 ```
-uv sync --dry-run → Would uninstall 9 packages
+uv sync --dry-run → Would uninstall N packages
   - scikit-learn - scipy - joblib - threadpoolctl - pytest - ruff - ...
 ```
 
 Removing scikit-learn makes every `--skill-merging` iteration die with
-`coder_call_error`. `launch_run.sh` uses `--no-sync` at all three call sites; keep it.
+`coder_call_error`. Every launcher uses `--no-sync` at all call sites; keep it.
 
-**Current state:** `pyproject.toml` declares `scikit-learn` in `[project] dependencies`
+**How far each host has drifted differs — check `CLAUDE.local.md` for this
+machine's `uv sync --dry-run` count before trusting any number here.** The
+divergence has been as small as 9 packages on one server and as large as 73 on
+another, so treat the prune as potentially catastrophic, not merely annoying.
+
+**Why it drifts:** `pyproject.toml` declares `scikit-learn` in `[project] dependencies`
 (promoted out of the `evolving-agent` extra), but `uv.lock` has **not** been
 regenerated. They are intentionally out of sync, so `--no-sync` is load-bearing until
 someone runs `uv lock && uv sync`. Do that only when no run is in flight — it shares
-`.venv` with running jobs, drops pytest/ruff, and pins `scikit-learn==1.5.0` (the venv
-currently has 1.7.2).
+`.venv` with running jobs and drops pytest/ruff.
 
 ### 2.3 API keys and endpoints (`.env`)
 
@@ -83,8 +123,11 @@ Model IDs differ per endpoint: `gpt-oss-120b` → `openai/gpt-oss-120b` (integra
 `nvidia/openai/gpt-oss-120b` (inference). Use the aliases in `llm_client.py`, not raw IDs.
 
 Embeddings choose their endpoint independently of chat via `NVIDIA_EMBED_ENDPOINT`
-(default `inference`; model default `nvidia/qwen/qwen3-embedding-0.6b`). Probe both
-endpoints with `scripts_integration/new_evolving_agent/env/probe_integrate_key.py`.
+(default `inference`; model default `nvidia/qwen/qwen3-embedding-0.6b`).
+
+> `env/probe_integrate_key.py`, referenced by earlier revisions of this file, is
+> **not in the repo** and was never tracked. To isolate a key failure from a model
+> failure, call the endpoint directly with the alias table in `llm_client.py`.
 
 ---
 
@@ -93,17 +136,49 @@ endpoints with `scripts_integration/new_evolving_agent/env/probe_integrate_key.p
 ### 3.1 The launcher (use this, don't hand-roll nohup)
 
 ```bash
-bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/launch_run.sh <gpu> <run_name> <ctx_mode> [extra flags...]
+bash scripts_integration/new_evolving_agent/env/<HARDWARE>/launch_run.sh <gpu> <run_name> <ctx_mode> [extra flags...]
 ```
 
-It preflights nvcc, ninja, the GH200 baseline dir, the API key, GPU-idleness, a live
-`load_inline(cuda_sources=...)` compile probe, and (for merge arms) `import sklearn` —
-then launches under `nohup` and prints the pid and log path. Every check exists because
+Use **your own host's** `<HARDWARE>` folder (`CLAUDE.local.md` names it). The folder
+name is what selects the timing baseline, via `env/hardware_env.sh`.
+
+It preflights nvcc, ninja, the baseline dir, the API key, GPU-idleness and a live
+`load_inline(cuda_sources=...)` compile probe, then launches under `nohup` and prints
+the pid and log path. (The `import sklearn` check for merge arms is in `launch_wave.sh`
+only — `launch_run.sh` does not have it.) Every check exists because
 its absence once silently corrupted a ~70 h run.
 
 Fixed args it always supplies: `--max-problems 50 --max-iterations 30 --hardware
-NVIDIA_GH200x2 --nvidia-endpoint inference --model gpt-oss-120b --coder-timeout-sec 600
+$HARDWARE --nvidia-endpoint inference --model gpt-oss-120b --coder-timeout-sec 600
 --results-root runs_evolving/gpt-oss-120b/`.
+
+**`launch_wave.sh` is the multi-arm form.** It takes a spec file (one arm per line:
+`tag | context-mode | extra flags`) instead of a single arm, staggers launches by
+`LAG_SEC`, writes a `wave_gpu<N>_<stamp>.manifest.tsv`, and supports
+`dry-run` / `status` sub-modes. Unlike `launch_run.sh` it can express governance and
+L2 arms. Specs live in `env/*.spec`.
+
+#### Baseline resolution is a correctness check, not a path lookup
+
+`kb_require_hardware` (`env/hardware_env.sh`) **fatals** when
+`results/timing/$HARDWARE/baseline_time_torch.json` lacks a `median` field.
+`get_timing_stats()` started recording a median in `6a3e972` and
+`runtime_from_stats()` prefers it, so a pre-`6a3e972` baseline makes the run divide
+candidate *median* by baseline *mean* — on the 50-problem subset that shifts 25 of 50
+problems by >5% and inflates some ~4×. Silent metric error, not a crash.
+`ALLOW_MEAN_BASELINE=1` downgrades it to a warning; don't.
+
+**A baseline cannot be swapped under a running arm.**
+`kernelbench_integration/baseline_timing.py::_load_baseline_json` is `@lru_cache`d on
+the path, and `KBGovernor` (`governor.py:154`) lives in the long-lived parent — so the
+JSON is read once per arm and held for its whole life. Editing the file on disk changes
+nothing for a live run (unlike `src/kernelbench/eval.py`, which every eval re-imports;
+see §3.4). Changing baselines means relaunching.
+
+Corollary for analysis: a per-problem baseline error is a **common factor across all
+arms scored against the same file**, so it cancels in arm-vs-arm ratios and moves only
+the absolute level. It does, however, make those runs non-comparable to runs scored
+against a different baseline file. Record which baseline a run used.
 
 ### 3.2 Naming conventions
 
@@ -116,19 +191,28 @@ NVIDIA_GH200x2 --nvidia-endpoint inference --model gpt-oss-120b --coder-timeout-
 
 ### 3.3 Examples
 
+Substitute your own `$HW` (`env/<HARDWARE>/`, per `CLAUDE.local.md`).
+
 ```bash
+HW=scripts_integration/new_evolving_agent/env/<HARDWARE>
+
 # context-management arm
-bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 0 base_agent_gpt_oss_120b_markov_itr30_GH200 markov_report
+bash $HW/launch_run.sh 0 base_agent_gpt_oss_120b_markov_itr30_GH200 markov_report
 
 # compress_trigger needs its tuning flags
-bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 0 base_agent_gpt_oss_120b_compress_itr30_GH200 compress_trigger \
+bash $HW/launch_run.sh 0 base_agent_gpt_oss_120b_compress_itr30_GH200 compress_trigger \
   --compress-hot-rounds 3 --compress-token-ratio 0.85 --compress-every-n-iters 15
 
 # governance arms — context held at truncation
-bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 1 base_agent_gpt_oss_120b_deletion_itr30_GH200   truncation --skill-deletion
-bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 1 base_agent_gpt_oss_120b_refinement_itr30_GH200 truncation --enable-skill-refinement
-bash .../env/NVIDIA_GH200x2_2nd/launch_run.sh 1 base_agent_gpt_oss_120b_merge_sim085_itr30_GH200 truncation \
+bash $HW/launch_run.sh 1 base_agent_gpt_oss_120b_deletion_itr30_GH200   truncation --skill-deletion
+bash $HW/launch_run.sh 1 base_agent_gpt_oss_120b_refinement_itr30_GH200 truncation --enable-skill-refinement
+bash $HW/launch_run.sh 1 base_agent_gpt_oss_120b_merge_sim085_itr30_GH200 truncation \
   --skill-merging --skill-merge-similarity 0.85
+
+# a whole wave from a spec file (governance + L2 arms; see env/wave_gpu0.spec)
+bash $HW/launch_wave.sh 0 scripts_integration/new_evolving_agent/env/wave_gpu0.spec dry-run
+bash $HW/launch_wave.sh 0 scripts_integration/new_evolving_agent/env/wave_gpu0.spec
+bash $HW/launch_wave.sh 0 scripts_integration/new_evolving_agent/env/wave_gpu0.spec status
 ```
 
 ### 3.4 Running several arms on one GPU
@@ -243,9 +327,13 @@ three completed merge reps, **15 (88%) still ended correct** — the metric is b
 re-locking. Without this a wide+narrow transition self-deadlocks, since `flock` is per
 open-file-description and a second `os.open()` blocks against the process's own lock.
 
-**Gotcha — the launcher refuses the 3rd arm.** `launch_run.sh:41` aborts when the GPU
-reports >1000 MiB used. An idle arm holds ~558 MiB, so arm 2 passes but arm 3 reads ~1.1 GB
-and is rejected. Raise that threshold (or bypass the guard) to launch three or more.
+**Gotcha — the two launchers guard concurrency differently.** `launch_run.sh:41` aborts
+when the GPU reports >1000 MiB used; an idle arm holds ~558 MiB, so arm 2 passes but arm 3
+reads ~1.1 GB and is rejected. Raise that threshold (or bypass the guard) to launch three
+or more. `launch_wave.sh` does **not** use that check — it gates on
+`MIN_FREE_MIB=20000` plus `MAX_ARMS_PER_GPU=6` (counted from `CUDA_VISIBLE_DEVICES` in
+`/proc/*/environ`), which is how 5-arm and 4-arm groups get launched. Use the wave
+launcher when you want more than two arms on a GPU rather than editing the guard.
 
 **Never edit code while runs are live.** Eval uses `multiprocessing` **spawn**
 (`execution.py:348`), so every eval re-imports `evolve_kb_batch.py` and `kernelbench/eval.py`
@@ -293,7 +381,7 @@ N=10 -- a 1.7 s delta, not a 10x critical section.
 | | evals waited >=5 s | median wait |
 |---|---|---|
 | Aug-20 reps, N=10, **3 arms** | 8% | 22 s |
-| Aug-22 wave, N=100, **9 arms** | 76% | 298 s |
+| Aug-22 wave, N=100, **9 arms on ONE GPU** | 76% | 298 s |
 
 **The hold is ~20 s and always was** (busy-period inter-completion gap; consistent with
 the Aug-20 median wait of 22 s at 3 arms). Only ~1 s of it is the timing loop -- the
@@ -304,17 +392,43 @@ rest is correctness trials, input generation, `empty_cache` and syncs. So:
 - Skipping the discarded live reference timing is still correct (see below) but it is
   worth a few seconds, **not the "free 2x" an earlier version of this section claimed**.
 - The earlier "~4.9 s hold, ~6 arms/GPU" figures came from a probe on a different
-  problem mix (L3P4/9/42) and do not generalise. **Treat ~3 arms/GPU as the ceiling**
-  until someone profiles the inside of the locked section.
+  problem mix (L3P4/9/42) and do not generalise. **~3 arms/GPU is the ceiling for
+  *throughput*** until someone profiles the inside of the locked section.
 
 Corollary: to actually raise the ceiling you must shrink the critical section.
+
+**Three arms/GPU is a throughput ceiling, not a safety limit — post-fix.** Once the
+eval deadline stopped charging lock queueing against the work budget (2026-08-22), more
+arms stopped *corrupting* evals and merely stopped paying for themselves. A 5-arm +
+4-arm wave (two GPUs, **not** 9 on one) has since run 19 h with `orph=0`, `unlock=0`
+and a 0.84% eval-timeout rate over 5011 evals, at the cost of lock waits reaching 685 s.
+So: exceed 3 when you need matrix coverage more than wall-clock, but do not report
+throughput from such a wave, and never do it on a pre-2026-08-22 build. Do not read that
+0.84% against the pre-fix "0.93% at 3 arms" figure — the comparison crosses the code
+boundary and is not evidence that 5 arms beats 3.
+
+**Unequal arms-per-GPU biases the comparison, one-directionally.** Measured on that
+wave: GPU0 (5 arms) 18.2% of evals logged a wait, mean 11.1 s/eval; GPU1 (4 arms) 16.9%,
+mean 8.0 s — GPU0 absorbs ~39% more. Waiting itself cannot deflate a speedup (timing
+windows stay exclusive), but *unlocked* GPU work — reference-model construction,
+nvcc/ninja, `custom_model.to(device)`, `empty_cache` on reserver release — can land
+inside another arm's timing window, and GPU0 exposes each window to 4 concurrent
+interferers versus GPU1's 3. Since `speedup = fixed_baseline / measured_runtime`, the
+busier GPU is systematically penalised.
+
+**So put every arm you intend to compare on the same GPU as its control.** If the only
+truncation control sits on GPU0, every GPU1 arm is compared across a contention boundary
+in its own favour. And the bias cannot be removed afterwards: `KB_EVAL_PHASE_LOG` gives
+no hold data unless it was enabled at launch, the measured reference window — which
+would be a perfect per-GPU contention probe — is overwritten by the fixed baseline
+before being recorded (`governor.py:467,490`), and `gpu_lock` never reports hold time.
 
 #### The ~19 s that is not the timing loop is `get_inputs()` (2026-08-23) -- solved
 
 Measured, not inferred. `get_inputs()` is called **three times inside the lock** --
 `eval.py:887` (correctness trial), `:720` (candidate window), `:772` (reference window) --
 and it is pure-CPU `torch.rand`. Wall-clock cost of those three calls, measured on this
-box with `torch.set_num_threads(4)`:
+box with `torch.set_num_threads(4)` (numbers are host-specific — re-measure per server):
 
 | | per eval, 3 calls |
 |---|---|
@@ -344,9 +458,12 @@ warmup outside. Moving generation therefore cannot change any reported runtime.
 
 #### MEASURED: concurrent evals cost <3%, so the mutex was the wrong design (2026-08-23)
 
-Everything above this line about "~3 arms/GPU" and "parallelism is net negative" was
-inferred from throughput, never from a controlled measurement. It has now been measured
-directly and **the ceiling framing was wrong.**
+Everything above this line about "~3 arms/GPU" was inferred from throughput, never from a
+controlled measurement of *fidelity*. Fidelity has now been measured directly, and **the
+fidelity argument for a strict mutex was wrong** — the throughput ceiling itself stands.
+(*Corrected:* an earlier revision of this paragraph read "the ceiling framing was wrong". The
+probe below measured fidelity only; its own L1P34 wall-time swing, 21 s -> 425 s, is evidence
+*for* the throughput ceiling, not against it.)
 
 Method: 6 saved kernels spanning input volume and kernel duration (L1P100 4.3 GB/2.4 ms,
 L1P34 7.5 GB/5.4 ms, L2P19, L2P94 0.65 ms, L3P42 56 ms, L3P5), 5 repeats each, warm builds,
@@ -358,7 +475,7 @@ against its own solo value on an otherwise idle GPU.
 | degree 2 | **1.2%** | 2.3% |
 | degree 3 | **0.7%** | 2.8% |
 
-Against the ~20-30% replicate noise (open item 6) that is an order of magnitude below the
+Against the ~30% replicate noise (open item 9) that is an order of magnitude below the
 noise floor. The decisive observation is L1P34: across repeats its **wall time swung
 21 s -> 425 s while its measured runtime never left 5.36-5.52 ms**. Contention lands on H2D
 and host memory, which sit *outside* the CUDA-event window, so it costs throughput and not
@@ -376,49 +493,70 @@ Two design changes follow, both gated and both on for waves launched after this 
   memory note below** -- correctness trials run outside the lock,
   which then covers only the timing window(s). A/B on L1P100, warm build: hold
   **1.96 s -> 0.78 s** with runtime unchanged (2.42/2.44 vs 2.38/2.45; solo control 2.41).
-  This supersedes the "Not done: the shared/exclusive split" note below -- the probe above
-  is strictly *more* aggressive than an SH/EX split, since it let timing windows overlap
-  each other too, and still cost <3%.
+  This supersedes the shared/exclusive-split note below -- the probe above is strictly
+  *more* aggressive than an SH/EX split, since it let timing windows overlap each other
+  too, and still cost <3%.
 
   **But that probe measured runtime, not memory, and this flag was reverted hours later.**
   Concurrency of *device-resident* evals is bounded by the lock, and unlocking correctness
   removed that bound: each eval reserves ~30 GB (level-1 problems) to ~52 GB (L1P34) because
   the caching allocator retains input copy + output + intermediates + a second copy for the
-  timing window. Six arms/GPU took GPU 0 to 144.8 of 146.8 GB and 1.8% of evals to CUDA OOM,
-  each recorded as `compiled=True correct=False`. **Sizing rule with correctness locked:
-  concurrent residents = SLOTS, so budget ~30-52 GB x SLOTS and do not raise SLOTS while arms
-  are inside subset problems 1-5.** `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` would
-  cut the retention but allocation happens inside the timed forward while the baselines were
-  measured under the default allocator, so it is deliberately not set.
+  timing window. Six arms/GPU took a 146.8 GB card to 144.8 GB (~99%) and 1.8% of evals to
+  CUDA OOM, each recorded as `compiled=True correct=False`. **Sizing rule with correctness
+  locked: concurrent residents = SLOTS, so budget ~30-52 GB x SLOTS and do not raise SLOTS
+  while arms are inside subset problems 1-5.** `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+  would cut the retention but allocation happens inside the timed forward while the baselines
+  were measured under the default allocator, so it is deliberately not set.
 
 **The other thing that was wrong: problems 1-5 are not representative.** Measured
 `get_inputs()` across all 50 subset problems -- the first five (`L1P100/22/26/33/34`, in
 subset order) cost 12.5-21.7 s each and carry **74% of the entire benchmark's
 input-generation cost**; problems 6-50 average 0.65 s (median 0.12 s). Every wave this
 project has ever killed died inside problems 1-4, so **every contention number in this file
-was collected in the worst 5 problems of the benchmark.** The fast server's own log confirms
-it independently: its problems 1-5 averaged 78 min against 48 min for problems 6-17 (1.63x),
-and a completed solo run here shows 93.7 min vs 74.8 min. Do not extrapolate a wave's first
-days to its steady state.
+was collected in the worst 5 problems of the benchmark.** Both servers show it independently:
+problems 1-5 run ~1.25-1.63x slower per problem than problems 6-17 (78 vs 48 min on one
+server, 93.7 vs 74.8 min on the other). Do not extrapolate a wave's first days to its steady
+state.
 
-#### Two eval-lock switches (2026-08-23), both default OFF in code
+#### The eval-lock switches (2026-08-23), all inert unless exported
 
 `src/kernelbench/eval.py` is re-imported by every eval spawn, so an unconditional change
-reaches live arms. Both trims are therefore gated, and turned on in
-`env/NVIDIA_GH200x2/launch_wave.sh` and `resume_run.sh` -- i.e. for newly launched waves only.
+reaches live arms. Every knob below is therefore gated, so it takes effect for newly launched
+waves only.
+
+**There are six, and four of them default to off.** The three boolean trims
+(`KB_EVAL_HOIST_INPUT_GEN`, `KB_EVAL_SKIP_DEAD_REF_TIMING`, `KB_EVAL_UNLOCK_CORRECTNESS`)
+default `False` via `_env_flag` (`eval.py:573-584`), which fails closed on unset, and
+`KB_EVAL_MEM_GATE_FACTOR` defaults `0`. The other two are not switches:
+`KB_GPU_EVAL_LOCK_SLOTS` defaults **`1`**, which is the historical mutex rather than "off",
+and `KB_EVAL_PHASE_LOG` is a path that emits nothing until set.
+
+**Which subset a launcher exports differs per host *and* per script**, so never infer it —
+one host's `launch_wave.sh` sets both trims plus `KB_EVAL_UNLOCK_CORRECTNESS=1` and
+`KB_GPU_EVAL_LOCK_SLOTS=3`, the other sets only the two trims, and `resume_run.sh`
+deliberately sets `SLOTS=1`, `UNLOCK_CORRECTNESS=0`, `MEM_GATE_FACTOR=0`. No launcher in
+this repo turns the mem gate on. Read the launcher you invoked, and `/proc/<pid>/environ`
+for a run already in flight.
 
 | env var | what it does |
 |---|---|
 | `KB_EVAL_HOIST_INPUT_GEN` | builds `get_inputs()` tensors on the CPU before taking the lock; H2D stays locked. Falls back to the in-lock path on any failure, and skips correctness pregeneration unless `num_correct_trials == 1` (5-trial callers would hold five input sets in host RAM). |
 | `KB_EVAL_SKIP_DEAD_REF_TIMING` | skips the reference *measurement* when a fixed baseline is supplied. **Only the measurement.** The excessive-speedup / reward-hack flag lives in the same `if` block but depends on `baseline_runtime` and the candidate runtime, never on the window -- gating it too would silently disable `is_hack`, the `is_new_best` veto, and hack filtering in `best_geomean`. That bug was caught in review; do not reintroduce it by skipping the whole block. |
 | `KB_EVAL_PHASE_LOG` | path to append one JSON line per eval: `held_sec`, `waited_sec`, `hoisted`, `unlocked_correctness`, `lock_slots`, `ref_window`, and a non-overlapping phase breakdown with an `other_sec` residual. Unset -> emits nothing. |
-| `KB_EVAL_UNLOCK_CORRECTNESS` | runs the correctness trials outside the lock, leaving only the timing window(s) held. Hold 1.96s -> 0.78s on L1P100 with the recorded runtime unchanged. When on, the correctness trio is excluded from the `other_sec` residual -- otherwise it goes negative. **Leave this OFF on a shared GPU.** It removes the bound on how many evals are DEVICE-resident at once (correctness does the H2D of the whole input set plus two model forwards), and each eval reserves ~30 GB on a level-1 problem / ~52 GB on L1P34. With 6 arms/GPU it drove GPU 0 to 144.8 of 146.8 GB and 1.8% of evals to CUDA OOM -- recorded as `compiled=True correct=False`, so the governor debugs a kernel that was never broken. Locking it again cut peak 141.4 -> 72.6 GB and OOM to 0, at the cost of ~5.7s of hold, with the lock still showing zero waits over 5s. |
-| `KB_GPU_EVAL_LOCK_SLOTS` | counting semaphore, default 1 (= the historical mutex, same lock file). Launchers set 3. See the measurement above. **Slot files are keyed by physical GPU UUID**, so every arm on a GPU shares the same N files -- 9 arms at slots=3 still means at most 3 concurrent evals. Verified by resolving `lock_paths()` under `CUDA_VISIBLE_DEVICES=0/1`. Corollary: two groups launched with *different* slot counts use different FILE NAMES and do not interlock, giving 3+N concurrent. Always pin the same value for every arm on a GPU. |
-| `KB_EVAL_MEM_GATE_FACTOR` | device-memory admission on top of the slots, sized in bytes: reserves `factor x input_bytes` under a flock, so effective concurrency is `min(slots, budget/need)`. 0 = off (default). Use ~2.5 for any arm that will traverse subset problems 1-5. Slots bound how many evals are resident, not how much they need -- 3 x ~52 GB on L1P34 overruns a 143 GB card. Companions: `KB_EVAL_MEM_GATE_FRAC` (budget as a fraction of the card, default 0.85) and `KB_EVAL_MEM_GATE_TIMEOUT_SEC` (default 600, then proceeds anyway). Dead reservers are pruned via `/proc`; an eval needing more than the whole budget is still admitted when nothing else holds a reservation, so it cannot wedge with the GPU idle. |
+| `KB_EVAL_UNLOCK_CORRECTNESS` | runs the correctness trials outside the lock, leaving only the timing window(s) held. Hold 1.96s -> 0.78s on L1P100 with the recorded runtime unchanged. When on, the correctness trio is excluded from the `other_sec` residual -- otherwise it goes negative. **Leave this OFF on a shared GPU.** It removes the bound on how many evals are DEVICE-resident at once (correctness does the H2D of the whole input set plus two model forwards), and each eval reserves ~30 GB on a level-1 problem / ~52 GB on L1P34. With 6 arms/GPU it drove a 146.8 GB card to 144.8 GB and 1.8% of evals to CUDA OOM -- recorded as `compiled=True correct=False`, so the governor debugs a kernel that was never broken. Locking it again cut peak 141.4 -> 72.6 GB and OOM to 0, at the cost of ~5.7s of hold, with the lock still showing zero waits over 5s. **Check your own launcher before trusting the default:** the in-code default is OFF (`eval.py:897`), and `resume_run.sh` sets `0`, but at least one host's `launch_wave.sh` still defaults it to `1`. |
+| `KB_GPU_EVAL_LOCK_SLOTS` | counting semaphore, default 1 (= the historical mutex, same lock file). See the measurement above. **Not every launcher sets it** -- one host's `launch_wave.sh` defaults it to 3, the other does not set it at all, and `resume_run.sh` defaults it to 1; `grep -n KB_GPU_EVAL_LOCK_SLOTS env/<HARDWARE>/*.sh` before launching. **The behavioural read is in the submodule, not `eval.py`** -- `gpu_lock.py:153` inside `lock_slots()`; `eval.py:568` reads it too, but only to stamp `lock_slots` into the phase log. That puts it on the **eval-child** side of the propagation table below, so a submodule checkout changes it for live arms. **Slot files are keyed by physical GPU UUID**, so every arm on a GPU shares the same N files -- 9 arms at slots=3 still means at most 3 concurrent evals. Verified by resolving `lock_paths()` under `CUDA_VISIBLE_DEVICES=0/1`. Corollary: at N>1 the files become `<base>.slotK` (`gpu_lock.py:159-164`), which do **not** interlock with a `slots=1` process, so two groups launched with different slot counts give 3+N concurrent and silently fail to exclude each other. Always pin the same value for every arm on a GPU. |
+| `KB_EVAL_MEM_GATE_FACTOR` | device-memory admission on top of the slots, sized in bytes: reserves `factor x input_bytes` under a flock, so effective concurrency is `min(slots, budget/need)`. 0 = off (default). Use ~2.5 for any arm that will traverse subset problems 1-5. Slots bound how many evals are resident, not how much they need -- 3 x ~52 GB on L1P34 overruns a single GH200-class card; size against your own card. Companions: `KB_EVAL_MEM_GATE_FRAC` (budget as a fraction of the card, default 0.85) and `KB_EVAL_MEM_GATE_TIMEOUT_SEC` (default 600, then proceeds anyway). Dead reservers are pruned via `/proc`; an eval needing more than the whole budget is still admitted when nothing else holds a reservation, so it cannot wedge with the GPU idle. |
 
-Neither trim changes a recorded number, but both shorten the hold, so a wave launched with
-them sees less contention deflation than one launched without. Compare speedups across that
-boundary with the same care as across a baseline change.
+None of these changes a recorded number. The two trims only shorten the hold and the mem
+gate only ever admits fewer evals, so a wave launched with them sees *less* contention
+deflation than one launched without. `KB_GPU_EVAL_LOCK_SLOTS>1` runs the other way — it
+raises concurrency, which the table above prices at 0.7-1.2% median (2.8% worst) runtime
+inflation. Either way you have crossed a boundary: compare speedups across it with the same
+care as across a baseline change.
+
+**Check whether the wave you are analysing actually had them on** — `/proc/<pid>/environ`,
+not the launcher source. A wave launched before these flags were added to `launch_wave.sh`
+runs with all of them off, and `_env_flag(..., default=False)` fails closed on unset.
 
 **Why the phase breakdown is a file and not a print.** Eval stdout is *not* a log here --
 `eval_runner.py` captures it and `governor.py:1203` splices it into
@@ -447,11 +585,17 @@ every eval. That splits the codebase in two:
 
 | runs in | example | live runs pick it up? |
 |---|---|---|
-| eval **child** | `kernelbench_integration/eval_runner.py`, `src/kernelbench/eval.py` | **yes**, on the next eval spawned |
-| long-lived **parent** | `evolving_common/execution.py`, `evolve_kb_batch.py` governor loop | **no** -- bound at import, needs relaunch |
+| eval **child** | `kernelbench_integration/eval_runner.py`, `src/kernelbench/eval.py`, `evolving_common/governor/gpu_lock.py` | **yes**, on the next eval spawned |
+| long-lived **parent** | `evolving_common/execution.py`, `evolve_kb_batch.py` governor loop, `gen3_stages.py`, `baseline_timing.py` cache | **no** -- bound at import, needs relaunch |
 
 This is why `7ac0e87` (eval deadline) applied only to newly launched runs while the
 `num_perf_trials` change took effect in ~3 minutes with no restart.
+
+**The submodule counts.** `git -C Self-Evolving-Agent pull` (or any checkout that moves
+its working tree) is a live code edit to every arm whose files land on the child side of
+that table — `gpu_lock.py` above all. Check `git submodule status` for a `+` before
+assuming the code you are reading is the code your runs started with, and re-check eval
+health across the change's timestamp, not just afterwards.
 
 **Two traps when verifying an edit landed.** An eval *spawned* before the edit keeps the
 old value and can complete long after it -- with 300-900 s lock waits, stale records keep
@@ -463,7 +607,7 @@ record newer than the edit", and (b) the value is only visible in
 
 #### Killed arms leave live-looking directories -- filter on processes, not dirs
 
-A killed arm's run directory stays in `runs_evolving/.../median/` with all its evals
+A killed arm's run directory stays under the run's `--results-root` with all its evals
 intact. Any glob over run directories therefore mixes its **pre-kill, higher-contention**
 evals into what you think is the current state. This produced three separate wrong
 numbers in one session, including a lock-wait p50 of 284 s where the true live figure
@@ -503,8 +647,24 @@ the `excessive_speedup` nesting bug above; a hand review had passed the same dif
 ```bash
 grep -c CUDA_HOME <log>                     # must stay 0
 grep -E "^\[batch\]" <log> | tail -2        # problem progress
+
+# wave-era tooling (env/common/, symlinked into each env/<HARDWARE>/)
+bash env/<HARDWARE>/launch_wave.sh <gpu> <spec> status   # per-arm pid/problem/lockmax/ORPHWAIT
+bash env/common/wave_status.sh                           # same audit from the eval records
+bash env/common/wave_watch.sh                            # 15-min watchdog -> wave_watch.log
+
 uv run --no-sync python scripts_integration/new_evolving_agent_analysis/checkpoint_run.py --auto
 ```
+
+Read `ORPHWAIT` (a `waiting` with no matching `acquired after`) and `proceeding UNLOCKED`;
+both must stay 0. **Caveat:** `wave_watch.sh` globs run directories without intersecting
+the live process list, which is the exact trap documented below — a killed arm's directory
+will keep contributing to its numbers.
+
+`checkpoint_run.py --auto` degrades silently when `runs_evolving/archived/with_NVCC_bug`
+is absent (not every host has it): the BASELINE block and the entire `=== VERDICT` section
+are skipped, and any smoke-test directories sitting in the results root are reported as
+arms. Check its output names against `ps`, not just its verdict.
 
 `torch._inductor` "No valid triton configs / OutOfMemoryError: triton_mm" tracebacks are
 **benign** autotuner noise, not failures.
@@ -523,7 +683,7 @@ Both must be non-zero.
 ### 3.6 Resuming a damaged range
 
 ```bash
-bash scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd/resume_run.sh <gpu> <run_dir_name> <ctx_mode> <start> [end]
+bash scripts_integration/new_evolving_agent/env/<HARDWARE>/resume_run.sh <gpu> <run_dir_name> <ctx_mode> <start> [end]
 ```
 
 Narrow ranges are safe — two mechanisms cooperate:
@@ -580,94 +740,238 @@ the suffix **inside one run**. Restart instead of resume when the prefix is smal
 
 ## 4. Analysis
 
+**`--hardware` is not optional here — the default is wrong.**
+`aggregate_runs.py:64` sets `DEFAULT_HARDWARE = "NVIDIA_GH200x2"`, whose baseline has
+**no `median` field on any entry**, so `build_baseline_lookup` silently falls back to
+`mean`. Baseline resolution order is (1) `--baseline-file`, (2) `hardware_server` from
+`run_summary.json`, (3) `--hardware`. **`run_summary.json` is written only after the
+last problem** (`evolve_kb_batch.py`), so for any incomplete run step 2 is unavailable
+and the wrong default is what you get. Always pass `--hardware` explicitly.
+
+`--output-dir` is per-server too; keep one per host so the two servers never overwrite
+each other. Existing dirs are `output/{GH200x2, GH200x2_nvcc_fixed,
+gpt-oss-120b-inf-CPU6, gpt-56-terra-inf-CPU4, model-endpoint-comparison}` — the naming
+is historical, not `$HARDWARE`-keyed; pick or create one deliberately.
+
 ```bash
 # always pass --regenerate-stats; cached stats across runs were written by different
 # code versions and are NOT comparable
 .venv/bin/python scripts_integration/new_evolving_agent_analysis/aggregate_runs.py \
-  --hardware NVIDIA_GH200x2 --runs-root runs_evolving/gpt-oss-120b \
-  --output-dir scripts_integration/new_evolving_agent_analysis/output/GH200x2 --regenerate-stats
+  --hardware $HARDWARE --runs-root runs_evolving/gpt-oss-120b \
+  --output-dir scripts_integration/new_evolving_agent_analysis/output/<dir> --regenerate-stats
 
 .venv/bin/python scripts_integration/new_evolving_agent_analysis/compare_runs.py \
-  --hardware NVIDIA_GH200x2 --runs-root runs_evolving/gpt-oss-120b \
-  --output-dir scripts_integration/new_evolving_agent_analysis/output/GH200x2 \
-  --baseline-run base_agent_gpt_oss_120b_itr30_GH200_2026_08_07_13_58
+  --hardware $HARDWARE --runs-root runs_evolving/gpt-oss-120b \
+  --output-dir scripts_integration/new_evolving_agent_analysis/output/<dir> \
+  --baseline-run <the truncation arm from the same wave>
 ```
 
-Outputs land in `output/GH200x2/`: `aggregate_runs.{json,csv}`, `comparison.md`.
+Outputs land in that dir: `aggregate_runs.{json,csv}`, `comparison.md`.
 
-Primary metric is **`best_geomean`** (geometric mean of best speedup over correct
-non-hack samples) plus **`fast_p@1.0`**. See `ANALYSIS_RULES.md` for the rules, and
-`output/GH200x2/INVALIDATED.md` for which historical runs are void.
+**Headline metric is `fast_p_best@1.0`** on the full aligned-problem denominator, with
+`fast_p_best@0/2` beside it (`ANALYSIS_RULES.md:81-85`). `best_geomean` is a *secondary*
+figure — `ANALYSIS_RULES.md:158` explicitly forbids best-geomean-only leaderboards and
+partial prefixes as a final comparative result. Earlier revisions of this file called
+`best_geomean` primary; `ANALYSIS_RULES.md` wins.
+
+For which historical runs are void, read `output/GH200x2_nvcc_fixed/MANIFEST.md`.
+(`output/GH200x2/INVALIDATED.md` scopes itself to artifacts "dated 2026-08-05 or
+earlier" but its own `comparison.md` is dated 2026-08-17, and `ANALYSIS_RULES.md:152`
+voids that whole folder anyway.)
+
+**Never compare across servers, baseline files, or dates without saying so.** Four
+independent things break comparability and none is visible in the number:
+
+- different `$HARDWARE` baselines;
+- a baseline file regenerated under the same name;
+- **median-vs-mean fallback** — every committed GH200 number in `output/GH200x2*` was
+  computed against `results/timing/NVIDIA_GH200x2/` (mean fallback), while current runs
+  use `_2nd` medians. Over the 50-problem subset those differ >5% on **25 of 50**
+  problems, geomean ratio **1.149×**, worst ~4×. Historical `best_geomean` figures —
+  including the ones quoted in the open items below — are on the old scale;
+- inference-endpoint latency drift (open item 10).
+
+Prefer the truncation arm *from the same wave* as the comparison baseline over any
+historical run.
 
 ---
 
 ## 5. Repo layout
 
 ```
+CLAUDE.md / CLAUDE.local.md       # shared doc / per-host doc (gitignored)
 scripts_integration/new_evolving_agent/
   evolve_kb_batch.py              # the batch runner (all CLI flags)
   env/
-    install_cuda128_local.sh      # userspace CUDA 12.8 (no sudo)
-    launch_run.sh                 # ← launch arms with this
-    launch_wave.sh                # ← multi-arm wave from a spec file
-    resume_run.sh                 # resume one arm (killed or finished); `auto` start
-    resume_wave.sh                # resume a whole wave from the same spec format
-    wave_median_oss6_resume.spec  # the 6 gpt-oss cells currently resuming on GPU 0
-    wave_median_terra6.spec       # the 6 gpt-5.6-terra cells
-    probe_integrate_key.py        # isolate key vs model failures
+    hardware_env.sh               # resolves $HARDWARE from the CALLING script's dir;
+                                  #   fatals on a median-less baseline
+    common/                       # shared by every server
+      activate.sh                 #   CUDA_HOME + PATH exports
+      install_cuda128_local.sh    #   userspace CUDA 12.8 (no sudo)
+      wave_status.sh              #   per-arm progress / lock / orphan-wait audit
+      wave_watch.sh               #   periodic watchdog -> wave_watch.log
+      wave_collect.py             #   per-arm incident tracking / alerts
+      wave_analyze.py             #   eval-record rollups
+      verify_wave.sh  README.md
+    <HARDWARE>/                   # one folder per server; name selects the baseline
+      launch_run.sh               #   ← single arm
+      launch_wave.sh              #   ← several arms from a .spec
+      resume_run.sh               #   narrow-range replay; `auto` start; killed or finished
+      resume_wave.sh              #   whole wave, same spec format  (some hosts only)
+      wave_median_*.spec          #   that host's wave specs        (some hosts only)
+      launch_arm_reps.sh  launch_merge_reps.sh  launch_nvcc_series.sh
+      activate.sh, install_cuda128_local.sh, verify_wave.sh, wave_status.sh,
+        wave_watch.sh             #   -> symlinks into common/
+      # the host folders are NOT in sync: check yours before quoting a flag or a guard
+    wave_gpu0.spec  wave_gpu1.spec  wave_locktest.spec
+    gh200_setup/                  # host provisioning playbook, parts 00-14 + appendices
     eval_embed_duplicates.py      # rank embedding models by near-duplicate retrieval
     eval_embed_quality.py         # merge-outcome AUC (null result; kept as evidence)
     eval_embed_candidates.py      # fidelity-to-nv-embedcode (misleading; kept as evidence)
     README.md                     # nvcc postmortem
+    PARALLEL_CAPACITY_AND_INCIDENT_2026_08_20.md
+    INCIDENT_2026_08_20_venv_swap.md
 scripts_integration/new_evolving_agent_analysis/
   aggregate_runs.py  compare_runs.py  checkpoint_run.py  analyze_feature_evidence.py
-  ANALYSIS_RULES.md  EXPERIMENT_REPORT.md  output/GH200x2/
+  ANALYSIS_RULES.md  EXPERIMENT_REPORT.md  output/<HARDWARE-ish>/
 Self-Evolving-Agent/               # git submodule
   evolving_common/llm_client.py               # endpoints, aliases, embeddings
-  evolving_common/memory_manager.py           # governance defaults
+  evolving_common/memory_manager.py           # governance defaults; L1/L2 tiers
+  evolving_common/prompt_context.py           # prompt assembly (L0 modes, L1, L2 blocks)
   evolving_common/governor/gen3_stages.py     # staged governor; deletion/merge call sites
   evolving_common/governor/skill_merge*.py    # DBSCAN clustering + LLM merge
-  evolving_common/governor/gpu_lock.py        # GPU-eval lock: re-entrant, N-slot semaphore
+  evolving_common/governor/l2_promotion.py    # L2 gate, rendering, standing-rule blocks
+  evolving_common/governor/skill_usage_tracker.py  # usage ledger L2 promotion reads
+  evolving_common/governor/gpu_lock.py        # GPU-eval lock: cross-process, re-entrant,
+                                              #   N-slot semaphore (KB_GPU_EVAL_LOCK_SLOTS)
   evolving_common/governor/gpu_reserver.py    # 42 GB idle reservation; KB_GPU_RESERVE_GB
+  kernelbench_integration/baseline_timing.py  # @lru_cache'd baseline load (see §3.1)
   kernelbench_integration/eval_runner.py      # precompile-then-lock boundary
   kernelbench_integration/governor.py         # speedup computation
-src/kernelbench/eval.py            # _gpu_timing_lock; trims + KB_EVAL_UNLOCK_CORRECTNESS
+src/kernelbench/eval.py            # _gpu_timing_lock; the trims, KB_EVAL_UNLOCK_CORRECTNESS
+                                   #   and the mem gate (all inert unless exported)
+results/timing/<HARDWARE>/         # per-server baselines; must carry `median`
+                                   #   (enforced by hardware_env.sh, not by convention —
+                                   #    most folders here do NOT comply)
 runs_evolving/gpt-oss-120b/        # current series
-runs_evolving/inference_oss_120b/  # earlier series (only successful merge runs)
-runs_evolving/archived/            # VOID (pre-nvcc-fix)
+runs_evolving/inference_oss_120b/  # earlier series -- present on some hosts only
+runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some hosts only
 ```
 
 ---
 
 ## 6. Open items
 
-1. **Merge threshold** — code default is `0.8`, which clusters chain badly at realistic
-   catalog sizes; `0.85` matches the validated operating point. Pass
-   `--skill-merge-similarity 0.85` explicitly until the default is changed.
-2. **`uv lock && uv sync`** — deferred until no run is in flight. Will install
-   `scikit-learn==1.5.0`; re-run the merge-threshold calibration afterwards.
-3. **`--enable-l1-skill-unit-test-gc` is a no-op** (`gen3_stages.py:893` reads the wrong
-   config field), so every `--skill-deletion` arm is really deletion + unit-test GC. Fix
-   before running more deletion cells or they stay confounded. Details in project memory.
+1. **Merge threshold** — code default is `0.8`; `0.85` was the earlier validated
+   operating point (chains cluster badly at realistic catalog sizes below it). The
+   Aug-22 wave deliberately ran `0.8` to line up with three existing `merge_sim08`
+   reps, so **both thresholds now have data and neither is the settled default**.
+   Decide from that data rather than re-asserting `0.85`; encode whichever you pick in
+   the run tag.
+2. **`uv lock && uv sync`** — deferred until no run is in flight. Re-run the
+   merge-threshold calibration afterwards. See `CLAUDE.local.md` for how far *this*
+   host's venv has drifted from the lock.
+3. **The deletion cell is confounded — but not by the mechanism this item used to name.**
+   *Retracted:* "`--enable-l1-skill-unit-test-gc` is a no-op (`gen3_stages.py:893` reads
+   the wrong config field), so every `--skill-deletion` arm is really deletion +
+   unit-test GC." Per-iteration GC is genuinely **off**: `gen3_stages.py:953-966` sets
+   `enable_unit_test_gc = enable_l1_skill_unit_tests AND enable_l1_skill_unit_test_gc`
+   = `True AND False` (`memory_manager.py:52,54`), the CLI flag is wired through
+   (`evolve_kb_batch.py:1616` → `config.py:91`), and the AND has been in place since
+   submodule `bd92795` (2026-07-10). Artifact proof: `l1_skill_unit_test_runs.jsonl`
+   has exactly one run per `entry_id` — GC would re-test every active skill every
+   iteration.
+   **The real confound is post-append unit testing.** `_run_post_append_unit_tests`
+   (`memory_manager.py:692`) early-returns unless `is_l1_skill_deletion_enabled()`
+   (`:705`), and `DEFAULT_L1_SKILL_DELETE_ON_UNIT_TEST_FAIL = True` (`:55`). So turning
+   on `--skill-deletion` also turns on an LLM-authored pytest admission gate that no
+   other arm has. In the live deletion arm that gate is the *larger* term: 153 deletions
+   = **92 `unit_test_fail` + 61 `consecutive_unused`**. Pass
+   `--no-l1-skill-delete-on-unit-test-fail` to isolate the usage rule, or report the
+   cell as "deletion + unit-test admission gate".
 4. **Rewrite `EXPERIMENT_REPORT.md`** — the current text is written against voided
    pre-nvcc-fix runs and its conclusions are reversed by the repaired data.
-5. **Governance matrix is incomplete**, and every median-series cell is unfinished — the
-   Aug-22 wave was killed at 0–4 of 50 problems on both GPUs. As of 2026-08-23 six gpt-oss
-   cells are resuming on GPU 0 (`-`, markov, compress, deletion, merge_sim08, l2) and six
-   gpt-5.6-terra cells are resuming on GPU 1 (`-`, markov, selective_r5, compress,
-   deletion, l2), all from problem 4 except gpt-oss `deletion` (problem 1) and
-   `merge_sim08` (problem 5). `folding`, `selective_r5` and `refinement`
-   remain untouched under the corrected metric. The old "N arms/GPU is safe" guidance is
-   superseded by the concurrency measurement in §3.4: the binding constraint was the mutex,
-   not the arm count, and it is now a 3-slot semaphore.
-6. **Replicate noise is ~20%, and it bounds every conclusion.** Two runs with
-   *identical* config on the same GPU (`itr30` rep1 vs rep2, 2026-08-20) differ by 22%
-   in `best_geomean` (0.799 vs 1.028, n=31 matched problems). Any arm-vs-arm delta below
-   that magnitude is indistinguishable from LLM stochasticity at n=1 run per arm. Several
-   deltas in `output/GH200x2/comparison.md` are in that range. **Run replicates for any
-   cell you intend to draw a conclusion from**, and report a paired log-ratio CI rather
-   than a bare geomean difference.
-7. **Solo baselines drift and must not be reused across dates.** The same 49 problems
+5. **Governance matrix — 4 of 7 cells untouched, and that was already true before the
+   Aug-22 wave.** `{D}`, `{R}` and `{M}`×3 completed 2026-08-14 / 08-17 / 08-19
+   (`output/GH200x2_nvcc_fixed/aggregate_runs.json`). The wave **re-runs the same three
+   singletons on a different baseline and adds no new cell**; `D+M`, `D+R`, `M+R`,
+   `D+M+R` remain open on GH200. (`gpt-oss-120b-inf-CPU6` has a `D+M+R` run, but on
+   A6000/CPU6 against a different baseline.) The median-baseline series is a further
+   re-run of the same cells, not new coverage.
+   The old "N arms/GPU is safe" guidance is no longer a *safety* limit: per §3.4 the
+   fidelity argument for a strict mutex was wrong (concurrent evals cost <3%) and the lock
+   is now a counting semaphore. The ~3 arms/GPU *throughput* ceiling still stands, so extra
+   arms buy matrix coverage, not wall-clock.
+   *Which arms are live, and where each one stopped or resumed from, is per-host live
+   inventory — read `CLAUDE.local.md`, not this file.*
+   *Retracted:* "`--skill-merging` requires `--skill-deletion`, so the merging cell is
+   really D+M." That is only the help string at `evolve_kb_batch.py:1085-1086`; nothing
+   in `evolve_kb_batch.py` or `KBGovernorConfig` validates it. The live merge arm runs
+   merging alone — `l1_skill_catalog_stats.json` reports `"deleted": 0` and there is no
+   `l1_skill_deletions.jsonl`. **Fix the help string**, don't repeat the claim.
+6. **The governance axis is coupled to the extractor's candidate-set size — this is the
+   biggest design defect currently known.** `read_l1_extractor_catalog`
+   (`memory_manager.py:801-820`) returns **every** active skill when
+   `enable_skill_deletion` is true and otherwise only the last
+   `DEFAULT_L1_EXTRACTOR_CATALOG_MAX = 50` (`:48`). And `gen3_stages.py:889` passes
+   `skill_deletion=enable_skill_governance`, which `:821` defines as
+   `deletion OR merging`. So switching on *either* governance flag also removes the
+   tail cap. Measured live from each arm's newest extractor prompt (2026-08-23): **merge 107
+   candidates, deletion 28, every non-governance arm 50** (l2 51). A `deletion`-vs-control
+   or `merging`-vs-control delta therefore mixes the governance rule with a change in
+   how many skills the picker chooses among — and the three governance cells are not
+   mutually comparable either. `--enable-skill-refinement` does not trip this, so the
+   refinement cell is clean on this dimension.
+   The absolute counts are a snapshot and grow as a run proceeds; re-measure before
+   quoting them. The durable invariant is capped-at-50 versus uncapped.
+   Until it is decoupled (give the cap its own flag, held fixed across arms), report
+   governance results as "rule + catalog size", not as the rule.
+7. **L2 is invisible to the analysis scripts.** `aggregate_runs.py`'s config extraction
+   has no `enable_l2` field, and `compare_runs.py`'s `design_variant_label` (`:147-159`)
+   reads only the context mode plus `skill_deletion`/`skill_merging`/`enable_skill_refinement`
+   — so an L2 arm and the truncation control both render as design `truncation` in the CSV
+   and every delta table. `run_summary.json` does carry the flag
+   (`evolve_kb_batch.py:1771`), so this is a small extraction fix, but it must land
+   **before** any report is generated from a wave containing an L2 arm.
+8. **L2 is unplanned scope.** `--enable-l2` is a third axis with its own knobs
+   (`--l2-render`, `--l2-min-tasks/-selections/-rate/-new-bests`, `--l2-max-entries`).
+   Decide whether L2 belongs in this paper's matrix before spending more arms on it.
+   *Corrected:* this item used to add "its floors are calibrated for `--no-skill-deletion`
+   runs and `l2_promotion.py` warns they should be relaxed when deletion is on, so an
+   L2 × governance cell needs re-tuning first". That warning was removed by submodule
+   `34edbcf` (2026-08-24); the recalibration to a single universal set was `114fd34`
+   (2026-08-22), which left the stale warning behind for two days.
+   `l2_promotion.py:51-68` now argues explicitly that `min_rate` is *regime-independent*
+   because promotions fire early, while every regime's visible catalog is still ~40-100
+   entries. Defaults today: MIN_TASKS 3 / MIN_SELECTIONS 50 / MIN_RATE 0.70 /
+   MIN_NEW_BESTS 0 (disabled) / MAX_ENTRIES 0. An L2 × governance cell needs no
+   re-tuning on that ground; it is still unplanned scope.
+9. **Replicate noise is ~30%, and it bounds every conclusion — this is the binding
+   constraint on the whole series.** Three *identical-config* `merge_sim08` replicates
+   (`2026_08_19_17_{29,32,35}`, `output/GH200x2_nvcc_fixed/aggregate_runs.csv`) give
+   `best_geomean` (CSV column `speedup_best_geomean`) 0.838 / 0.855 / 1.092 — **log-SD
+   0.147 (×1.16 per SD), max/min 1.303**. Quote the log-SD, not a percentage — on these
+   three values `max/min − 1` is 30% and `(max − min)/max` is 23%, so any headline
+   percentage is just a choice of framing. The older "~20%" figure is a *different,
+   superseded* pair, not another framing of this one.
+   *Supersedes* the earlier two-run figure (`itr30` rep1 vs rep2, 2026-08-20, ~22%): three
+   replicates beat two, and that pair does not reproduce — today's committed CSV gives
+   `0.775` (n=36) and `0.967` (n=31), both `status=partial`, and partial-run values move on
+   every re-aggregation.
+
+   The arithmetic that follows is unforgiving. At n=1 per cell the SD of a single
+   arm-vs-control log ratio is `0.147 × √2 = 0.208`, so a 95% band needs a ratio above
+   **×1.50** (or below ×0.66); across 8 contrasts, Bonferroni needs **×1.77**
+   (*corrected* — this item previously said ×1.84). Detecting a +20% effect at 80% power
+   needs ~10 replicates per arm. **No single-replicate wave in this series can support an
+   arm-vs-arm winner claim** — only descriptive reporting with n stated. Spend arms on
+   replicates of the one or two cells you intend to claim, launched on the *same GPU* as
+   their control, and report a paired per-problem log-ratio CI.
+
+   No script does that pairing today: `compare_runs.py` matches on iteration and has no
+   per-problem or CI logic; `analyze_feature_evidence.py` pairs per problem but rejects
+   partial runs (exit 2).
+10. **Solo baselines drift and must not be reused across dates.** The same 49 problems
    took 87.8 min/problem (Aug 07), 79.8 (Aug 13), 80.1 (Aug 14), 64.7 (Aug 17) — a 26%
    swing from inference-endpoint latency, not from anything in this repo. Because the
    agent is LLM-bound, any throughput or speedup figure normalised against a baseline
@@ -678,8 +982,16 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix)
 
 ## 7. Working preferences
 
-- **Ask for confirmation before launching any `nohup` run** — they cost ~67 GPU-h each.
+- **Ask for confirmation before launching any `nohup` run** — tens of GPU-hours each
+  (42–75 h depending on endpoint latency; see §1).
 - Direct `nohup` from the tool layer gets denied; that is why launches go through
-  `launch_run.sh` invoked via `bash`.
+  `launch_run.sh` / `launch_wave.sh` invoked via `bash`.
 - Verify claims against artifacts before reporting. Several confident-sounding
   conclusions in this project turned out wrong until checked against the data.
+- **Sort every new fact into the right file.** Mechanism, protocol and analysis rules go
+  here; hostname, GPU count, driver, `$HARDWARE`, live-run inventory, local venv drift
+  and local incidents go in `CLAUDE.local.md`. When you catch yourself writing a literal
+  hostname, absolute `/localhome/...` path, `NVIDIA_GH200x2*` folder name, or "the venv
+  currently has ..." into *this* file, it belongs in the local one.
+- **When you correct something here, say it is corrected** rather than deleting it. Open
+  item 3 was re-reported twice because the retraction was silent.
