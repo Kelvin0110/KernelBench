@@ -91,8 +91,15 @@ KB_GPU_EVAL_LOCK_SLOTS="${KB_GPU_EVAL_LOCK_SLOTS:-1}"
 # Correctness trials out of the lock, leaving only the timing window(s) held.
 # Measured A/B on L1P100 (warm build, trims on): hold 1.96s -> 0.78s with the
 # measured runtime unchanged (2.42/2.44 vs 2.38/2.45 ms).
-KB_EVAL_UNLOCK_CORRECTNESS="${KB_EVAL_UNLOCK_CORRECTNESS:-1}"
-export KB_GPU_EVAL_LOCK_TIMEOUT_SEC KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN KB_GPU_EVAL_LOCK_SLOTS KB_EVAL_UNLOCK_CORRECTNESS
+KB_EVAL_UNLOCK_CORRECTNESS="${KB_EVAL_UNLOCK_CORRECTNESS:-0}"
+# Byte-sized device-memory admission on top of the slot semaphore. 0 = off.
+# Set to ~2.5 for any arm that will traverse subset problems 1-5: slots bound how
+# many evals are resident, not how much they need, and 3 x ~52 GB on L1P34
+# overruns a 143 GB card (18 OOMs on 2026-08-23, 16 of them that one problem).
+KB_EVAL_MEM_GATE_FACTOR="${KB_EVAL_MEM_GATE_FACTOR:-0}"
+KB_EVAL_MEM_GATE_FRAC="${KB_EVAL_MEM_GATE_FRAC:-0.85}"
+KB_EVAL_MEM_GATE_TIMEOUT_SEC="${KB_EVAL_MEM_GATE_TIMEOUT_SEC:-600}"
+export KB_GPU_EVAL_LOCK_TIMEOUT_SEC KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN KB_GPU_EVAL_LOCK_SLOTS KB_EVAL_UNLOCK_CORRECTNESS KB_EVAL_MEM_GATE_FACTOR KB_EVAL_MEM_GATE_FRAC KB_EVAL_MEM_GATE_TIMEOUT_SEC
 
 # Hardware/baseline is a parameter so this script works on another server.
 # Unlike the launchers, resume DEFAULTS TO THE ORIGINAL RUN'S baseline: replaying
@@ -158,7 +165,7 @@ if [ "${DRYRUN:-0}" = "1" ]; then
   echo "   ctx=$CTX  start=$START  end=${END:-<end>}  model=$MODEL  hardware=$HARDWARE"
   echo "   results-root=$RESULTS_ROOT"
   echo "   extra flags: ${EXTRA_FLAGS[*]:-<none>}"
-  echo "   HOIST=$KB_EVAL_HOIST_INPUT_GEN SKIP_REF=$KB_EVAL_SKIP_DEAD_REF_TIMING LOCK_SLOTS=$KB_GPU_EVAL_LOCK_SLOTS UNLOCK_CORR=$KB_EVAL_UNLOCK_CORRECTNESS"
+  echo "   HOIST=$KB_EVAL_HOIST_INPUT_GEN SKIP_REF=$KB_EVAL_SKIP_DEAD_REF_TIMING LOCK_SLOTS=$KB_GPU_EVAL_LOCK_SLOTS UNLOCK_CORR=$KB_EVAL_UNLOCK_CORRECTNESS MEM_GATE=$KB_EVAL_MEM_GATE_FACTOR"
   echo "   log=$LOG  phase-log=$PHASE_LOG"
   exit 0
 fi
@@ -180,7 +187,7 @@ END_ARGS=()
 echo ">> GPU $GPU  resume $RUN_NAME  ctx=$CTX  problems ${START}..${END:-end}"
 echo ">> model=$MODEL  hardware=$HARDWARE  results-root=$RESULTS_ROOT"
 echo ">> extra flags: ${EXTRA_FLAGS[*]:-<none>}"
-echo ">> KB_GPU_RESERVE_GB=0 HOIST=$KB_EVAL_HOIST_INPUT_GEN SKIP_REF=$KB_EVAL_SKIP_DEAD_REF_TIMING LOCK_SLOTS=$KB_GPU_EVAL_LOCK_SLOTS UNLOCK_CORR=$KB_EVAL_UNLOCK_CORRECTNESS"
+echo ">> KB_GPU_RESERVE_GB=0 HOIST=$KB_EVAL_HOIST_INPUT_GEN SKIP_REF=$KB_EVAL_SKIP_DEAD_REF_TIMING LOCK_SLOTS=$KB_GPU_EVAL_LOCK_SLOTS UNLOCK_CORR=$KB_EVAL_UNLOCK_CORRECTNESS MEM_GATE=$KB_EVAL_MEM_GATE_FACTOR"
 echo ">> log: $LOG   phase log: $PHASE_LOG"
 
 # shellcheck disable=SC2086  # EXTRA_FLAGS is an array; intentional word-splitting of none
@@ -188,6 +195,9 @@ CUDA_VISIBLE_DEVICES="$GPU" KB_GPU_RESERVE_GB=0 \
 KB_EVAL_PHASE_LOG="$REPO_ROOT/$PHASE_LOG" \
   KB_GPU_EVAL_LOCK_SLOTS="$KB_GPU_EVAL_LOCK_SLOTS" \
   KB_EVAL_UNLOCK_CORRECTNESS="$KB_EVAL_UNLOCK_CORRECTNESS" \
+  KB_EVAL_MEM_GATE_FACTOR="$KB_EVAL_MEM_GATE_FACTOR" \
+  KB_EVAL_MEM_GATE_FRAC="$KB_EVAL_MEM_GATE_FRAC" \
+  KB_EVAL_MEM_GATE_TIMEOUT_SEC="$KB_EVAL_MEM_GATE_TIMEOUT_SEC" \
 setsid nohup uv run --no-sync python \
   scripts_integration/new_evolving_agent/evolve_kb_batch.py \
   --resume \
