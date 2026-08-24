@@ -18,6 +18,7 @@ what killed the waves on 2026-08-20 and 2026-08-23.
 from __future__ import annotations
 
 import argparse
+import collections
 import glob
 import json
 import os
@@ -111,6 +112,74 @@ def counts(patterns: list) -> dict:
     return out
 
 
+INCIDENTS = {
+    # substring -> counter name. Matched case-insensitively against the eval's
+    # terminal_output plus extra.error.
+    "out of memory": "oom",
+    "evaluation timeout": "timeout",
+    "proceeding unlocked": "unlocked",   # lock gave up; that eval's numbers are contended
+    "cuda_home": "cuda_home",            # nvcc missing -> kernels silently fall back to torch
+    "illegal memory access": "illegal_access",
+    "worker_error": "worker_error",
+}
+
+# Only these mean "the harness is hurting the experiment". illegal_access is an
+# agent-written bad kernel -- expected, contained (every eval is a fresh spawn),
+# and useful as a rate but not something to page on. oom/timeout/unlocked are the
+# ones that get recorded as kernel failures the governor then "debugs".
+ALERT_ON = ("oom", "timeout", "unlocked", "cuda_home", "worker_error")
+
+
+def scan_incidents(results_roots: list, arms: dict, offsets: dict) -> dict:
+    """Per-arm incident counts, reading only bytes appended since the last sample.
+
+    Full-rescanning every eval log each interval is O(run length) and grows without
+    bound over a multi-day wave, so byte offsets are carried between samples. The
+    offsets live in the collector process and are re-derived from the file size on
+    restart (losing history, not correctness -- counts are emitted as deltas AND
+    cumulative-since-start-of-this-collector).
+    """
+    out = {}
+    for run in arms:
+        c = collections.Counter()
+        for root in results_roots:
+            for d in (p for p in glob.glob(os.path.join(root, run + "*")) if os.path.isdir(p)):
+                for f in glob.glob(os.path.join(d, "workspaces", "*",
+                                                "evaluation_terminal_output.jsonl")):
+                    try:
+                        size = os.path.getsize(f)
+                    except OSError:
+                        continue
+                    off = offsets.get(f, 0)
+                    if size < off:      # truncated/replaced (resume purges a workspace)
+                        off = 0
+                    if size == off:
+                        continue
+                    try:
+                        with open(f, "rb") as fh:
+                            fh.seek(off)
+                            chunk = fh.read()
+                        offsets[f] = size
+                    except OSError:
+                        continue
+                    for raw in chunk.decode("utf-8", "replace").splitlines():
+                        if not raw.strip():
+                            continue
+                        try:
+                            r = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        c["evals"] += 1
+                        blob = ((r.get("terminal_output") or "")
+                                + str((r.get("extra") or {}).get("error") or "")).lower()
+                        for needle, name in INCIDENTS.items():
+                            if needle in blob:
+                                c[name] += 1
+        if c:
+            out[run] = dict(c)
+    return out
+
+
 def progress(results_roots: list, arms: dict) -> dict:
     """problems completed per LIVE arm, from batch_timing.jsonl."""
     out = {}
@@ -151,8 +220,13 @@ def main() -> None:
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
 
+    offsets: dict = {}
+    cumulative: dict = collections.defaultdict(collections.Counter)
     while True:
         arms = live_arms()
+        delta = scan_incidents(args.results_root, arms, offsets)
+        for run, c in delta.items():
+            cumulative[run].update(c)
         snap = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "arms": arms,
@@ -163,7 +237,16 @@ def main() -> None:
             "host": host(),
             "phase_lines": counts([args.phase_glob]),
             "progress": progress(args.results_root, arms),
+            "incidents_delta": delta,
+            "incidents_total": {k: dict(v) for k, v in cumulative.items()},
         }
+        # Loud, immediate warning in the collector log -- the whole point is that
+        # nobody has to be reading a dashboard to find out an arm started OOMing.
+        for run, c in delta.items():
+            bad = {k: v for k, v in c.items() if k in ALERT_ON and v}
+            if bad:
+                print(f"[warn] {snap['ts'][11:19]} {run}: {bad} "
+                      f"(of {c.get('evals', 0)} new evals)", flush=True)
         with open(args.out, "a") as fh:
             fh.write(json.dumps(snap) + "\n")
         if args.once or not arms:
