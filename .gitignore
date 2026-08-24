@@ -48,3 +48,4 @@ chroma_db/
 # the facts true only of THIS host (baseline folder, launcher folder, local
 # incidents) and must never be committed, or servers would overwrite each other.
 CLAUDE.local.md
+logs_archive/

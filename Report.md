@@ -205,3 +205,139 @@ Boundary-by-boundary replay of the exact gate over five 50-problem × 30-iterati
 - 28 L2 unit tests + batch CLI dry-run coverage; no regressions against the HEAD baseline.
 - Design spec:
   `Self-Evolving-Agent/docs/superpowers/specs/2026-08-20-l2-standing-instructions-design.md`
+
+---
+
+# Appendix A — Completed `gpt-oss-120b` GH200 runs: aggregated results
+
+Added 2026-08-24. Scope: `runs_evolving/gpt-oss-120b/` **excluding the `median/`
+subfolder** (all 9 arms there are live, at 3–25 of 50 problems completed). Regenerated with
+`--regenerate-stats`; artifacts in
+`scripts_integration/new_evolving_agent_analysis/output/GH200x2_nvcc_fixed/`.
+
+## A.1 Inclusion
+
+Complete = `run_summary.json` present, `total_completed == total_attempted == 50`,
+`run_finished.json` in all 50 workspaces (ANALYSIS_RULES §3). **10 of 16** non-median
+runs qualify; all 10 reach iteration 30 on every problem, with one exception noted in A.6.
+
+| Excluded (partial) | problems done |
+|---|---|
+| `..._itr30_GH200_2026_08_20_16_32` / `..._16_42` (truncation reps) | 36 / 35 |
+| `..._markov_itr30_GH200_2026_08_20_16_35` / `..._16_45` | 35 / 34 |
+| `..._folding_itr30_GH200_2026_08_20_16_39` / `..._16_48` | 33 / 34 |
+
+Those six were killed, not finished; they are in `aggregate_runs.{json,csv}` with warnings
+and appear in no table below.
+
+## A.2 Headline — iterations 10 and 30, native baseline
+
+Baseline `results/timing/NVIDIA_GH200x2/baseline_time_torch.json` — the file each of these
+runs was actually scored against (`hardware_server: NVIDIA_GH200x2` in every
+`run_summary.json`). `@0` is running-best coverage on the full 50-problem denominator
+(correctness); `@1` / `@2` are `fast_p_best` at 1.0× and 2.0× on the same denominator;
+geomean is `speedup_best.geometric_mean` over the `n` problems holding a non-hack running
+best. At iteration 30, `@0 × 50 == total_correct`.
+
+| design | correct | I10 @0 | I10 @1 | I10 @2 | I10 geomean | I10 n | I30 @0 | I30 @1 | I30 @2 | I30 geomean | I30 n |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **truncation** (control) | 47/50 | 0.840 | 0.380 | 0.120 | 0.7379 | 42 | 0.940 | 0.460 | 0.180 | 0.9051 | 47 |
+| markov_report | 48/50 | 0.900 | 0.340 | 0.040 | 0.7145 | 45 | 0.960 | 0.460 | 0.140 | 0.9332 | 48 |
+| folding | 47/50 | 0.840 | 0.320 | 0.120 | 0.6744 | 42 | 0.940 | 0.420 | 0.180 | 0.8938 | 47 |
+| selective_retention (r=5) | 48/50 | 0.900 | 0.320 | 0.080 | 0.7657 | 45 | 0.960 | 0.460 | 0.160 | 0.9541 | 48 |
+| compress_trigger | 48/50 | 0.840 | 0.240 | 0.080 | 0.5624 | 42 | 0.960 | 0.400 | 0.140 | 0.7265 | 48 |
+| truncation+deletion † | 48/50 | 0.840 | 0.400 | 0.100 | 0.8691 | 42 | 0.960 | **0.540** | **0.280** | **1.2312** | 48 |
+| truncation+refine | 45/50 | 0.780 | 0.300 | 0.100 | 0.7107 | 39 | 0.900 | 0.340 | 0.160 | 0.7971 | 45 |
+| truncation+merge@0.8 rep1 | 48/50 | 0.740 | 0.260 | 0.120 | 0.7047 | 37 | 0.960 | 0.420 | 0.200 | 0.8379 | 48 |
+| truncation+merge@0.8 rep2 | 47/50 | 0.700 | 0.280 | 0.080 | 0.8282 | 35 | 0.940 | 0.400 | 0.140 | 0.8552 | 47 |
+| truncation+merge@0.8 rep3 | 46/50 | 0.800 | 0.300 | 0.140 | 0.9185 | 40 | 0.920 | 0.460 | 0.220 | 1.0919 | 46 |
+| *merge@0.8, 3-rep average* | *47/50* | *0.747* | *0.280* | *0.113* | *0.8123* | *37.3* | *0.940* | *0.427* | *0.187* | *0.9215* | *47.0* |
+
+Replicate row: fast-p averaged arithmetically, geomean averaged in log space.
+
+## A.3 Sensitivity — corrected `NVIDIA_GH200x2_median` baseline
+
+The as-run baseline is the Aug-3 file, which is measurably contended on the level-1
+problems: it records 11.7 ms for `22_Tanh` and 11.8 ms for `26_GELU` where the corrected
+median baseline records 2.96 ms for both (`L1P34` 18.4 → 8.03, `L1P33` 14.1 → 8.27).
+Median ratio over all 50 subset problems is 0.992, but 18 problems differ by >5%. Rescored
+identically for every arm:
+
+| design | I10 @0 | I10 @1 | I10 @2 | I10 geomean | I30 @0 | I30 @1 | I30 @2 | I30 geomean |
+|---|---|---|---|---|---|---|---|---|
+| **truncation** (control) | 0.840 | 0.320 | 0.080 | 0.6637 | 0.940 | 0.420 | 0.140 | 0.8180 |
+| markov_report | 0.900 | 0.380 | 0.040 | 0.6421 | 0.960 | 0.460 | 0.140 | 0.8427 |
+| folding | 0.840 | 0.260 | 0.100 | 0.5909 | 0.940 | 0.400 | 0.140 | 0.8057 |
+| selective_retention (r=5) | 0.900 | 0.300 | 0.080 | 0.6871 | 0.960 | 0.420 | 0.140 | 0.8541 |
+| compress_trigger | 0.840 | 0.240 | 0.080 | 0.5096 | 0.960 | 0.440 | 0.140 | 0.6578 |
+| truncation+deletion † | 0.840 | 0.440 | 0.060 | 0.7897 | 0.960 | 0.480 | 0.200 | **1.1026** |
+| truncation+refine | 0.780 | 0.260 | 0.080 | 0.6333 | 0.900 | 0.320 | 0.140 | 0.7141 |
+| truncation+merge@0.8 rep1 | 0.740 | 0.260 | 0.100 | 0.6373 | 0.960 | 0.440 | 0.180 | 0.7591 |
+| truncation+merge@0.8 rep2 | 0.700 | 0.240 | 0.040 | 0.7248 | 0.940 | 0.380 | 0.100 | 0.7726 |
+| truncation+merge@0.8 rep3 | 0.800 | 0.260 | 0.100 | 0.8441 | 0.920 | 0.440 | 0.180 | 0.9945 |
+
+Every geomean drops ~10%; `n` and correctness are unchanged (both baselines cover all 50
+problems). **The ordering is preserved** — deletion first, compress last, everything else
+inside one band. These stats were written to a scratch directory; no run's
+`visualizations/performance_stats.json` was overwritten with the non-native baseline.
+
+## A.4 Paired per-problem comparison against the control
+
+Geometric mean of the per-problem ratio `best_speedup(arm) / best_speedup(truncation)`,
+over problems where **both** hold a non-hack running best. The baseline cancels in the
+ratio, so these numbers are **identical under both baselines** — they are the
+baseline-independent form of the comparison.
+
+| arm | I10 ratio (95% CI) | I10 n | I30 ratio (95% CI) | I30 n |
+|---|---|---|---|---|
+| markov_report | 0.926 [0.705, 1.215] | 39 | 0.993 [0.763, 1.293] | 45 |
+| folding | 0.927 [0.640, 1.345] | 39 | 0.980 [0.807, 1.190] | 46 |
+| selective_retention | 0.986 [0.769, 1.265] | 38 | 1.058 [0.850, 1.316] | 45 |
+| compress_trigger | **0.732 [0.542, 0.988]** | 37 | 0.774 [0.584, 1.027] | 45 |
+| truncation+deletion † | 1.158 [0.867, 1.545] | 38 | **1.371 [1.060, 1.773]** | 46 |
+| truncation+refine | 0.999 [0.749, 1.332] | 34 | 0.842 [0.658, 1.078] | 42 |
+| truncation+merge@0.8 rep1 | 0.812 [0.587, 1.124] | 35 | 0.911 [0.734, 1.132] | 46 |
+| truncation+merge@0.8 rep2 | 1.059 [0.830, 1.350] | 31 | 0.933 [0.714, 1.220] | 46 |
+| truncation+merge@0.8 rep3 | **1.235 [1.010, 1.510]** | 35 | 1.179 [0.986, 1.410] | 43 |
+
+Only `truncation+deletion` at iteration 30 clears the control with a CI excluding 1.0.
+Note that merge rep3 does so at iteration 10 while its two identical-config siblings do
+not — a direct demonstration of the noise floor.
+
+## A.5 Run-level context
+
+| design | correct | wall h | min/problem | hack itrs | problems w/ hack | L1 entries | L1 active | merges | deletions | refines |
+|---|---|---|---|---|---|---|---|---|---|---|
+| truncation | 47/50 | 74.18 | 88.0 | 16 | 11 | 571 | 571 | 0 | 0 | 0 |
+| markov_report | 48/50 | 71.43 | 83.5 | 14 | 11 | 366 | 366 | 0 | 0 | 0 |
+| folding | 47/50 | 66.59 | 79.9 | 17 | 12 | 592 | 592 | 0 | 0 | 0 |
+| selective_retention | 48/50 | 69.93 | 83.9 | 17 | 12 | 619 | 619 | 0 | 0 | 0 |
+| compress_trigger | 48/50 | 64.23 | 77.1 | **32** | **23** | 435 | 435 | 0 | 0 | 0 |
+| truncation+deletion † | 48/50 | 66.91 | 80.3 | 19 | 12 | 592 | **25** | 0 | 567 | 0 |
+| truncation+refine | 45/50 | 53.07 | 63.7 | 29 | 19 | 703 | 626 | 0 | 0 | 83 |
+| truncation+merge@0.8 rep1 | 48/50 | 64.91 | 77.9 | 21 | 16 | 703 | 384 | 56 | 0 | 0 |
+| truncation+merge@0.8 rep2 | 47/50 | 68.37 | 82.0 | 31 | 18 | 730 | 182 | 77 | 0 | 0 |
+| truncation+merge@0.8 rep3 | 46/50 | 65.43 | 78.5 | 23 | 14 | 681 | 313 | 52 | 0 | 0 |
+
+Wall time is operational (endpoint latency, contention, resumes), not a treatment effect —
+solo baselines on this host drifted 26% across August. The merge arms did real work
+(`l1_skill_embeddings.json` 700/728/679 skills, `l1_skill_merges.jsonl` 124/171/180 lines),
+so no silent embedding failure.
+
+## A.6 Caveats
+
+- **† `truncation+deletion` is deletion + unit-test GC.** `l1_skill_deletions.jsonl` records
+  326 `unit_test_fail` against 241 `consecutive_unused` while `run_summary.json` says
+  `enable_l1_skill_unit_test_gc: false`. This run predates the gate fix (submodule
+  `bd92795`), so the two mechanisms are not separable in it — and it is the only arm whose
+  advantage is significant.
+- **`n = 1` per configuration except merge.** The three identical merge replicates span
+  **1.30×** in I30 geomean (0.8379 / 0.8552 / 1.0919), and CLAUDE.md open item 6 records a
+  22% gap between two identical truncation runs. Every I30 geomean delta in A.2 outside
+  deletion is inside that band.
+- **One truncated problem.** `truncation+refine` stopped `level_3_problem_10` at iteration 4
+  of 30; all other 499 problem-runs reach 30.
+- `metrics_best.is_hack` is the run-level `run_had_hack` latch, so it never gates geomean
+  eligibility — `n` tracks `total_correct` (ANALYSIS_RULES §4).
+- Problems within a run are coupled through sequential shared L1 memory; the `median/`
+  series and these runs use different baselines and are not directly comparable.
