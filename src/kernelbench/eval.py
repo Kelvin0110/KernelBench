@@ -955,11 +955,20 @@ def eval_kernel_against_ref(
         _mem_gate_timeout = float(os.environ.get("KB_EVAL_MEM_GATE_TIMEOUT_SEC", "1800"))
     except (TypeError, ValueError):
         _mem_gate_timeout = 1800.0
+    # RAISED 1800 -> 3600 on 2026-08-25 21:30Z. At 1800 the valve actually fired on
+    # the live terra wave: r2_markov waited the full 1800s for a 49 GiB L1P34
+    # reservation and proceeded UNGATED. It escaped without an OOM only because that
+    # GPU happened to be idle at the time -- three 49 GiB residents is ~147 GiB on a
+    # 143 GiB card. Waiting is SAFE (the wait is published and discounted from the
+    # eval deadline, so a long wait cannot kill the eval); proceeding ungated is not.
+    # So the floor should be far above the deepest queue the gate can produce, not a
+    # round number. The gate still cannot wedge with the GPU idle: dead reservers are
+    # pruned via /proc and an eval alone is always admitted (`or not used`).
     try:
         from evolving_common.governor.gpu_lock import wait_reporting_active
 
         if wait_reporting_active():
-            _mem_gate_timeout = max(_mem_gate_timeout, 1800.0)
+            _mem_gate_timeout = max(_mem_gate_timeout, 3600.0)
     except Exception:
         pass
 

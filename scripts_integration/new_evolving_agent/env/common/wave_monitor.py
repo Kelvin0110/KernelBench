@@ -75,6 +75,13 @@ API_ERR_RE = re.compile(r"coder_call_error|ContentPolicyViolation|RateLimitError
 
 PROBLEM_RE = re.compile(r"^\[batch\] \((\d+)/(\d+)\)", re.M)
 
+# The mem-gate valve, mirrored from src/kernelbench/eval.py's floor under
+# wait_reporting_active(). Raised 1800 -> 3600 on 2026-08-25 after the valve fired
+# for real (r2_markov waited 1800s for 49 GiB and proceeded UNGATED). Keep in step
+# with eval.py: a stale value here silently mis-scores both the valve-hit count and
+# the headroom alarm.
+MEM_GATE_VALVE_SEC = 3600.0
+
 
 def load_arms(pattern):
     """(tag, pid, rundir, log) for every arm in the matching manifests."""
@@ -305,7 +312,7 @@ def gate_health(arms):
                 if w > 0.05:
                     waited += 1
                     waits.append(w)
-                if w >= 299:      # hit a valve (300s old default / 1800s new)
+                if w >= MEM_GATE_VALVE_SEC - 1:   # proceeded UNGATED
                     to += 1
     for arm in arms:
         for f in glob.glob(os.path.join(arm["rundir"], "workspaces", "*",
@@ -544,12 +551,13 @@ def main():
                              "expected on the big problems, NOT a gate regression."
                              % (rate, max_excl, 600 + max_excl))
                     if gwaits:
-                        head = 1800 - max(gwaits)
-                        if head < 300:
+                        head = MEM_GATE_VALVE_SEC - max(gwaits)
+                        if head < 600:
                             emit("ALERT", "max gate wait %.0fs is within %.0fs of the "
-                                 "1800s valve. At the valve an eval proceeds UNGATED -- "
+                                 "%.0fs valve. At the valve an eval proceeds UNGATED -- "
                                  "3 x 49GiB residents on L1P34 is ~147GiB on a 143GiB "
-                                 "card, i.e. the OOM path." % (max(gwaits), head))
+                                 "card, i.e. the OOM path."
+                                 % (max(gwaits), head, MEM_GATE_VALVE_SEC))
                     if goom > b_oom:
                         emit("ALERT", "+%d CUDA OOM since start -- recorded compiled=True "
                              "correct=False, so the governor will debug kernels that were "
