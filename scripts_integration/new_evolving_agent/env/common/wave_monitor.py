@@ -362,6 +362,33 @@ def main():
                     help="emit a HEALTH rollup every N cycles (0 = never)")
     args = ap.parse_args()
 
+    # Singleton per log file. Two daemons appending to one log interleave their
+    # events, so every DONE / ALERT / GATE line is emitted twice -- which reads as
+    # two arms finishing, or an alert storm, and silently doubles any rate the
+    # operator eyeballs from the log. Keyed on the LOG path, so a second monitor
+    # watching a DIFFERENT wave is still allowed. flock is released by the kernel
+    # on process death, so a crashed monitor never wedges the next one out.
+    lock_path = args.log + ".lock"
+    try:
+        import fcntl
+
+        _lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            try:
+                other = os.read(_lock_fd, 32).decode().strip() or "?"
+            except OSError:
+                other = "?"
+            print("FATAL: another wave_monitor is already writing %s (pid %s). "
+                  "Stop it first, or pass a different --log." % (args.log, other),
+                  file=sys.stderr)
+            return 1
+        os.ftruncate(_lock_fd, 0)
+        os.write(_lock_fd, str(os.getpid()).encode())
+    except ImportError:  # non-POSIX: degrade to the old unguarded behaviour
+        _lock_fd = None
+
     out = open(args.log, "a", buffering=1)
 
     def emit(kind, msg):
