@@ -768,6 +768,32 @@ is historical, not `$HARDWARE`-keyed; pick or create one deliberately.
 
 Outputs land in that dir: `aggregate_runs.{json,csv}`, `comparison.md`.
 
+**Filter hacks per sample, not per problem.** Each `evolving_runs.json` run record
+carries a top-level `best_speedup` / `best_is_hack` describing its *single best*
+iteration. Filtering on that field drops the whole problem when its best iteration was
+a hack — even though a clean, slower sample usually exists. On the completed truncation
+control that mistake hit **14 of 50 problems** and moved the headline numbers a long
+way: `best_geomean` 1.579 (wrong) vs **1.389** (correct), `fast_p_best@1.0` 0.520 vs
+**0.640**. Walk `records[].evaluation` and take the best sample with
+`correct and not is_hack`. `run_summary.json`'s `per_level_summary.correct` already
+counts problems with at least one clean sample, so it agrees with the per-sample method.
+
+**Recompute `is_hack` at analysis time; do not trust the recorded flag.** The
+excessive-speedup threshold is a *default argument* in `src/kernelbench/eval.py`
+(`excessive_speedup_threshold`), and `eval.py` is re-imported by every eval child — so
+changing it re-classifies hacks for every live arm from that moment on, with no
+relaunch. It went 10x -> 30x mid-wave in `588a6a5` (2026-08-24 15:11:45Z), which means
+a run's `is_hack` column can be a mixture of two rules. Measured on the Aug-22 wave:
+29 pre-cutover iterations sat in the disputed [10x, 30x) band and are flagged; 0
+post-cutover iterations landed there. Re-scoring uniformly at 30x changes the best
+sample on **3 problems out of ~412**, all in treatment arms, none in the control — small,
+but not zero, and it favours the treatments.
+
+Nothing is lost, because raw `speedup` is in the artifacts: re-derive the flag at one
+threshold across the whole run. Only un-flag samples whose hack status came from
+`metadata.excessive_speedup` — `resolve_is_hack` also fires on
+`static_check_warnings`, and those must stay flagged.
+
 **Headline metric is `fast_p_best@1.0`** on the full aligned-problem denominator, with
 `fast_p_best@0/2` beside it (`ANALYSIS_RULES.md:81-85`). `best_geomean` is a *secondary*
 figure — `ANALYSIS_RULES.md:158` explicitly forbids best-geomean-only leaderboards and
