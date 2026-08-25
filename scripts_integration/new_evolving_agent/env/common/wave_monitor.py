@@ -272,6 +272,83 @@ def wave_health(arms):
     return n, comp, corr, hack, best, api
 
 
+def gate_health(arms):
+    """Regression detectors for the 2026-08-25 mem-gate fix.
+
+    Three things were wrong and are now fixed; each has a counter here so a
+    regression is visible instead of silent:
+      * the gate's wait was billed to the 600s eval deadline -> eval timeouts
+      * the timeout branch print()ed into the coder's prompt -> contamination
+      * on timeout the gate proceeds UNGATED -> OOM risk on the big problems
+    Phase logs are matched to arms by run name, never globbed blindly.
+    """
+    waited = to = contam = oom = 0
+    waits = []
+    names = {a["run_name"] for a in arms}
+    for f in glob.glob(os.path.join(REPO, "*_phase.jsonl")):
+        base = os.path.basename(f)
+        if not any(base.startswith(n + "_") for n in names):
+            continue
+        try:
+            fh = open(f, errors="replace")
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                w = float(r.get("mem_gate_waited_sec") or 0)
+                if w > 0.05:
+                    waited += 1
+                    waits.append(w)
+                if w >= 299:      # hit a valve (300s old default / 1800s new)
+                    to += 1
+    for arm in arms:
+        for f in glob.glob(os.path.join(arm["rundir"], "workspaces", "*",
+                                        "evaluation_terminal_output.jsonl")):
+            try:
+                fh = open(f, errors="replace")
+            except OSError:
+                continue
+            with fh:
+                for line in fh:
+                    if "memory gate: waited" in line:
+                        contam += 1
+                    if "out of memory" in line.lower() and "triton_mm" not in line:
+                        oom += 1
+    return waited, to, contam, oom, waits
+
+
+def eval_timeout_rate(arms):
+    """Iterations killed by the eval deadline -- the headline regression signal."""
+    n = t = 0
+    for arm in arms:
+        for f in glob.glob(os.path.join(arm["rundir"], "workspaces", "*",
+                                        "metrics_by_iteration.jsonl")):
+            try:
+                fh = open(f, errors="replace")
+            except OSError:
+                continue
+            with fh:
+                for line in fh:
+                    if not line.strip():
+                        continue
+                    try:
+                        m = (json.loads(line).get("metrics_iteration") or {})
+                    except ValueError:
+                        continue
+                    if not m:
+                        continue
+                    n += 1
+                    if "timeout" in str(m.get("error") or "").lower():
+                        t += 1
+    return n, t
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--interval", type=int, default=300)
@@ -299,6 +376,7 @@ def main():
         return 1
 
     offsets, prev, first, cycle, prev_api = {}, {}, True, 0, [None]
+    base_gate = [None]
     stamps = manifest_stamps(args.manifests)
     emit("START", "watching %d arms from %d manifest(s), interval %ds"
          % (len(arms), len(stamps), args.interval))
@@ -383,6 +461,42 @@ def main():
                          "(coder_call_error / content-policy / rate-limit; "
                          "counted from metrics_iteration.error)" % (prev_api[0], api))
                 prev_api[0] = api
+                gw, gto, gcon, goom, gwaits = gate_health(arms)
+                ni, nto = eval_timeout_rate(arms)
+                # These counters are CUMULATIVE over the wave, so a wave that was
+                # already damaged before the monitor started would latch every
+                # warning on forever and hide a fresh regression. Baseline at the
+                # first rollup and judge only what has happened SINCE.
+                if base_gate[0] is None:
+                    base_gate[0] = (gcon, goom, ni, nto)
+                    emit("GATE", "baseline: waited %d, valve-hit %d, prompt-contam %d, "
+                         "OOM %d, eval-timeouts %d/%d (%.1f%%) -- all PRE-EXISTING; "
+                         "warnings below judge growth from here"
+                         % (gw, gto, gcon, goom, nto, ni,
+                            100.0 * nto / ni if ni else 0.0))
+                else:
+                    b_con, b_oom, b_ni, b_nto = base_gate[0]
+                    d_ni, d_nto = ni - b_ni, nto - b_nto
+                    rate = 100.0 * d_nto / d_ni if d_ni else 0.0
+                    emit("GATE", "since start: +%d iters, +%d eval-timeouts (%.1f%%), "
+                         "+%d prompt-contam, +%d OOM | cumulative waited %d, valve-hit %d%s"
+                         % (d_ni, d_nto, rate, gcon - b_con, goom - b_oom, gw, gto,
+                            "  (max wait %.0fs)" % max(gwaits) if gwaits else ""))
+                    if rate > 2.0 and d_ni > 200:
+                        emit("WARN", "eval-timeout rate SINCE START is %.1f%% (healthy "
+                             "~0.7%%). A queue is being billed to the 600s deadline -- "
+                             "the mem-gate wait must reach the parent via "
+                             "gpu_lock.report_external_wait." % rate)
+                    if goom > b_oom:
+                        emit("ALERT", "+%d CUDA OOM since start -- recorded compiled=True "
+                             "correct=False, so the governor will debug kernels that were "
+                             "never broken. Lower KB_GPU_EVAL_LOCK_SLOTS or raise "
+                             "KB_EVAL_MEM_GATE_FACTOR." % (goom - b_oom))
+                    if gcon > b_con:
+                        emit("ALERT", "+%d evals injected mem-gate text into the coder "
+                             "prompt since start. eval stdout AND stderr are spliced into "
+                             "KERNEL_BENCH_EVAL_TERMINAL_OUTPUT -- this MUTATES LLM INPUT "
+                             "and means the 2026-08-25 fix regressed." % (gcon - b_con))
                 if comp and round(100 * comp / n) < 60:
                     emit("WARN", "compile rate %d%% is abnormally low -- check nvcc "
                          "and CUDA_HOME on this host" % round(100 * comp / n))
