@@ -87,24 +87,81 @@ def load_arms(pattern):
             _, tag, pid, rundir, log = p[:5]
             if rundir in ("", "?"):
                 continue
+            name = os.path.basename(rundir.rstrip("/"))
             arms.append({
                 "tag": tag,
                 "pid": int(pid) if pid.isdigit() else -1,
                 "rundir": rundir if os.path.isabs(rundir) else os.path.join(REPO, rundir),
                 "log": log if os.path.isabs(log) else os.path.join(REPO, log),
-                "name": os.path.basename(rundir.rstrip("/")),
+                "name": name,
+                # RUN_NAME is the dir name minus the _YYYY_MM_DD_HH_MM the runner
+                # appends; it is what appears after --run-name in the cmdline.
+                "run_name": STAMP_RE.sub("", name),
+                "manifest": man,
             })
     return arms
 
 
-def alive(pid):
+def manifest_stamps(pattern):
+    """mtime per manifest, so a relaunch UNDER a running monitor is detectable.
+
+    launch_wave.sh names the manifest from GPU + RUN_PREFIX + UTC day, so killing
+    a wave and relaunching it the same day REWRITES the same file with new pids
+    and new run dirs. A monitor started before that keeps watching the dead wave
+    and would emit an ALERT per arm. Detect it and say so instead.
+    """
+    return {m: os.path.getmtime(m)
+            for m in sorted(glob.glob(os.path.join(REPO, pattern)))}
+
+
+STAMP_RE = re.compile(r"_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}$")
+
+
+def _cmdline(pid):
     try:
-        os.kill(pid, 0)
+        with open("/proc/%d/cmdline" % pid, "rb") as fh:
+            return fh.read().decode("utf-8", "replace").split("\0")
+    except (OSError, ValueError):
+        return []
+
+
+def alive(arm):
+    """True only if the pid exists AND is still THIS arm.
+
+    A bare os.kill(pid, 0) is not enough after a wave is killed and relaunched:
+    pids are recycled, so an unrelated process inheriting the number reads as a
+    healthy arm forever. Match the run name in the cmdline instead.
+    """
+    pid = arm["pid"]
+    if pid <= 0:
+        return False
+    argv = _cmdline(pid)
+    if argv:
+        return arm["run_name"] in argv
+    try:
+        os.kill(pid, 0)          # /proc unreadable -- fall back
         return True
     except (ProcessLookupError, ValueError):
         return False
     except PermissionError:
         return True
+
+
+def arm_config(arm):
+    """(hardware, results_root) as the arm was actually launched.
+
+    Read from the live cmdline, never from a launcher or a spec: this project's
+    recurring failure is a baseline that differs from the one assumed, and it is
+    a silent metric error rather than a crash.
+    """
+    argv = _cmdline(arm["pid"])
+    out = {}
+    for flag in ("--hardware", "--results-root", "--model"):
+        if flag in argv:
+            i = argv.index(flag)
+            if i + 1 < len(argv):
+                out[flag] = argv[i + 1]
+    return out
 
 
 def scan_new(path, offsets):
@@ -148,7 +205,7 @@ def count_errors(text, patterns):
 def arm_state(arm, offsets):
     rundir, st = arm["rundir"], {}
     st["done"] = os.path.exists(os.path.join(rundir, "run_summary.json"))
-    st["alive"] = alive(arm["pid"])
+    st["alive"] = alive(arm)
     st["errors"] = count_errors(scan_new(arm["log"], offsets), LOG_PATTERNS)
 
     try:
@@ -241,10 +298,39 @@ def main():
         emit("ALERT", "no arms found matching %s -- nothing to watch" % args.manifests)
         return 1
 
-    offsets, prev, first, cycle, prev_api = {}, {}, True, 0, [0]
-    emit("START", "watching %d arms, interval %ds" % (len(arms), args.interval))
+    offsets, prev, first, cycle, prev_api = {}, {}, True, 0, [None]
+    stamps = manifest_stamps(args.manifests)
+    emit("START", "watching %d arms from %d manifest(s), interval %ds"
+         % (len(arms), len(stamps), args.interval))
+
+    # Record what the arms are ACTUALLY scored against, and refuse to be quiet if
+    # they disagree. A split baseline within one wave makes arm-vs-arm comparison
+    # meaningless, and it is invisible in every downstream artifact.
+    cfgs = {a["name"]: arm_config(a) for a in arms}
+    for flag, label in (("--hardware", "baseline"), ("--results-root", "results-root"),
+                        ("--model", "model")):
+        vals = {}
+        for name, c in cfgs.items():
+            vals.setdefault(c.get(flag, "?"), []).append(name)
+        if len(vals) == 1:
+            emit("INFO", "%s: %s (uniform across %d arms)"
+                 % (label, next(iter(vals)), len(arms)))
+        else:
+            emit("ALERT", "%s IS NOT UNIFORM -- %s. Arm-vs-arm comparison across "
+                 "this wave is INVALID until resolved."
+                 % (label, "; ".join("%s=%d arm(s) %s" % (v, len(n), sorted(n)[:3])
+                                     for v, n in sorted(vals.items()))))
 
     while True:
+        now = manifest_stamps(args.manifests)
+        if not first and now != stamps:
+            emit("ALERT", "MANIFEST REWRITTEN -- the wave was relaunched under this "
+                 "monitor, so it is still watching the OLD pids and run dirs and "
+                 "every arm will read as dead. Restart the monitor. (%s)"
+                 % ", ".join(sorted(os.path.basename(k) for k in
+                                    set(now) ^ set(stamps)
+                                    or [k for k in now if now[k] != stamps.get(k)])))
+            return 1
         tot = {"done": 0, "alive": 0, "err": 0}
         for arm in arms:
             key, st = arm["name"], arm_state(arm, offsets)
@@ -286,7 +372,13 @@ def main():
                      "correct %d%%, hacks %d, llm_errors %d, best %.2fx"
                      % (tot["alive"], len(arms), tot["done"], n,
                         round(100 * comp / n), round(100 * corr / n), hack, api, best))
-                if api > prev_api[0]:
+                if prev_api[0] is None:
+                    # seed on the first rollup; otherwise pre-existing failures
+                    # always look like a jump from zero
+                    if api:
+                        emit("INFO", "%d pre-existing LLM-side failure(s) at start"
+                             % api)
+                elif api > prev_api[0]:
                     emit("WARN", "LLM-side failures rose %d -> %d "
                          "(coder_call_error / content-policy / rate-limit; "
                          "counted from metrics_iteration.error)" % (prev_api[0], api))
