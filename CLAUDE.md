@@ -394,10 +394,18 @@ rest is correctness trials, input generation, `empty_cache` and syncs. So:
 - The earlier "~4.9 s hold, ~6 arms/GPU" figures came from a probe on a different
   problem mix (L3P4/9/42) and do not generalise. **~3 arms/GPU is the ceiling for
   *throughput*** until someone profiles the inside of the locked section.
+  *Corrected 2026-08-25:* the critical section **was** shrunk (hoisted input gen, skipped
+  dead reference window) and the mutex **was** replaced by a 3-slot semaphore, exactly as
+  the corollary below demands. Measured at 9 arms/GPU the ceiling is gone — see
+  "9 arms/GPU measured" below. Read this bullet as a description of the *mutex* regime.
 
 Corollary: to actually raise the ceiling you must shrink the critical section.
+(That has since been done; the corollary held.)
 
-**Three arms/GPU is a throughput ceiling, not a safety limit — post-fix.** Once the
+**Three arms/GPU is a throughput ceiling, not a safety limit — post-fix.**
+*Corrected 2026-08-25: it is no longer a throughput ceiling either — 9 arms/GPU scales
+linearly. See "9 arms/GPU measured" below. The rest of this paragraph is retained because
+its warnings about cross-boundary comparison still apply.* Once the
 eval deadline stopped charging lock queueing against the work budget (2026-08-22), more
 arms stopped *corrupting* evals and merely stopped paying for themselves. A 5-arm +
 4-arm wave (two GPUs, **not** 9 on one) has since run 19 h with `orph=0`, `unlock=0`
@@ -464,6 +472,10 @@ fidelity argument for a strict mutex was wrong** — the throughput ceiling itse
 (*Corrected:* an earlier revision of this paragraph read "the ceiling framing was wrong". The
 probe below measured fidelity only; its own L1P34 wall-time swing, 21 s -> 425 s, is evidence
 *for* the throughput ceiling, not against it.)
+(*Corrected again, 2026-08-25:* the throughput ceiling does **not** stand once the mutex is
+replaced by a 3-slot semaphore — that change had not been made when the sentence above was
+written. Both this section's fidelity result and the ceiling's removal are now measured; see
+"9 arms/GPU measured" below.)
 
 Method: 6 saved kernels spanning input volume and kernel duration (L1P100 4.3 GB/2.4 ms,
 L1P34 7.5 GB/5.4 ms, L2P19, L2P94 0.65 ms, L3P42 56 ms, L3P5), 5 repeats each, warm builds,
@@ -517,6 +529,68 @@ was collected in the worst 5 problems of the benchmark.** Both servers show it i
 problems 1-5 run ~1.25-1.63x slower per problem than problems 6-17 (78 vs 48 min on one
 server, 93.7 vs 74.8 min on the other). Do not extrapolate a wave's first days to its steady
 state.
+
+#### 9 arms/GPU measured — the throughput ceiling is gone; `SLOTS` is the real cap (2026-08-25)
+
+Every "~3 arms/GPU" figure above was collected under the **mutex** (`SLOTS=1`), before the
+critical section was shrunk. With `KB_EVAL_HOIST_INPUT_GEN=1`, `KB_EVAL_SKIP_DEAD_REF_TIMING=1`,
+`KB_EVAL_UNLOCK_CORRECTNESS=0` and `KB_GPU_EVAL_LOCK_SLOTS=3`, a live 15-arm wave (9 gpt-oss on
+GPU0, 6 terra on GPU1) was measured over 24 h. **Scaling is linear and nothing is binding.**
+
+The clean arm-count contrast is one GPU against itself — same model, same GPU, same baseline:
+
+| GPU0 | aggregate | per arm |
+|---|---|---|
+| 6 arms | 169 evals/h | **28.1 /h** |
+| 9 arms | 245 evals/h | **27.2 /h** |
+
+**50% more arms cost ~3% of per-arm throughput.** Host-wide the same holds: 12 -> 15 total arms
+moved per-arm rate 27.0 -> 27.2 evals/h with aggregate 324 -> 408. Do **not** compare GPU0's
+9-arm rate against GPU1's 6-arm rate to make this point — that crosses a *model* boundary
+(gpt-oss vs terra have different endpoint latency) and cannot isolate arm count.
+
+Resource utilisation at that degree, and the headroom in each:
+
+| | GPU0 (9 arms) | GPU1 (6 arms) |
+|---|---|---|
+| lock util (of 3 slots) | 13-27% | 6-8% |
+| *1-slot equivalent* | *39-81%* | *17-25%* |
+| lock waits >5 s | 0.63% (6 h) | **0 / 3736** |
+| GPU util median | 4% | 0% |
+| device mem mean / p90 / max | 20.5 / 55.2 / **141.1** GB | 2.1 / 8.6 / 28.0 GB |
+| host load1 | 11% of 144 cores | — |
+| host mem | 6% of 1227 GB | — |
+
+The italic row is the point: at `SLOTS=1` GPU0 would sit at **81%** and queue hard. **The
+semaphore, not the arm count, is what made 9 arms viable.**
+
+**The LLM endpoint is shared across both GPUs, so it is a host-wide budget, not a per-GPU one.**
+It showed zero degradation from 12 to 15 arms. Coder call rate equals eval rate (27.2/h and
+26.4/h), i.e. essentially every coder call reaches an eval, so an arm's iteration rate *is* its
+coder rate — a convenient proxy when phase logs are absent.
+
+**What actually caps this now is `SLOTS`, and it is already at the edge.** With correctness
+locked, concurrent device residents = `SLOTS` **regardless of arm count**, so adding arms does
+not raise the memory ceiling — it only raises the *probability* of hitting the worst case, by
+making it likelier that all 3 slots hold big-input problems at once. At `SLOTS=3` the worst case
+is 3 x ~52 GB = ~156 GB against a 143.4 GB card, and the observed 141.1 GB peak shows that tail
+is real, not theoretical. **Raise arms, not slots.**
+
+**Caveat on reading any lock number: utilisation tracks the problem list, not the arm count.**
+Problems 1-5 carry 74% of the benchmark's input-generation cost, so a window inside them shows
+several times the hold of a steady-state window. The 13% and 27% figures above differ mostly for
+that reason, not because of arm count. Size a ceiling from problems 1-5, never from steady state.
+
+**The memory gate works.** Across the same wave, the three arms carrying
+`KB_EVAL_MEM_GATE_FACTOR=2.5` traversed L1P34 (7.5 GB inputs, the problem behind every OOM) with
+**0 OOM in 90 evals**, against **16 / 360 = 4.4%** for the twelve ungated arms. Gate wait max was
+0.01 s, so it cost nothing. Wave health over 14,542 evals: OOM 0.165% (and **0 in the last 4,945**),
+eval-timeout 0.743%, `proceeding UNLOCKED` 0, `worker_error` 0.
+
+**Practical guidance.** 6-9 arms/GPU is supported at `SLOTS=3` with the gate on for any arm that
+will traverse subset problems 1-5. Two reasons this is still not automatic: adding arms mid-wave
+plants a contention seam inside the affected runs, and unequal arms-per-GPU biases comparisons
+one-directionally (see above). Prefer to set the degree at launch.
 
 #### The eval-lock switches (2026-08-23), all inert unless exported
 
@@ -926,8 +1000,10 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    re-run of the same cells, not new coverage.
    The old "N arms/GPU is safe" guidance is no longer a *safety* limit: per §3.4 the
    fidelity argument for a strict mutex was wrong (concurrent evals cost <3%) and the lock
-   is now a counting semaphore. The ~3 arms/GPU *throughput* ceiling still stands, so extra
-   arms buy matrix coverage, not wall-clock.
+   is now a counting semaphore. *Corrected 2026-08-25:* the ~3 arms/GPU **throughput**
+   ceiling no longer stands either — 9 arms/GPU was measured at zero per-arm cost, so extra
+   arms now buy matrix coverage **and** wall-clock. The cap that remains is `SLOTS`, not
+   arms; see "9 arms/GPU measured" in §3.4.
    *Which arms are live, and where each one stopped or resumed from, is per-host live
    inventory — read `CLAUDE.local.md`, not this file.*
    *Retracted:* "`--skill-merging` requires `--skill-deletion`, so the merging cell is
