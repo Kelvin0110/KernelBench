@@ -324,8 +324,23 @@ def gate_health(arms):
 
 
 def eval_timeout_rate(arms):
-    """Iterations killed by the eval deadline -- the headline regression signal."""
+    """Iterations killed by the eval deadline, split by CAUSE.
+
+    A raised timeout rate is NOT by itself a gate regression, and saying so was
+    actively misleading in the log. Every timeout message carries
+    "(excluding Ns GPU-lock wait)" when a wait was published and discounted, so:
+
+      * excluded > 0  -> the deadline WAS extended and the eval still overran, i.e.
+        it genuinely needed that much WORK. Expected on the big problems, where a
+        slow candidate kernel x 25 timing trials can exceed 600s on its own.
+      * excluded == 0 with a long gate wait -> the wait never reached the parent.
+        THAT is the regression, and it is the only thing worth alarming on.
+
+    Returns (iterations, timeouts, timeouts_without_an_excluded_wait, max_excluded).
+    """
     n = t = 0
+    bare = [0]
+    max_excl = [0]
     for arm in arms:
         for f in glob.glob(os.path.join(arm["rundir"], "workspaces", "*",
                                         "metrics_by_iteration.jsonl")):
@@ -344,9 +359,15 @@ def eval_timeout_rate(arms):
                     if not m:
                         continue
                     n += 1
-                    if "timeout" in str(m.get("error") or "").lower():
+                    err = str(m.get("error") or "")
+                    if "timeout" in err.lower():
                         t += 1
-    return n, t
+                        hit = re.search(r"excluding (\d+)s", err)
+                        if hit:
+                            max_excl[0] = max(max_excl[0], int(hit.group(1)))
+                        else:
+                            bare[0] += 1
+    return n, t, bare[0], max_excl[0]
 
 
 def main():
@@ -489,31 +510,46 @@ def main():
                          "counted from metrics_iteration.error)" % (prev_api[0], api))
                 prev_api[0] = api
                 gw, gto, gcon, goom, gwaits = gate_health(arms)
-                ni, nto = eval_timeout_rate(arms)
+                ni, nto, bare, max_excl = eval_timeout_rate(arms)
                 # These counters are CUMULATIVE over the wave, so a wave that was
                 # already damaged before the monitor started would latch every
                 # warning on forever and hide a fresh regression. Baseline at the
                 # first rollup and judge only what has happened SINCE.
                 if base_gate[0] is None:
-                    base_gate[0] = (gcon, goom, ni, nto)
+                    base_gate[0] = (gcon, goom, ni, nto, bare)
                     emit("GATE", "baseline: waited %d, valve-hit %d, prompt-contam %d, "
-                         "OOM %d, eval-timeouts %d/%d (%.1f%%) -- all PRE-EXISTING; "
+                         "OOM %d, eval-timeouts %d/%d (%.1f%%, %d bare) -- all PRE-EXISTING; "
                          "warnings below judge growth from here"
                          % (gw, gto, gcon, goom, nto, ni,
-                            100.0 * nto / ni if ni else 0.0))
+                            100.0 * nto / ni if ni else 0.0, bare))
                 else:
-                    b_con, b_oom, b_ni, b_nto = base_gate[0]
+                    b_con, b_oom, b_ni, b_nto, b_bare = base_gate[0]
                     d_ni, d_nto = ni - b_ni, nto - b_nto
                     rate = 100.0 * d_nto / d_ni if d_ni else 0.0
                     emit("GATE", "since start: +%d iters, +%d eval-timeouts (%.1f%%), "
-                         "+%d prompt-contam, +%d OOM | cumulative waited %d, valve-hit %d%s"
-                         % (d_ni, d_nto, rate, gcon - b_con, goom - b_oom, gw, gto,
+                         "+%d prompt-contam, +%d OOM, +%d bare | cumulative waited %d, valve-hit %d%s"
+                         % (d_ni, d_nto, rate, gcon - b_con, goom - b_oom,
+                            bare - b_bare, gw, gto,
                             "  (max wait %.0fs)" % max(gwaits) if gwaits else ""))
-                    if rate > 2.0 and d_ni > 200:
-                        emit("WARN", "eval-timeout rate SINCE START is %.1f%% (healthy "
-                             "~0.7%%). A queue is being billed to the 600s deadline -- "
-                             "the mem-gate wait must reach the parent via "
-                             "gpu_lock.report_external_wait." % rate)
+                    if bare > b_bare:
+                        emit("ALERT", "+%d eval timeout(s) with NO excluded wait since "
+                             "start. The mem-gate wait is no longer reaching the parent "
+                             "via gpu_lock.report_external_wait, so queueing is being "
+                             "billed to the 600s work budget -- the 2026-08-25 fix has "
+                             "regressed." % (bare - b_bare))
+                    elif rate > 2.0 and d_ni > 200:
+                        emit("INFO", "eval-timeout rate %.1f%% since start, but 0 of them "
+                             "lack an excluded wait (max excluded %ds, so the deadline "
+                             "stretched to %ds). These evals needed >600s of WORK -- "
+                             "expected on the big problems, NOT a gate regression."
+                             % (rate, max_excl, 600 + max_excl))
+                    if gwaits:
+                        head = 1800 - max(gwaits)
+                        if head < 300:
+                            emit("ALERT", "max gate wait %.0fs is within %.0fs of the "
+                                 "1800s valve. At the valve an eval proceeds UNGATED -- "
+                                 "3 x 49GiB residents on L1P34 is ~147GiB on a 143GiB "
+                                 "card, i.e. the OOM path." % (max(gwaits), head))
                     if goom > b_oom:
                         emit("ALERT", "+%d CUDA OOM since start -- recorded compiled=True "
                              "correct=False, so the governor will debug kernels that were "
