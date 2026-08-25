@@ -538,12 +538,28 @@ def main():
                          % (d_ni, d_nto, rate, gcon - b_con, goom - b_oom,
                             bare - b_bare, gw, gto,
                             "  (max wait %.0fs)" % max(gwaits) if gwaits else ""))
-                    if bare > b_bare:
-                        emit("ALERT", "+%d eval timeout(s) with NO excluded wait since "
-                             "start. The mem-gate wait is no longer reaching the parent "
-                             "via gpu_lock.report_external_wait, so queueing is being "
-                             "billed to the 600s work budget -- the 2026-08-25 fix has "
-                             "regressed." % (bare - b_bare))
+                    # A bare timeout is NOT on its own a regression. execution.py only
+                    # appends "(excluding Ns GPU-lock wait)" when a wait was actually
+                    # published, so an eval that queued for NOTHING and simply needed
+                    # >600s of work is legitimately bare -- and most evals queue for
+                    # nothing (755 of 1174 on this wave). Alarming on the first one
+                    # cried wolf at 22:01Z. If publishing had truly broken, essentially
+                    # EVERY timeout taken while queueing would be bare, so require the
+                    # bare share to dominate before calling it a regression.
+                    d_bare = bare - b_bare
+                    d_tmo = nto - b_nto
+                    bare_share = (100.0 * d_bare / d_tmo) if d_tmo else 0.0
+                    if d_bare >= 3 and bare_share > 50.0:
+                        emit("ALERT", "+%d of +%d eval timeouts (%.0f%%) carry NO excluded "
+                             "wait since start. The mem-gate wait is no longer reaching "
+                             "the parent via gpu_lock.report_external_wait, so queueing is "
+                             "being billed to the 600s work budget -- the 2026-08-25 fix "
+                             "has regressed." % (d_bare, d_tmo, bare_share))
+                    elif d_bare:
+                        emit("INFO", "+%d bare eval timeout(s) of +%d (%.0f%%) -- below the "
+                             "regression threshold (>=3 and >50%%). Evals that queued for "
+                             "nothing get no exclusion suffix, so a few bare timeouts are "
+                             "just slow kernels." % (d_bare, d_tmo, bare_share))
                     elif rate > 2.0 and d_ni > 200:
                         emit("INFO", "eval-timeout rate %.1f%% since start, but 0 of them "
                              "lack an excluded wait (max excluded %ds, so the deadline "
