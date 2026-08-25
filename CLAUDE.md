@@ -593,16 +593,30 @@ the other twelve were deep in problems 20-40. Do not cite that 0/90 as evidence 
 `KB_EVAL_MEM_GATE_FRAC x card` (default 0.85). On L1P34 that is `2.5 x 7.0 GB = 17.5 GB`, so all
 three slots together ask 52.5 GB of a ~122 GB budget and are always admitted. **The gate binds
 only when `factor x input_bytes` exceeds half the budget**, i.e. `factor > budget / (2 x
-input_bytes)` = `122 / (2 x 7.0)` = **8.7** on a 143.4 GB card. Measured retention is ~7x input
-(caching-allocator peak: device copy + output + intermediates + a second copy for the timing
-window), so **~9 is both the physically accurate factor and the smallest one that actually admits
-2 rather than 3 on L1P34.** Anything below it is telemetry, not admission control.
+input_bytes)` = `122 / (2 x 7.0)` = **8.7** on a 143.4 GB card.
+
+*Corrected 2026-08-25 (same day, before the value was ever used): that 8.7 is the boundary above
+which the gate admits **1**, not 2 -- and rounding it up to 9 crosses it.* The gate admits the Nth
+eval iff `N x need <= budget`, so `max_conc = floor(budget / (factor x input_bytes))`. On L1P34
+(7.0 GB input, ~122 GB budget) the bands are:
+
+| factor | need | admits | verdict |
+|---|---|---|---|
+| <= 5.80 | <= 40.7 GB | 3 | inert -- `SLOTS` governs, this is what 2.5 did |
+| **5.80 - 8.71** | **40.7 - 60.9 GB** | **2** | **correct: 2 x ~49 GB = 98 GB, fits the card** |
+| > 8.71 | > 60.9 GB | 1 | over-restrictive -- serialises the biggest problems |
+
+Measured retention is ~7x input (caching-allocator peak: device copy + output + intermediates +
+a second copy for the timing window), and **7 sits inside the admit-2 band**, so **`factor=7` is
+both the physically accurate value and the correct one**. It is not a coincidence: the factor is
+meant to *be* the retention multiple, so deriving it from measured retention and checking it
+against the band is the right order. Anything <= 5.8 is telemetry, not admission control.
 
 Wave health over 14,542 evals, for reference: OOM 0.165% (and **0 in the last 4,945**),
 eval-timeout 0.743%, `proceeding UNLOCKED` 0, `worker_error` 0.
 
 **Practical guidance -- the sizing recipe for the next wave.** Target **12 arms/GPU at
-`SLOTS=3` with `KB_EVAL_MEM_GATE_FACTOR=9`**, fixed at launch.
+`SLOTS=3` with `KB_EVAL_MEM_GATE_FACTOR=7`**, fixed at launch.
 
 - **Arms are the safe lever; slots are not.** Concurrent device residents = `SLOTS`, so arm count
   changes only the *probability* that three big-input evals coincide, never the ceiling. Lock
@@ -650,7 +664,7 @@ for a run already in flight.
 | `KB_EVAL_PHASE_LOG` | path to append one JSON line per eval: `held_sec`, `waited_sec`, `hoisted`, `unlocked_correctness`, `lock_slots`, `ref_window`, and a non-overlapping phase breakdown with an `other_sec` residual. Unset -> emits nothing. |
 | `KB_EVAL_UNLOCK_CORRECTNESS` | runs the correctness trials outside the lock, leaving only the timing window(s) held. Hold 1.96s -> 0.78s on L1P100 with the recorded runtime unchanged. When on, the correctness trio is excluded from the `other_sec` residual -- otherwise it goes negative. **Leave this OFF on a shared GPU.** It removes the bound on how many evals are DEVICE-resident at once (correctness does the H2D of the whole input set plus two model forwards), and each eval reserves ~30 GB on a level-1 problem / ~52 GB on L1P34. With 6 arms/GPU it drove a 146.8 GB card to 144.8 GB and 1.8% of evals to CUDA OOM -- recorded as `compiled=True correct=False`, so the governor debugs a kernel that was never broken. Locking it again cut peak 141.4 -> 72.6 GB and OOM to 0, at the cost of ~5.7s of hold, with the lock still showing zero waits over 5s. **Check your own launcher before trusting the default:** the in-code default is OFF (`eval.py:897`), and `resume_run.sh` sets `0`, but at least one host's `launch_wave.sh` still defaults it to `1`. |
 | `KB_GPU_EVAL_LOCK_SLOTS` | counting semaphore, default 1 (= the historical mutex, same lock file). See the measurement above. **Not every launcher sets it** -- one host's `launch_wave.sh` defaults it to 3, the other does not set it at all, and `resume_run.sh` defaults it to 1; `grep -n KB_GPU_EVAL_LOCK_SLOTS env/<HARDWARE>/*.sh` before launching. **The behavioural read is in the submodule, not `eval.py`** -- `gpu_lock.py:153` inside `lock_slots()`; `eval.py:568` reads it too, but only to stamp `lock_slots` into the phase log. That puts it on the **eval-child** side of the propagation table below, so a submodule checkout changes it for live arms. **Slot files are keyed by physical GPU UUID**, so every arm on a GPU shares the same N files -- 9 arms at slots=3 still means at most 3 concurrent evals. Verified by resolving `lock_paths()` under `CUDA_VISIBLE_DEVICES=0/1`. Corollary: at N>1 the files become `<base>.slotK` (`gpu_lock.py:159-164`), which do **not** interlock with a `slots=1` process, so two groups launched with different slot counts give 3+N concurrent and silently fail to exclude each other. Always pin the same value for every arm on a GPU. |
-| `KB_EVAL_MEM_GATE_FACTOR` | device-memory admission on top of the slots, sized in bytes: reserves `factor x input_bytes` under a flock, so effective concurrency is `min(slots, budget/need)`. 0 = off (default). **Corrected 2026-08-25: use ~9, not the ~2.5 this row used to recommend.** At 2.5 the gate provably never binds (0 of 8,334 evals waited >0.05 s); it binds only when `factor x input_bytes` exceeds half the budget, i.e. factor > 8.7 on a 143.4 GB card. Turn it on for any arm that will traverse subset problems 1-5. Slots bound how many evals are resident, not how much they need -- 3 x ~52 GB on L1P34 overruns a single GH200-class card; size against your own card. Companions: `KB_EVAL_MEM_GATE_FRAC` (budget as a fraction of the card, default 0.85) and `KB_EVAL_MEM_GATE_TIMEOUT_SEC` (default 600, then proceeds anyway). Dead reservers are pruned via `/proc`; an eval needing more than the whole budget is still admitted when nothing else holds a reservation, so it cannot wedge with the GPU idle. |
+| `KB_EVAL_MEM_GATE_FACTOR` | device-memory admission on top of the slots, sized in bytes: reserves `factor x input_bytes` under a flock, so effective concurrency is `min(slots, budget/need)`. 0 = off (default). **Corrected 2026-08-25: use ~7, not the ~2.5 this row used to recommend (and not the ~9 an earlier revision of this line said -- 9 admits only 1 on L1P34).** At 2.5 the gate provably never binds (0 of 8,334 evals waited >0.05 s); it is inert while `3 x factor x input_bytes <= budget` (factor <= 5.8 here) and over-restrictive above `budget / (2 x input_bytes)` (factor > 8.7 here), so aim for the middle -- the measured retention multiple, ~7. Turn it on for any arm that will traverse subset problems 1-5. Slots bound how many evals are resident, not how much they need -- 3 x ~52 GB on L1P34 overruns a single GH200-class card; size against your own card. Companions: `KB_EVAL_MEM_GATE_FRAC` (budget as a fraction of the card, default 0.85) and `KB_EVAL_MEM_GATE_TIMEOUT_SEC` (default 600, then proceeds anyway). Dead reservers are pruned via `/proc`; an eval needing more than the whole budget is still admitted when nothing else holds a reservation, so it cannot wedge with the GPU idle. |
 
 None of these changes a recorded number. The two trims only shorten the hold and the mem
 gate only ever admits fewer evals, so a wave launched with them sees *less* contention
