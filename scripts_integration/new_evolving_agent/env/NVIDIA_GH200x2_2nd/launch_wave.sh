@@ -42,7 +42,38 @@ export KB_GPU_EVAL_LOCK_TIMEOUT_SEC
 # speedups across that boundary with the same care as across a baseline change.
 KB_EVAL_SKIP_DEAD_REF_TIMING="${KB_EVAL_SKIP_DEAD_REF_TIMING:-1}"
 KB_EVAL_HOIST_INPUT_GEN="${KB_EVAL_HOIST_INPUT_GEN:-1}"
-export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN
+#   KB_EVAL_UNLOCK_CORRECTNESS -- run the correctness trials outside the lock,
+#     leaving only the timing window(s) held. A/B on L1P100: hold 1.96s -> 0.78s,
+#     measured runtime unchanged.
+#   KB_GPU_EVAL_LOCK_SLOTS -- counting semaphore: how many evals may hold the GPU
+#     at once. 1 == the historical mutex. The 2026-08-23 probe measured degree 2/3
+#     at 1.2%/0.7% median runtime inflation (2.3%/2.8% worst), against ~20-30%
+#     replicate noise. NEVER mix slots=1 and slots>1 on one GPU -- different files.
+#     LEFT OFF on this host: unlocking correctness removes the bound on how many
+#     evals are DEVICE-resident (correctness does the H2D of the whole input set
+#     plus two model forwards). At 6 arms/GPU that drove a 146.8GB card to 144.8GB
+#     and 1.8% of evals to CUDA OOM, each recorded compiled=True correct=False so
+#     the governor then debugs a kernel that was never broken.
+KB_EVAL_UNLOCK_CORRECTNESS="${KB_EVAL_UNLOCK_CORRECTNESS:-0}"
+KB_GPU_EVAL_LOCK_SLOTS="${KB_GPU_EVAL_LOCK_SLOTS:-3}"
+#   KB_EVAL_MEM_GATE_FACTOR -- device-memory admission ON TOP of the slots:
+#     reserves factor x input_bytes, so effective concurrency is
+#     min(slots, floor(budget / need)) with budget = KB_EVAL_MEM_GATE_FRAC x card.
+#     SLOTS alone bounds how many evals are resident, NOT how much they need:
+#     3 x ~52GB on L1P34 (7.000 GiB of inputs, measured) overruns a 143.4GB card.
+#     Measured retention is ~7x input, and on this card 7 lands in the admit-2
+#     band (inert at <=5.80, admits 1 above 8.71), so 7 is both physically
+#     accurate and correct. NOTE: eval.py:909 requires _cpu_inputs_timing, so
+#     this gate is INERT unless KB_EVAL_HOIST_INPUT_GEN=1 is also set.
+KB_EVAL_MEM_GATE_FACTOR="${KB_EVAL_MEM_GATE_FACTOR:-7}"
+#   KB_EVAL_MEM_GATE_TIMEOUT_SEC -- valve. Unlike gpu_lock (which publishes its
+#     wait so execution.py extends the deadline), NOTHING publishes the mem-gate
+#     wait, so it is spent out of the 600s eval work budget. Left at the 600
+#     default a gate queue can consume the whole budget and the eval is SIGTERMd
+#     mid-wait -- recorded as a fake compile failure the governor then "debugs".
+#     300 guarantees half the budget survives. On timeout the gate proceeds anyway.
+KB_EVAL_MEM_GATE_TIMEOUT_SEC="${KB_EVAL_MEM_GATE_TIMEOUT_SEC:-300}"
+export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN KB_EVAL_UNLOCK_CORRECTNESS KB_GPU_EVAL_LOCK_SLOTS KB_EVAL_MEM_GATE_FACTOR KB_EVAL_MEM_GATE_TIMEOUT_SEC
 
 set -euo pipefail
 
@@ -55,18 +86,29 @@ GPU="${1:?usage: launch_wave.sh <gpu> <spec_file> [dry-run|status]}"
 SPEC_FILE="${2:?missing spec file}"
 MODE="${3:-launch}"
 
-LAG_SEC="${LAG_SEC:-180}"
+LAG_SEC="${LAG_SEC:-20}"
 MAX_ARMS_PER_GPU="${MAX_ARMS_PER_GPU:-6}"
 DIR_WAIT_SEC="${DIR_WAIT_SEC:-300}"
 MIN_FREE_MIB="${MIN_FREE_MIB:-20000}"
 # shellcheck source=./hardware_env.sh
+# This host's folder name (NVIDIA_GH200x2_2nd) is itself a median-bearing
+# baseline, so hardware_env.sh's folder-name auto-resolution is correct here and
+# no KB_DEFAULT_HARDWARE override is needed. Pass HARDWARE=<folder> explicitly to
+# score against a different one (e.g. NVIDIA_GH200x2_median, to line a run up
+# with the terra replicates measured on the other server).
 source "$(dirname "${BASH_SOURCE[0]}")/../hardware_env.sh"
 kb_resolve_hardware
 MAX_PROBLEMS="${MAX_PROBLEMS:-50}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-30}"
 
-if [ "$LAG_SEC" -le 60 ]; then
-  echo "FATAL: LAG_SEC=$LAG_SEC must be > 60 (run-name timestamp is minute-resolution)"; exit 1
+# The run directory is "<RUN_NAME>_YYYY_MM_DD_HH_MM", i.e. minute-resolution, so two
+# arms can only collide on a directory if they share a RUN_NAME -- which, since
+# RUN_NAME is derived purely from the tag, means sharing a tag. That is now a hard
+# error in the spec parser below, so the stagger no longer has to exceed a minute to
+# keep runs apart. What the stagger still buys is a gentler startup burst (each arm
+# creates a CUDA context and opens its first LLM call), so keep it non-zero.
+if [ "$LAG_SEC" -lt 5 ]; then
+  echo "FATAL: LAG_SEC=$LAG_SEC must be >= 5 (the launcher needs to see each run dir appear)"; exit 1
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -74,10 +116,17 @@ cd "$REPO_ROOT"
 export CUDA_HOME="${CUDA_HOME:-$HOME/opt/cuda-12.8}"
 export PATH="$CUDA_HOME/bin:$REPO_ROOT/.venv/bin:$PATH"
 
-RESULTS_ROOT="runs_evolving/gpt-oss-120b/"
+# MODEL/RESULTS_ROOT/RUN_PREFIX are parameters so one spec file can be run
+# against a second model on another GPU. Defaults reproduce the original
+# hardcoded gpt-oss-120b behaviour exactly.
+MODEL="${MODEL:-gpt-oss-120b}"
+RESULTS_ROOT="${RESULTS_ROOT:-runs_evolving/gpt-oss-120b/}"
+RUN_PREFIX="${RUN_PREFIX:-base_agent_gpt_oss_120b}"
+case "$RESULTS_ROOT" in */) ;; *) RESULTS_ROOT="$RESULTS_ROOT/" ;; esac
+mkdir -p "$RESULTS_ROOT"
 STAMP="$(date -u +%b_%-d)"
 MANIFEST_GLOB="wave_gpu${GPU}_*.manifest.tsv"
-MANIFEST_DEFAULT="wave_gpu${GPU}_${STAMP}.manifest.tsv"
+MANIFEST_DEFAULT="wave_gpu${GPU}_${RUN_PREFIX}_${STAMP}.manifest.tsv"
 
 # ---------------------------------------------------------------------------
 # status -- same audit as launch_arm_reps.sh, plus the orphaned-wait count that
@@ -88,21 +137,39 @@ if [ "$MODE" = "status" ]; then
   [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ] || { echo "no manifest matching $MANIFEST_GLOB"; exit 1; }
   echo "manifest: $MANIFEST"
   printf '%-4s %-26s %-9s %-9s %-8s %-8s %s\n' IDX TAG PID PROBLEM LOCKMAX ORPHWAIT RUNDIR
+  unlocked=0
   while IFS=$'\t' read -r idx tag pid rundir log; do
     [ "$idx" = "idx" ] && continue
     alive="dead"; kill -0 "$pid" 2>/dev/null && alive="$pid"
     prob="$(grep -E "^\[batch\] \([0-9]+/" "$log" 2>/dev/null | tail -1 | grep -oE '\([0-9]+/[0-9]+\)' || echo '-')"
-    lmax="$(grep -oE 'acquired after [0-9.]+s' "$log" 2>/dev/null | grep -oE '[0-9.]+' | sort -g | tail -1 || true)"
-    w="$(cnt "gpu-eval-lock.*waiting" "$log")"
-    a="$(cnt "gpu-eval-lock.*acquired" "$log")"
-    printf '%-4s %-26s %-9s %-9s %-8s %-8s %s\n' "$idx" "$tag" "$alive" "$prob" "${lmax:-0}s" "$((w - a))" "$(basename "$rundir")"
+    # Lock messages are printed by the eval CHILD, whose stdout eval_runner
+    # captures via redirect_stdout into terminal_output -- they NEVER reach the
+    # arm log. Grepping "$log" (as this block used to) made LOCKMAX/ORPHWAIT and
+    # the "MUST stay 0" line below vacuously clean regardless of reality.
+    read -r lmax w u <<<"$(LOCK_RUNDIR="$rundir" ./.venv/bin/python - <<'PYEOF'
+import json, glob, os, re
+d = os.environ.get("LOCK_RUNDIR", "")
+orph = unl = 0; mx = 0.0
+for f in glob.glob(os.path.join(d, "workspaces", "*", "evaluation_terminal_output.jsonl")) if d else []:
+    try: fh = open(f)
+    except OSError: continue
+    with fh:
+        for line in fh:
+            if not line.strip(): continue
+            try: t = str(json.loads(line).get("terminal_output", ""))
+            except Exception: continue
+            ha = "acquired after" in t; hu = "proceeding UNLOCKED" in t
+            if "waiting for another eval" in t and not (ha or hu): orph += 1
+            unl += t.count("proceeding UNLOCKED")
+            for m in re.finditer(r"acquired after ([0-9.]+)s", t):
+                mx = max(mx, float(m.group(1)))
+print(f"{mx:.0f}", orph, unl)
+PYEOF
+)"
+    printf '%-4s %-26s %-9s %-9s %-8s %-8s %s\n' "$idx" "$tag" "$alive" "$prob" "${lmax:-0}s" "${w:-0}" "$(basename "$rundir")"
+    unlocked=$((unlocked + ${u:-0}))
   done < "$MANIFEST"
   echo
-  unlocked=0
-  while IFS=$'\t' read -r idx tag pid rundir log; do
-    [ "$idx" = "idx" ] && continue
-    n="$(cnt "proceeding UNLOCKED" "$log")"; unlocked=$((unlocked + ${n:-0}))
-  done < "$MANIFEST"
   echo "contended (UNLOCKED) evals: $unlocked   <-- MUST stay 0"
   echo "ORPHWAIT (waiting with no acquire) should also be 0; >0 means evals died mid-wait"
   exit 0
@@ -128,9 +195,20 @@ done < "$SPEC_FILE"
 TOTAL="${#Q_TAG[@]}"
 [ "$TOTAL" -gt 0 ] || { echo "FATAL: spec file has no arms"; exit 1; }
 
+# Distinct tags are what make a sub-minute stagger safe: RUN_NAME comes only from the
+# tag, and the run dir is RUN_NAME + a minute-resolution stamp, so duplicate tags in
+# one spec would race for the same directory. Two arms would then either share a run
+# dir or the second would be mis-attributed in the manifest -- silently.
+dupes="$(printf '%s\n' "${Q_TAG[@]}" | sort | uniq -d)"
+if [ -n "$dupes" ]; then
+  echo "FATAL: duplicate tag(s) in $SPEC_FILE -- each arm needs its own run name:"
+  printf '         %s\n' $dupes
+  exit 1
+fi
+
 run_name_for_tag() {
-  if [ "$1" = "-" ] || [ -z "$1" ]; then echo "base_agent_gpt_oss_120b_itr30_GH200"
-  else echo "base_agent_gpt_oss_120b_${1}_itr30_GH200"; fi
+  if [ "$1" = "-" ] || [ -z "$1" ]; then echo "${RUN_PREFIX}_itr30_GH200"
+  else echo "${RUN_PREFIX}_${1}_itr30_GH200"; fi
 }
 
 # ---- preflight ------------------------------------------------------------
@@ -189,13 +267,15 @@ PY
 echo "=== preflight passed ==="
 echo
 
-echo "plan: $TOTAL arm(s) on GPU $GPU, staggered ${LAG_SEC}s, hardware=$HARDWARE"
+echo "plan: $TOTAL arm(s) on GPU $GPU, staggered ${LAG_SEC}s"
+echo "      model=$MODEL  hardware=$HARDWARE"
+echo "      results-root=$RESULTS_ROOT"
 for ((i=0; i<TOTAL; i++)); do
   printf '      %-26s ctx=%-20s %s\n' "$(run_name_for_tag "${Q_TAG[$i]}")" "${Q_CTX[$i]}" "${Q_FLAGS[$i]}"
 done
 echo "      ${MAX_PROBLEMS} problems x ${MAX_ITERATIONS} iterations"
 echo "      KB_GPU_RESERVE_GB=0, KB_GPU_EVAL_LOCK_TIMEOUT_SEC=$KB_GPU_EVAL_LOCK_TIMEOUT_SEC"
-echo "      KB_EVAL_SKIP_DEAD_REF_TIMING=$KB_EVAL_SKIP_DEAD_REF_TIMING, KB_EVAL_HOIST_INPUT_GEN=$KB_EVAL_HOIST_INPUT_GEN, phase log per arm"
+echo "      SKIP_REF=$KB_EVAL_SKIP_DEAD_REF_TIMING HOIST=$KB_EVAL_HOIST_INPUT_GEN UNLOCK_CORR=$KB_EVAL_UNLOCK_CORRECTNESS LOCK_SLOTS=$KB_GPU_EVAL_LOCK_SLOTS MEM_GATE=$KB_EVAL_MEM_GATE_FACTOR, phase log per arm"
 echo
 
 if [ "$MODE" = "dry-run" ]; then echo "(dry-run: nothing launched)"; exit 0; fi
@@ -221,6 +301,10 @@ for ((i=0; i<TOTAL; i++)); do
   KB_GPU_EVAL_LOCK_TIMEOUT_SEC="$KB_GPU_EVAL_LOCK_TIMEOUT_SEC" \
   KB_EVAL_SKIP_DEAD_REF_TIMING="$KB_EVAL_SKIP_DEAD_REF_TIMING" \
   KB_EVAL_HOIST_INPUT_GEN="$KB_EVAL_HOIST_INPUT_GEN" \
+  KB_EVAL_UNLOCK_CORRECTNESS="$KB_EVAL_UNLOCK_CORRECTNESS" \
+  KB_GPU_EVAL_LOCK_SLOTS="$KB_GPU_EVAL_LOCK_SLOTS" \
+  KB_EVAL_MEM_GATE_FACTOR="$KB_EVAL_MEM_GATE_FACTOR" \
+  KB_EVAL_MEM_GATE_TIMEOUT_SEC="$KB_EVAL_MEM_GATE_TIMEOUT_SEC" \
   KB_EVAL_PHASE_LOG="$REPO_ROOT/$PHASE_LOG" \
   setsid nohup uv run --no-sync python \
     scripts_integration/new_evolving_agent/evolve_kb_batch.py \
@@ -230,7 +314,7 @@ for ((i=0; i<TOTAL; i++)); do
     --max-iterations "$MAX_ITERATIONS" \
     --hardware "$HARDWARE" \
     --nvidia-endpoint inference \
-    --model gpt-oss-120b \
+    --model "$MODEL" \
     --context-management "$ctx" \
     --coder-timeout-sec 600 \
     $flags \

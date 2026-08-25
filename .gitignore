@@ -49,3 +49,8 @@ chroma_db/
 # incidents) and must never be committed, or servers would overwrite each other.
 CLAUDE.local.md
 logs_archive/
+
+# Per-eval phase telemetry emitted by KB_EVAL_PHASE_LOG (one JSON line per eval:
+# held_sec, waited_sec, mem_need_gb, ...). Run artifacts, one file per arm per
+# wave -- useful live, not worth versioning.
+*_phase.jsonl
