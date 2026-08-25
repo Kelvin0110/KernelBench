@@ -599,6 +599,106 @@ def check_workload_shrink(code: str) -> Tuple[bool, str]:
 # =============================================================================
 
 
+# <========= GLOBAL MODULE PATCH CHECKS =========>
+# Rationale: the eval harness builds the REFERENCE model in the same process that
+# imports the candidate. Any module-level rebinding of a torch/nn class attribute
+# therefore mutates the reference too, so a candidate can make its own (wrong or
+# trivial) output "correct" by corrupting what it is compared against.
+#
+# Observed in the wild on this benchmark:
+#   nn.Conv2d.__init__        = _patched      # zeroes every conv weight
+#   nn.Conv2d.reset_parameters = _zero_reset  # same, via the init hook
+#   nn.Conv2d                  = _SharedConv2d # reference shares candidate weights
+#
+# All three make an all-zeros / shared-weight output pass correctness. The
+# excessive-speedup guard only catches these when the resulting speedup happens to
+# clear its threshold -- the same technique at 9x sails through -- so this must be
+# a categorical STRICT check, not a magnitude heuristic.
+
+# Rebinding is only a REFERENCE-CORRUPTION vector when the thing rebound is used
+# to build or run the reference model. Three families qualify:
+#   1. nn.* / torch.nn.*  -- the module classes the reference is constructed from
+#   2. torch.Tensor.*     -- method rebinding affects every tensor in the process
+#   3. torch.<factory/op> -- e.g. torch.randn, which the harness uses for inputs
+# Deliberately NOT flagged (checked against a 14,982-submission corpus):
+#   torch.backends.*, torch._dynamo.config.*, torch._inductor.config.*  (tuning)
+#   torch.compiler.*      (sloppy, but the reference never calls it)
+#   torch.ops.*           (legitimate custom-operator registration)
+#   torch._<private flag>  (idiomatic "already registered" markers)
+PATCH_DANGEROUS_TENSOR_FUNCS = {
+    "randn", "rand", "randint", "randn_like", "rand_like", "empty", "empty_like",
+    "zeros", "zeros_like", "ones", "ones_like", "full", "tensor", "as_tensor",
+    "from_numpy", "matmul", "mm", "bmm", "einsum", "conv1d", "conv2d", "conv3d",
+    "allclose", "equal", "manual_seed",
+}
+PATCH_ROOTS = {"nn", "F", "functional", "torch"}
+
+
+def _attr_root(node: "ast.AST") -> "str | None":
+    """Left-most Name of an attribute chain, e.g. nn.Conv2d.__init__ -> 'nn'."""
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def check_global_module_patch(code: str) -> Tuple[bool, str]:
+    """Flag rebinding of any torch/nn attribute (reference-model corruption).
+
+    Assignment to a *config* namespace (torch.backends.cudnn.benchmark,
+    torch._dynamo.config.*) is normal tuning and is allowed. Everything else --
+    class attributes, methods, the classes themselves -- is prohibited.
+    """
+    tree = _parse_python_module(code)
+    if tree is None:
+        return (False, "")
+
+    def _violation(target) -> "str | None":
+        if not isinstance(target, ast.Attribute):
+            return None
+        if _attr_root(target) not in PATCH_ROOTS:
+            return None
+        try:
+            dotted = ast.unparse(target)
+        except Exception:
+            return None
+        parts = dotted.split(".")
+        # nn.<Class>[.<attr>] or torch.nn.<Class>[.<attr>] -- module classes
+        if parts[0] in ("nn", "F", "functional"):
+            return dotted
+        if len(parts) >= 2 and parts[0] == "torch":
+            if parts[1] in ("nn", "Tensor"):
+                return dotted
+            # torch.<factory-or-op> = ... (rebinding a torch function itself)
+            if len(parts) == 2 and parts[1] in PATCH_DANGEROUS_TENSOR_FUNCS:
+                return dotted
+        return None
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                hit = _violation(target)
+                if hit:
+                    return (True, f"Rebinds torch/nn attribute `{hit}` "
+                                  "(mutates the reference model shared with eval)")
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            hit = _violation(node.target)
+            if hit:
+                return (True, f"Rebinds torch/nn attribute `{hit}` "
+                              "(mutates the reference model shared with eval)")
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id == "setattr" and node.args:
+            try:
+                obj = ast.unparse(node.args[0])
+            except Exception:
+                obj = ""
+            if obj.split(".")[0] in ("nn", "F", "functional") or \
+                    obj.startswith("torch.nn") or obj.startswith("torch.Tensor"):
+                return (True, f"Uses setattr() on `{obj}` "
+                              "(mutates the reference model shared with eval)")
+
+    return (False, "")
+
+
 # =============================================================================
 # REGISTRY & PRESETS
 # =============================================================================
@@ -610,6 +710,7 @@ CHECK_FUNCTIONS: Dict[str, Union[Callable[[str], Tuple[bool, str]], Callable[[st
     "code_bypass": check_code_bypass,
     "pytorch_wrap": check_pytorch_wrap,
     "timing_event_patch": check_timing_event_patch,  # clearly malicious
+    "global_module_patch": check_global_module_patch,  # corrupts the reference model
     
     # Torch ops (depends on your setups)
     "torch_computation_ops": check_torch_computation_ops,
@@ -640,6 +741,7 @@ PRECISION_DEPENDENT_CHECKS = {"precision_downgrade"}
 STRICT_CHECKS = [
     "code_bypass",
     "timing_event_patch",
+    "global_module_patch",  # reference-model corruption; see check_global_module_patch
     "thread_injection",  
     "lazy_eval",         
 ]
