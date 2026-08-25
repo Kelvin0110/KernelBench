@@ -799,6 +799,17 @@ wc -l <run>/l1_skill_merges.jsonl
 
 Both must be non-zero.
 
+**Refinement arms have a different sidecar, and a different trap.** `--enable-skill-refinement`
+writes `skill_revisions.txt` (not a `*refine*` filename — a glob for "refine" misses it),
+and no other arm has it. Confirm it is non-empty the same way.
+
+Its `refinement_meta` block (`bug_solved`, `metric_before/after`, `metric_delta_pct`) is
+computed **before** `revise_blamed_skills` is called (`skill_refinement.py:639-642`), so it
+describes the **iteration that triggered** the refinement, not the effect of it. Every
+record will show `bug_solved: false` and mostly negative deltas — that is the trigger
+condition firing as designed, **not** evidence that refinement made things worse. There is
+no field recording a refinement's outcome; you can only see it in the arm-level metric.
+
 ### 3.6 Resuming a damaged range
 
 ```bash
@@ -1013,6 +1024,15 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    reps, so **both thresholds now have data and neither is the settled default**.
    Decide from that data rather than re-asserting `0.85`; encode whichever you pick in
    the run tag.
+   **What 0.8 actually did on a completed 50-problem arm:** 207 merge events (82
+   accepted, 125 rejected), **488 source skills superseded into 41 active merged
+   skills — a mean of 11.9 sources collapsed per surviving skill**. The active catalog
+   ended at 168 entries (41 merged + 127 unmerged) against the control's 600. That is
+   the cluster chaining this item warns about, now quantified. Its effect on quality
+   was nil: paired ratio 0.945 [0.787, 1.134], McNemar p=0.73. So at 0.8 merging buys
+   a ~72% smaller catalog for no measurable quality change — the question is whether
+   0.85 preserves more distinctions without costing anything, not whether merging
+   "works".
 2. **`uv lock && uv sync`** — deferred until no run is in flight. Re-run the
    merge-threshold calibration afterwards. See `CLAUDE.local.md` for how far *this*
    host's venv has drifted from the lock.
@@ -1080,7 +1100,23 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    and every delta table. `run_summary.json` does carry the flag
    (`evolve_kb_batch.py:1771`), so this is a small extraction fix, but it must land
    **before** any report is generated from a wave containing an L2 arm.
-8. **L2 is unplanned scope.** `--enable-l2` is a third axis with its own knobs
+8. **L2 promotion has no dedup gate — measured, and it is the tier's main defect.**
+   The completed `l2` arm promoted **9 standing rules, 7 of which are the same idea**
+   ("Fuse Compute Instead of Adding Trivial Kernels", "Avoid Trivial Custom Kernels in
+   Hot Forward Paths", "Avoid Trivial Copy Kernels as Performance Boosts", …). Those 7
+   are 12,012 of the 15,176 characters of standing text, and with `--l2-render verbatim`
+   all of it goes into **every** coder system prompt: 20,091 chars vs the control's
+   4,190, ~4.7x. It bought nothing — geomean 1.347 vs the control's 1.389, paired ratio
+   0.965 [0.816, 1.142], fast_p@1 McNemar p=1.000.
+   The cause is compositional: L1 accumulates near-duplicate skills, `--skill-merging`
+   exists to collapse them, and the L2 arm ran with merging **off**, so one popular idea
+   was expressed as 7 skills and promoted 7 times. Promotion then freezes their evidence
+   and removes them from the extractor catalog, so nothing later reclaims the tokens.
+   Fix before spending more arms on L2: either require `--skill-merging` with
+   `--enable-l2`, or add a similarity gate to the promotion pass in `l2_promotion.py`.
+   Also note promotions cluster late (5 of 9 after global iteration 1110) because the
+   rate floor needs accumulated selections — a 50-problem run barely exercises the tier.
+9. **L2 is unplanned scope.** `--enable-l2` is a third axis with its own knobs
    (`--l2-render`, `--l2-min-tasks/-selections/-rate/-new-bests`, `--l2-max-entries`).
    Decide whether L2 belongs in this paper's matrix before spending more arms on it.
    *Corrected:* this item used to add "its floors are calibrated for `--no-skill-deletion`
@@ -1093,7 +1129,7 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    entries. Defaults today: MIN_TASKS 3 / MIN_SELECTIONS 50 / MIN_RATE 0.70 /
    MIN_NEW_BESTS 0 (disabled) / MAX_ENTRIES 0. An L2 × governance cell needs no
    re-tuning on that ground; it is still unplanned scope.
-9. **Replicate noise is ~30%, and it bounds every conclusion — this is the binding
+10. **Replicate noise is ~30%, and it bounds every conclusion — this is the binding
    constraint on the whole series.** Three *identical-config* `merge_sim08` replicates
    (`2026_08_19_17_{29,32,35}`, `output/GH200x2_nvcc_fixed/aggregate_runs.csv`) give
    `best_geomean` (CSV column `speedup_best_geomean`) 0.838 / 0.855 / 1.092 — **log-SD
@@ -1118,7 +1154,7 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    No script does that pairing today: `compare_runs.py` matches on iteration and has no
    per-problem or CI logic; `analyze_feature_evidence.py` pairs per problem but rejects
    partial runs (exit 2).
-10. **Solo baselines drift and must not be reused across dates.** The same 49 problems
+11. **Solo baselines drift and must not be reused across dates.** The same 49 problems
    took 87.8 min/problem (Aug 07), 79.8 (Aug 13), 80.1 (Aug 14), 64.7 (Aug 17) — a 26%
    swing from inference-endpoint latency, not from anything in this repo. Because the
    agent is LLM-bound, any throughput or speedup figure normalised against a baseline
