@@ -536,6 +536,21 @@ def _device_memory_reservation(need_bytes: int, device, timeout_sec: float):
             return True
         return False
 
+    # Publish the running wait so the SPAWNING PARENT discounts it from the eval
+    # deadline, exactly as the GPU lock's own wait is discounted
+    # (execution.evaluate_in_subprocess reads the shared counter every poll).
+    # Without this the gate queues on the *work* budget: measured on the terra
+    # wave, 12.6% of evals hit the valve and 5.2% were SIGTERM'd at 600s and
+    # recorded as compile failures for kernels that were never broken.
+    _report = _commit = None
+    try:
+        from evolving_common.governor.gpu_lock import (
+            commit_external_wait as _commit,
+            report_external_wait as _report,
+        )
+    except Exception:  # older submodule / direct callers: degrade to silence
+        _report = _commit = None
+
     t0 = time.time()
     while True:
         try:
@@ -543,11 +558,27 @@ def _device_memory_reservation(need_bytes: int, device, timeout_sec: float):
                 break
         except Exception:
             break
-        if time.time() - t0 >= timeout_sec:
-            print(f"[Eval] memory gate: waited {time.time()-t0:.0f}s for "
-                  f"{need_bytes/2**30:.1f} GiB; proceeding anyway", flush=True)
+        waited = time.time() - t0
+        if _report is not None:
+            try:
+                _report(waited)
+            except Exception:
+                pass
+        if waited >= timeout_sec:
+            # Deliberately NOT printed. eval_runner folds BOTH stdout and stderr
+            # into terminal_output, which governor.py splices into the coder's
+            # system prompt -- a notice here mutates LLM input, i.e. it is an
+            # experiment change rather than an observation. Measured on the terra
+            # wave before this fix: 164 evals injected the old print, reaching 36
+            # chat histories. The wait is already recorded as mem_gate_waited_sec
+            # in KB_EVAL_PHASE_LOG, which is where telemetry belongs.
             break
         time.sleep(0.25)
+    if _commit is not None:
+        try:
+            _commit(time.time() - t0)
+        except Exception:
+            pass
     try:
         yield round(time.time() - t0, 3)
     finally:
@@ -913,10 +944,24 @@ def eval_kernel_against_ref(
                 for t in _cpu_inputs_timing if torch.is_tensor(t)))
         except Exception:
             _need = 0
+    # A SHORT valve was only ever needed because this wait was billed to the eval
+    # deadline; the gate proceeds UNGATED on timeout, so cutting it short trades
+    # the memory guarantee for nothing once the parent discounts the wait. Floor
+    # it when a parent is listening. This matters most on the biggest problems,
+    # which are exactly where the gate binds: at factor 7 on a 143GiB card L1P34
+    # (7.0GiB inputs) admits 2, so 9 arms/GPU in lockstep queue several rounds
+    # deep, and an ungated third resident there is ~147GiB -- an OOM.
     try:
-        _mem_gate_timeout = float(os.environ.get("KB_EVAL_MEM_GATE_TIMEOUT_SEC", "600"))
+        _mem_gate_timeout = float(os.environ.get("KB_EVAL_MEM_GATE_TIMEOUT_SEC", "1800"))
     except (TypeError, ValueError):
-        _mem_gate_timeout = 600.0
+        _mem_gate_timeout = 1800.0
+    try:
+        from evolving_common.governor.gpu_lock import wait_reporting_active
+
+        if wait_reporting_active():
+            _mem_gate_timeout = max(_mem_gate_timeout, 1800.0)
+    except Exception:
+        pass
 
     # Reserve BEFORE queueing for a slot, not after: holding a slot while waiting on
     # memory would block evals that could have run. Released after the GPU phase.

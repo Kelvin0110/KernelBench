@@ -66,13 +66,15 @@ KB_GPU_EVAL_LOCK_SLOTS="${KB_GPU_EVAL_LOCK_SLOTS:-3}"
 #     accurate and correct. NOTE: eval.py:909 requires _cpu_inputs_timing, so
 #     this gate is INERT unless KB_EVAL_HOIST_INPUT_GEN=1 is also set.
 KB_EVAL_MEM_GATE_FACTOR="${KB_EVAL_MEM_GATE_FACTOR:-7}"
-#   KB_EVAL_MEM_GATE_TIMEOUT_SEC -- valve. Unlike gpu_lock (which publishes its
-#     wait so execution.py extends the deadline), NOTHING publishes the mem-gate
-#     wait, so it is spent out of the 600s eval work budget. Left at the 600
-#     default a gate queue can consume the whole budget and the eval is SIGTERMd
-#     mid-wait -- recorded as a fake compile failure the governor then "debugs".
-#     300 guarantees half the budget survives. On timeout the gate proceeds anyway.
-KB_EVAL_MEM_GATE_TIMEOUT_SEC="${KB_EVAL_MEM_GATE_TIMEOUT_SEC:-300}"
+#   KB_EVAL_MEM_GATE_TIMEOUT_SEC -- valve. CORRECTED 2026-08-25: the gate now
+#     publishes its running wait through gpu_lock.report_external_wait, so
+#     execution.py discounts it from the eval deadline exactly as it discounts the
+#     lock's own wait. The short 300s valve this used to carry existed only because
+#     the wait was billed to the 600s work budget; measured on the terra wave that
+#     setting made 12.6% of evals hit the valve and proceed UNGATED and drove the
+#     eval-timeout rate to 5.2% (vs 0.74% the wave before). Since the gate proceeds
+#     ungated on timeout, a short valve trades the memory guarantee for nothing.
+KB_EVAL_MEM_GATE_TIMEOUT_SEC="${KB_EVAL_MEM_GATE_TIMEOUT_SEC:-1800}"
 export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN KB_EVAL_UNLOCK_CORRECTNESS KB_GPU_EVAL_LOCK_SLOTS KB_EVAL_MEM_GATE_FACTOR KB_EVAL_MEM_GATE_TIMEOUT_SEC
 
 set -euo pipefail
