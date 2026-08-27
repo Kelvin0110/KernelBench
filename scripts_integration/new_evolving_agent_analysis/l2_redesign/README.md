@@ -203,6 +203,55 @@ threshold viable at all. Two properties follow, both verified end to end:
   0.80–0.87 (§2.3), not on hand-written prose. Re-derive it per model by reading
   `inspect_dupes.py` output rather than porting the number.
 
+## 4c. The finding that reframes all of the above: selection has no outcome validity
+
+Sections 2-4 treat the gate as a measurement problem -- wrong denominator, wrong
+cap, no dedup. All three are real. But they assume the underlying signal means
+something. It does not.
+
+Every floor (`min_tasks`, `min_selections`, `min_rate`, and `hit_rate` too) counts
+how often the extractor *chose* a skill. The one outcome floor, `min_new_bests`,
+ships disabled. Comparing iterations where a skill was offered **and selected**
+against those where it was offered and **not** selected -- so both sides condition
+on the skill being available at that moment (`outcome_lift.py`):
+
+| | gpt-oss | terra |
+|---|---|---|
+| P(new best \| selected) | 0.1423 | 0.2057 |
+| P(new best \| offered, not selected) | 0.1440 | 0.2275 |
+| **pooled lift** | **-0.0017** | **-0.0219** |
+| per-skill median lift | -0.0125 | -0.0221 |
+| fraction of skills with lift > 0 | 0.439 | 0.442 |
+
+New bests concentrate early (base rate 0.218 in attempts 1-5 vs 0.152 in 6-15 on
+gpt-oss), so position is a real confound -- but stratifying on it does not rescue
+the signal: gpt-oss -0.0002 / -0.0055, terra +0.0281 / -0.0308. On terra the three
+promoted skills scored **worse** than non-promoted (-0.0608 vs -0.0216).
+
+And `min_new_bests` is not an independent second signal: `corr(selections,
+new_bests)` is 0.867 / 0.680 and the ratio's median (0.129 / 0.203) matches the
+pooled new-best base rate (0.142 / 0.206). It is `min_selections` rescaled
+(`newbests_vs_selections.py`).
+
+**So the ledger holds no validated outcome evidence, and no threshold on it can.**
+This partly undercuts §2.1: the hit-rate change fixes the *precision* of a measure
+that lacks *validity*. It is still correct on its own terms -- the old denominator
+counts iterations in which selection was impossible -- but it should not be
+expected to improve kernel quality by itself.
+
+**Caveat.** This is observational. The extractor picks conditioned on the current
+failure, so selection correlates with the state of the search. A large positive
+lift would not have proven causation. A lift at zero does show the ranking signal
+carries no outcome information, which is the decision-relevant direction.
+
+### What follows from it
+
+| knob | what it does instead |
+|---|---|
+| `--l2-judge` | an LLM reads the rule TEXT -- general, actionable, non-redundant, non-obvious -- rather than ranking counts. Floors drop to a weak admission bar. Fails CLOSED. |
+| `--l2-preseed` | install a previous run's standing set at problem 1, so an arm asks "do standing rules help" WITHOUT also asking "can the gate find them" |
+| `--l2-freeze` | promote nothing; with pre-seed the treatment is exactly the injected set |
+
 ## 5. Reproducing
 
 ```bash
