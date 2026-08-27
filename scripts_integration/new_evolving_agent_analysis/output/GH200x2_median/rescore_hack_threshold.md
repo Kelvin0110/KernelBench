@@ -1,10 +1,11 @@
 # Uniform-threshold re-score (30x)
 
-Generated 2026-08-25T06:49:31.761362+00:00. Baseline: `NVIDIA_GH200x2_median`.
+Generated 2026-08-27T00:42:20.606329+00:00. Baseline: `NVIDIA_GH200x2_median`.
 
-> **STATUS: PARTIAL.** These runs are incomplete. `ANALYSIS_RULES.md:158` forbids
-> partial prefixes as a final comparative result -- read the *deltas* as magnitude,
-> not the levels as a leaderboard.
+> **STATUS: COMPLETE.** All 15 arms finished 50/50 with
+> `run_summary.json`. Levels are quotable. **But n=1 replicate per cell:** per
+> `ANALYSIS_RULES.md` and open item 9 (log-SD 0.147 across identical-config
+> replicates), a single replicate cannot support an arm-vs-arm winner claim.
 
 ## The seam
 
@@ -13,7 +14,7 @@ Generated 2026-08-25T06:49:31.761362+00:00. Baseline: `NVIDIA_GH200x2_median`.
 reached all live arms with no restart and no log line. `is_hack` gates which iterations
 may form a best, so identical kernels scored differently either side of that instant.
 
-- evals whose label changes under a uniform 30x: **271** of 14884
+- evals whose label changes under a uniform 30x: **271** of 22500
 
 - all flips are pre-seam evals in the (10, 30] band; re-scoring can only *raise* them,
   so this is a one-directional correction toward the post-seam arms.
@@ -25,30 +26,30 @@ Cross-model contrast is invalid (different endpoints, GPUs, latency), so each mo
 group is aligned on the problems common to all of its arms.
 
 
-### gpt-oss-120b -- 17 aligned problems, 9 arms
+### gpt-oss-120b -- 50 aligned problems, 9 arms
 
 | arm | fast_p@1.0 stored | uniform | delta | geomean stored | uniform | delta |
 |---|---|---|---|---|---|---|
-| oss_compress | 0.941 | 0.941 | +0.000 | 1.266 | 1.266 | +0.000 |
-| oss_deletion | 0.765 | 0.765 | +0.000 | 1.490 | 1.490 | +0.000 |
-| oss_folding | 0.824 | 0.824 | +0.000 | 1.581 | 1.581 | +0.000 |
-| oss | 0.941 | 0.941 | +0.000 | 1.488 | 1.488 | +0.000 |
-| oss_l2 | 0.824 | 0.824 | +0.000 | 1.536 | 1.536 | +0.000 |
-| oss_markov | 0.765 | 0.765 | +0.000 | 1.039 | 1.039 | +0.000 |
-| **oss_merge_sim08** | 0.824 | 0.824 | +0.000 | 1.702 | 1.734 | +0.032 |
-| oss_refinement | 0.824 | 0.824 | +0.000 | 1.567 | 1.567 | +0.000 |
-| oss_selective_r5 | 0.765 | 0.765 | +0.000 | 1.405 | 1.405 | +0.000 |
+| oss_compress | 0.780 | 0.780 | +0.000 | 1.336 | 1.336 | +0.000 |
+| oss_deletion | 0.700 | 0.700 | +0.000 | 1.433 | 1.433 | +0.000 |
+| oss_folding | 0.660 | 0.660 | +0.000 | 1.443 | 1.443 | +0.000 |
+| **oss** | 0.660 | 0.660 | +0.000 | 1.292 | 1.326 | +0.034 |
+| oss_l2 | 0.720 | 0.720 | +0.000 | 1.471 | 1.471 | +0.000 |
+| **oss_markov** | 0.700 | 0.700 | +0.000 | 1.189 | 1.196 | +0.007 |
+| **oss_merge_sim08** | 0.660 | 0.660 | +0.000 | 1.362 | 1.370 | +0.008 |
+| oss_refinement | 0.680 | 0.680 | +0.000 | 1.525 | 1.525 | +0.000 |
+| oss_selective_r5 | 0.660 | 0.660 | +0.000 | 1.402 | 1.402 | +0.000 |
 
-### terra -- 32 aligned problems, 6 arms
+### terra -- 50 aligned problems, 6 arms
 
 | arm | fast_p@1.0 stored | uniform | delta | geomean stored | uniform | delta |
 |---|---|---|---|---|---|---|
-| **terra_compress** | 0.781 | 0.875 | +0.094 | 2.466 | 3.074 | +0.608 |
-| **terra_deletion** | 0.938 | 0.938 | +0.000 | 2.065 | 2.605 | +0.540 |
-| **terra** | 0.906 | 0.906 | +0.000 | 2.358 | 2.923 | +0.565 |
-| **terra_l2** | 0.844 | 0.844 | +0.000 | 1.931 | 2.515 | +0.583 |
-| **terra_markov** | 0.906 | 0.906 | +0.000 | 1.835 | 2.151 | +0.316 |
-| **terra_selective_r5** | 0.812 | 0.844 | +0.031 | 1.866 | 2.205 | +0.339 |
+| **terra_compress** | 0.840 | 0.900 | +0.060 | 2.901 | 3.308 | +0.407 |
+| **terra_deletion** | 0.980 | 0.980 | +0.000 | 2.479 | 2.877 | +0.398 |
+| **terra** | 0.860 | 0.860 | +0.000 | 2.417 | 2.773 | +0.356 |
+| **terra_l2** | 0.800 | 0.800 | +0.000 | 1.966 | 2.328 | +0.362 |
+| **terra_markov** | 0.840 | 0.840 | +0.000 | 1.758 | 1.951 | +0.193 |
+| **terra_selective_r5** | 0.820 | 0.840 | +0.020 | 2.049 | 2.276 | +0.227 |
 
 ## What this does not fix
 
