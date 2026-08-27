@@ -1,6 +1,6 @@
 # Uniform-threshold re-score (30x)
 
-Generated 2026-08-27T00:42:20.606329+00:00. Baseline: `NVIDIA_GH200x2_median`.
+Generated 2026-08-27T01:48:14.421269+00:00. Baseline: `NVIDIA_GH200x2_median`.
 
 > **STATUS: COMPLETE.** All 15 arms finished 50/50 with
 > `run_summary.json`. Levels are quotable. **But n=1 replicate per cell:** per
@@ -14,7 +14,7 @@ Generated 2026-08-27T00:42:20.606329+00:00. Baseline: `NVIDIA_GH200x2_median`.
 reached all live arms with no restart and no log line. `is_hack` gates which iterations
 may form a best, so identical kernels scored differently either side of that instant.
 
-- evals whose label changes under a uniform 30x: **271** of 22500
+- evals whose label changes under a uniform 30x: **268** of 22500
 
 - all flips are pre-seam evals in the (10, 30] band; re-scoring can only *raise* them,
   so this is a one-directional correction toward the post-seam arms.
@@ -31,12 +31,12 @@ group is aligned on the problems common to all of its arms.
 | arm | fast_p@1.0 stored | uniform | delta | geomean stored | uniform | delta |
 |---|---|---|---|---|---|---|
 | oss_compress | 0.780 | 0.780 | +0.000 | 1.336 | 1.336 | +0.000 |
-| oss_deletion | 0.700 | 0.700 | +0.000 | 1.433 | 1.433 | +0.000 |
+| oss_deletion | 0.700 | 0.700 | +0.000 | 1.382 | 1.382 | +0.000 |
 | oss_folding | 0.660 | 0.660 | +0.000 | 1.443 | 1.443 | +0.000 |
-| **oss** | 0.660 | 0.660 | +0.000 | 1.292 | 1.326 | +0.034 |
+| **oss** | 0.660 | 0.660 | +0.000 | 1.291 | 1.325 | +0.034 |
 | oss_l2 | 0.720 | 0.720 | +0.000 | 1.471 | 1.471 | +0.000 |
 | **oss_markov** | 0.700 | 0.700 | +0.000 | 1.189 | 1.196 | +0.007 |
-| **oss_merge_sim08** | 0.660 | 0.660 | +0.000 | 1.362 | 1.370 | +0.008 |
+| oss_merge_sim08 | 0.640 | 0.640 | +0.000 | 1.301 | 1.301 | +0.000 |
 | oss_refinement | 0.680 | 0.680 | +0.000 | 1.525 | 1.525 | +0.000 |
 | oss_selective_r5 | 0.660 | 0.660 | +0.000 | 1.402 | 1.402 | +0.000 |
 

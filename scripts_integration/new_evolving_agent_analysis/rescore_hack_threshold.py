@@ -177,6 +177,12 @@ def main() -> int:
     ap.add_argument("--threshold", type=float, default=NEW_T)
     ap.add_argument("--runs-root", action="append", default=None)
     ap.add_argument("--output-dir", required=True)
+    ap.add_argument("--completed-only", action="store_true",
+                    help="keep only arms with run_summary.json AND >=50 batch_timing "
+                         "entries. Neither --all-dirs (everything, incl. in-flight) nor "
+                         "the live-process default gives you 'the finished arms' once a "
+                         "new wave is running -- an arm at problem 2 would collapse the "
+                         "aligned set to near zero and silently shrink every denominator.")
     ap.add_argument("--all-dirs", action="store_true",
                     help="do NOT intersect with the live process list (includes killed arms)")
     args = ap.parse_args()
@@ -200,6 +206,14 @@ def main() -> int:
             probs = scan_arm(d, args.threshold)
             if probs:
                 arms[name] = {"dir": d, "root": root, "problems": probs}
+
+    if args.completed_only:
+        keep = {n: a for n, a in arms.items() if not _incomplete({n: a})}
+        dropped = sorted(set(arms) - set(keep))
+        if dropped:
+            print(f"--completed-only: dropped {len(dropped)} in-flight arm(s): "
+                  + ", ".join(d[-34:] for d in dropped))
+        arms = keep
 
     if not arms:
         print("no arms matched", file=sys.stderr)
