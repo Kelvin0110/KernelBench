@@ -1,6 +1,6 @@
 # Uniform-threshold re-score (30x)
 
-Generated 2026-08-27T01:48:14.421269+00:00. Baseline: `NVIDIA_GH200x2_median`.
+Generated 2026-08-27T01:48:55.492016+00:00. Baseline: `NVIDIA_GH200x2_median`.
 
 > **STATUS: COMPLETE.** All 15 arms finished 50/50 with
 > `run_summary.json`. Levels are quotable. **But n=1 replicate per cell:** per

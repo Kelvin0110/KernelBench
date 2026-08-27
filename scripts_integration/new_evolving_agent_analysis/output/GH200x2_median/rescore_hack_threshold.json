@@ -313,11 +313,11 @@
   },
   "arms": {
     "base_agent_gpt_5_6_terra_compress_itr30_GH200_2026_08_22_21_17": {
-      "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_compress_itr30_GH200_2026_08_22_21_17",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra/base_agent_gpt_5_6_terra_compress_itr30_GH200_2026_08_22_21_17",
       "model": "terra",
       "n_evals": 1500,
       "n_flipped_evals": 58,
-      "root": "runs_evolving/gpt-5.6-terra/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra",
       "stored": {
         "best_geomean": 2.900701324268786,
         "best_median": 2.7203947368421053,
@@ -338,11 +338,11 @@
       }
     },
     "base_agent_gpt_5_6_terra_deletion_itr30_GH200_2026_08_22_21_20": {
-      "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_deletion_itr30_GH200_2026_08_22_21_20",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra/base_agent_gpt_5_6_terra_deletion_itr30_GH200_2026_08_22_21_20",
       "model": "terra",
       "n_evals": 1500,
       "n_flipped_evals": 41,
-      "root": "runs_evolving/gpt-5.6-terra/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra",
       "stored": {
         "best_geomean": 2.479077947381513,
         "best_median": 1.9395348837209303,
@@ -363,11 +363,11 @@
       }
     },
     "base_agent_gpt_5_6_terra_itr30_GH200_2026_08_22_21_08": {
-      "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_itr30_GH200_2026_08_22_21_08",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra/base_agent_gpt_5_6_terra_itr30_GH200_2026_08_22_21_08",
       "model": "terra",
       "n_evals": 1500,
       "n_flipped_evals": 21,
-      "root": "runs_evolving/gpt-5.6-terra/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra",
       "stored": {
         "best_geomean": 2.417011351398555,
         "best_median": 1.9855595667870036,
@@ -388,11 +388,11 @@
       }
     },
     "base_agent_gpt_5_6_terra_l2_itr30_GH200_2026_08_22_21_23": {
-      "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_l2_itr30_GH200_2026_08_22_21_23",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra/base_agent_gpt_5_6_terra_l2_itr30_GH200_2026_08_22_21_23",
       "model": "terra",
       "n_evals": 1500,
       "n_flipped_evals": 32,
-      "root": "runs_evolving/gpt-5.6-terra/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra",
       "stored": {
         "best_geomean": 1.9664612260557959,
         "best_median": 1.529850746268657,
@@ -413,11 +413,11 @@
       }
     },
     "base_agent_gpt_5_6_terra_markov_itr30_GH200_2026_08_22_21_11": {
-      "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_markov_itr30_GH200_2026_08_22_21_11",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra/base_agent_gpt_5_6_terra_markov_itr30_GH200_2026_08_22_21_11",
       "model": "terra",
       "n_evals": 1500,
       "n_flipped_evals": 45,
-      "root": "runs_evolving/gpt-5.6-terra/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra",
       "stored": {
         "best_geomean": 1.7582134510695446,
         "best_median": 1.4595469255663431,
@@ -438,11 +438,11 @@
       }
     },
     "base_agent_gpt_5_6_terra_selective_r5_itr30_GH200_2026_08_22_21_14": {
-      "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_selective_r5_itr30_GH200_2026_08_22_21_14",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra/base_agent_gpt_5_6_terra_selective_r5_itr30_GH200_2026_08_22_21_14",
       "model": "terra",
       "n_evals": 1500,
       "n_flipped_evals": 51,
-      "root": "runs_evolving/gpt-5.6-terra/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/terra",
       "stored": {
         "best_geomean": 2.0489137395031554,
         "best_median": 1.5279878971255672,
@@ -463,11 +463,11 @@
       }
     },
     "base_agent_gpt_oss_120b_compress_itr30_GH200_2026_08_22_21_20": {
-      "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_compress_itr30_GH200_2026_08_22_21_20",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss/base_agent_gpt_oss_120b_compress_itr30_GH200_2026_08_22_21_20",
       "model": "gpt-oss-120b",
       "n_evals": 1500,
       "n_flipped_evals": 0,
-      "root": "runs_evolving/gpt-oss-120b/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss",
       "stored": {
         "best_geomean": 1.3355335993547874,
         "best_median": 1.2113702623906706,
@@ -488,11 +488,11 @@
       }
     },
     "base_agent_gpt_oss_120b_deletion_itr30_GH200_2026_08_22_21_23": {
-      "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_deletion_itr30_GH200_2026_08_22_21_23",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss/base_agent_gpt_oss_120b_deletion_itr30_GH200_2026_08_22_21_23",
       "model": "gpt-oss-120b",
       "n_evals": 1500,
       "n_flipped_evals": 0,
-      "root": "runs_evolving/gpt-oss-120b/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss",
       "stored": {
         "best_geomean": 1.3816539992483496,
         "best_median": 1.1317365269461077,
@@ -513,11 +513,11 @@
       }
     },
     "base_agent_gpt_oss_120b_folding_itr30_GH200_2026_08_22_21_11": {
-      "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_folding_itr30_GH200_2026_08_22_21_11",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss/base_agent_gpt_oss_120b_folding_itr30_GH200_2026_08_22_21_11",
       "model": "gpt-oss-120b",
       "n_evals": 1500,
       "n_flipped_evals": 0,
-      "root": "runs_evolving/gpt-oss-120b/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss",
       "stored": {
         "best_geomean": 1.4425680641315728,
         "best_median": 1.1317365269461077,
@@ -538,11 +538,11 @@
       }
     },
     "base_agent_gpt_oss_120b_itr30_GH200_2026_08_22_21_07": {
-      "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_itr30_GH200_2026_08_22_21_07",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss/base_agent_gpt_oss_120b_itr30_GH200_2026_08_22_21_07",
       "model": "gpt-oss-120b",
       "n_evals": 1500,
       "n_flipped_evals": 13,
-      "root": "runs_evolving/gpt-oss-120b/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss",
       "stored": {
         "best_geomean": 1.2905821298369837,
         "best_median": 1.085409252669039,
@@ -563,11 +563,11 @@
       }
     },
     "base_agent_gpt_oss_120b_l2_itr30_GH200_2026_08_22_21_32": {
-      "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_l2_itr30_GH200_2026_08_22_21_32",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss/base_agent_gpt_oss_120b_l2_itr30_GH200_2026_08_22_21_32",
       "model": "gpt-oss-120b",
       "n_evals": 1500,
       "n_flipped_evals": 0,
-      "root": "runs_evolving/gpt-oss-120b/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss",
       "stored": {
         "best_geomean": 1.4708976175639168,
         "best_median": 1.1358024691358024,
@@ -588,11 +588,11 @@
       }
     },
     "base_agent_gpt_oss_120b_markov_itr30_GH200_2026_08_22_21_14": {
-      "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_markov_itr30_GH200_2026_08_22_21_14",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss/base_agent_gpt_oss_120b_markov_itr30_GH200_2026_08_22_21_14",
       "model": "gpt-oss-120b",
       "n_evals": 1500,
       "n_flipped_evals": 7,
-      "root": "runs_evolving/gpt-oss-120b/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss",
       "stored": {
         "best_geomean": 1.1885923382855421,
         "best_median": 1.0848375451263539,
@@ -613,11 +613,11 @@
       }
     },
     "base_agent_gpt_oss_120b_merge_sim08_itr30_GH200_2026_08_22_21_29": {
-      "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_merge_sim08_itr30_GH200_2026_08_22_21_29",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss/base_agent_gpt_oss_120b_merge_sim08_itr30_GH200_2026_08_22_21_29",
       "model": "gpt-oss-120b",
       "n_evals": 1500,
       "n_flipped_evals": 0,
-      "root": "runs_evolving/gpt-oss-120b/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss",
       "stored": {
         "best_geomean": 1.301129044297773,
         "best_median": 1.124260355029586,
@@ -638,11 +638,11 @@
       }
     },
     "base_agent_gpt_oss_120b_refinement_itr30_GH200_2026_08_22_21_26": {
-      "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_refinement_itr30_GH200_2026_08_22_21_26",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss/base_agent_gpt_oss_120b_refinement_itr30_GH200_2026_08_22_21_26",
       "model": "gpt-oss-120b",
       "n_evals": 1500,
       "n_flipped_evals": 0,
-      "root": "runs_evolving/gpt-oss-120b/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss",
       "stored": {
         "best_geomean": 1.524922141778355,
         "best_median": 1.1317365269461077,
@@ -663,11 +663,11 @@
       }
     },
     "base_agent_gpt_oss_120b_selective_r5_itr30_GH200_2026_08_22_21_17": {
-      "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_selective_r5_itr30_GH200_2026_08_22_21_17",
+      "dir": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss/base_agent_gpt_oss_120b_selective_r5_itr30_GH200_2026_08_22_21_17",
       "model": "gpt-oss-120b",
       "n_evals": 1500,
       "n_flipped_evals": 0,
-      "root": "runs_evolving/gpt-oss-120b/median",
+      "root": "/localhome/local-tianzheng/.claude/jobs/578a656e/tmp/cohort/oss",
       "stored": {
         "best_geomean": 1.4018273745136818,
         "best_median": 1.1385542168674696,
@@ -689,7 +689,7 @@
     }
   },
   "baseline": "results/timing/NVIDIA_GH200x2_median (speedups are governor-computed against this fixed baseline; re-scoring does not touch the baseline)",
-  "generated_utc": "2026-08-27T01:48:14.421269+00:00",
+  "generated_utc": "2026-08-27T01:48:55.492016+00:00",
   "incomplete_arms": [],
   "live_filtered": false,
   "per_problem": {
