@@ -63,3 +63,7 @@ run_smoke_l2.sh
 .venv
 wait_arms.sh
 wait_wave.sh
+wait_batch2.sh
+batch2_launch.log
+check_memgate_damage.py
+preseed/
