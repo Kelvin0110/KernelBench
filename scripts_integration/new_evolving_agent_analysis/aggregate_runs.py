@@ -470,6 +470,7 @@ def load_or_build_stats(
     baseline_file: Path,
     fast_p_thresholds: list[float],
     regenerate: bool,
+    hack_threshold: float | None = 30.0,
 ) -> tuple[dict[str, Any] | None, str | None, str, str | None]:
     """``(stats_doc, error, source, stale_reason)``; source is cached|generated|regenerated_stale|missing."""
     run_dir = runs_root / run_name
@@ -494,6 +495,7 @@ def load_or_build_stats(
             runs_root=runs_root,
             baseline_file=baseline_file,
             fast_p_thresholds=fast_p_thresholds,
+            hack_threshold=hack_threshold,
         )
     except Exception as exc:  # missing workspaces / baseline / no parsable problems
         return None, f"{type(exc).__name__}: {exc}", "missing", stale_reason
@@ -734,6 +736,7 @@ def build_run_record(
     baseline_file: Path,
     fast_p_thresholds: list[float],
     regenerate_stats: bool,
+    hack_threshold: float | None = 30.0,
 ) -> dict[str, Any]:
     run_dir = runs_root / run_name
     warnings: list[str] = []
@@ -755,6 +758,7 @@ def build_run_record(
         baseline_file=baseline_file,
         fast_p_thresholds=fast_p_thresholds,
         regenerate=regenerate_stats,
+        hack_threshold=hack_threshold,
     )
     if stats_error:
         warnings.append(f"performance_stats unavailable: {stats_error}")
@@ -964,6 +968,7 @@ def aggregate_runs(
     fast_p_thresholds: list[float] | None = None,
     only_runs: list[str] | None = None,
     regenerate_stats: bool = False,
+    hack_threshold: float | None = 30.0,
     write_outputs: bool = True,
 ) -> dict[str, Any]:
     """Build the cross-run aggregate doc (and optionally write JSON + CSV)."""
@@ -982,6 +987,7 @@ def aggregate_runs(
                     baseline_file=baseline_file,
                     fast_p_thresholds=thresholds,
                     regenerate_stats=regenerate_stats,
+                    hack_threshold=hack_threshold,
                 )
             )
         except Exception as exc:  # never let one bad run kill the aggregation
@@ -1065,6 +1071,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated fast-p thresholds (default: 0.0,0.5,0.8,1.0,1.5,2.0)",
     )
     parser.add_argument(
+        "--hack-threshold", type=float, default=30.0,
+        help="Recompute is_hack uniformly as speedup > THRESHOLD instead of trusting "
+             "the run-time label. Default 30. Runs spanning the 2026-08-24 eval.py "
+             "10 -> 30 change carry two policies internally without this.",
+    )
+    parser.add_argument(
+        "--use-stored-hack", action="store_true",
+        help="Trust run-time is_hack labels; reproduces pre-2026-08-27 numbers.",
+    )
+    parser.add_argument(
         "--regenerate-stats",
         action="store_true",
         help="Rebuild <run>/visualizations/performance_stats.json even when cached",
@@ -1092,6 +1108,7 @@ def main() -> int:
         output_dir=output_dir,
         baseline_file=baseline_file,
         fast_p_thresholds=parse_fastp_values(args.fast_p_values),
+        hack_threshold=(None if args.use_stored_hack else args.hack_threshold),
         only_runs=args.runs,
         regenerate_stats=bool(args.regenerate_stats),
     )
