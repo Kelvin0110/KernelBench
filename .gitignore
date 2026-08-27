@@ -60,3 +60,4 @@ out_l2/
 runs_ro
 smoke_l2_redesign.log
 run_smoke_l2.sh
+.venv

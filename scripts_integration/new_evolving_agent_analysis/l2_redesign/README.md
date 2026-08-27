@@ -179,6 +179,30 @@ Supporting changes:
 - MLE-side parity: the same knobs added to `GovernorConfig` / `_build_l2_config`,
   which `test_mle_and_kb_configs_expose_the_same_l2_knobs` requires.
 
+## 4b. Threshold sharpness, measured against the live embedder
+
+`live_promote_dedup.py` drives the real `run_l2_promotion_pass` over a synthetic
+catalog (three restatements of one idea + two distinct rules) using the actual
+`embed_texts_nvidia`, not a stub. Pairwise cosine over that corpus:
+
+```
+within the restatement family : 0.8302, 0.7595, 0.7419
+family vs distinct rules      : 0.47 - 0.58
+distinct vs distinct          : 0.4748
+```
+
+Separation between "same idea" and "different idea" is wide, which is what makes a
+threshold viable at all. Two properties follow, both verified end to end:
+
+- **Dedup is greedy-pairwise against already-kept rules, not transitive-closure
+  clustering.** With family members at 0.83 / 0.76 / 0.74, keeping the top-ranked
+  rule drops the 0.83 neighbour and keeps the 0.74 one. τ=0.70 collapses the whole
+  family to one. This is intended: a promoted rule is permanent, so the gate should
+  only refuse a candidate that restates something *specific* already standing.
+- **τ=0.80 is calibrated on real L1 text**, where the observed families sit at
+  0.80–0.87 (§2.3), not on hand-written prose. Re-derive it per model by reading
+  `inspect_dupes.py` output rather than porting the number.
+
 ## 5. Reproducing
 
 ```bash
@@ -189,7 +213,10 @@ python3 sweep_gates.py <arm> [<arm>…]
 $V compare_designs.py <arm> [<arm>…]
 $V inspect_dupes.py <arm>
 $V test_redesign.py            # 15 unit tests incl. defaults-are-inert
+$V test_design_label.py        # L2 arm must not render as its own control
 $V regression_real_gate.py <arm> [<arm>…]
+$V live_promote_dedup.py       # promote+dedup+cap against the REAL embedder
+$V probe_cap_semantics.py      # what --l2-max-entries actually caps
 ```
 
 ## 6. Limits
