@@ -1156,6 +1156,7 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    and every delta table. `run_summary.json` does carry the flag
    (`evolve_kb_batch.py:1771`), so this is a small extraction fix, but it must land
    **before** any report is generated from a wave containing an L2 arm.
+   This is a launch-blocker for any L2 wave — see §8.10.
 8. **L2 promotion has no dedup gate — measured, and it is the tier's main defect.**
    The completed `l2` arm promoted **9 standing rules, 7 of which are the same idea**
    ("Fuse Compute Instead of Adding Trivial Kernels", "Avoid Trivial Custom Kernels in
@@ -1172,6 +1173,14 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    `--enable-l2`, or add a similarity gate to the promotion pass in `l2_promotion.py`.
    Also note promotions cluster late (5 of 9 after global iteration 1110) because the
    rate floor needs accumulated selections — a 50-problem run barely exercises the tier.
+   *Corrected 2026-08-27 — §8 supersedes the counts in this item.* Two of them are wrong:
+   the duplicate family is **6 of 9 rules and 10,523 of 15,176 chars (69%)**, not 7 /
+   12,012 — the old figure folded in "Optimal Block Size & Shared-Memory Bias Caching",
+   which is a genuinely distinct rule. And **4.79x is the terminal prompt ratio**, reached
+   only for the last 10% of coder calls; the run mean is **2.21x**, the median 1.48x, and
+   16% of calls saw no L2 text at all. The defect itself stands. §8.6 carries the measured
+   response curve for every floor, §8.7 a cap-ranking degeneracy, and §8.8 three quantities
+   that cannot be recovered after a run.
 9. **L2 is unplanned scope.** `--enable-l2` is a third axis with its own knobs
    (`--l2-render`, `--l2-min-tasks/-selections/-rate/-new-bests`, `--l2-max-entries`).
    Decide whether L2 belongs in this paper's matrix before spending more arms on it.
@@ -1185,6 +1194,8 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    entries. Defaults today: MIN_TASKS 3 / MIN_SELECTIONS 50 / MIN_RATE 0.70 /
    MIN_NEW_BESTS 0 (disabled) / MAX_ENTRIES 0. An L2 × governance cell needs no
    re-tuning on that ground; it is still unplanned scope.
+   §8 is the measured brief for this axis — read it before deciding whether L2 belongs
+   in the matrix; §8.9 lists the candidate arms and the two code fixes that beat them.
 10. **Replicate noise is ~30%, and it bounds every conclusion — this is the binding
    constraint on the whole series.** Three *identical-config* `merge_sim08` replicates
    (`2026_08_19_17_{29,32,35}`, `output/GH200x2_nvcc_fixed/aggregate_runs.csv`) give
@@ -1234,3 +1245,294 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
   currently has ..." into *this* file, it belongs in the local one.
 - **When you correct something here, say it is corrected** rather than deleting it. Open
   item 3 was re-reported twice because the retraction was silent.
+
+---
+
+## 8. L2 promotion — measured design brief
+
+**Why this section exists.** `--enable-l2` has been run to completion exactly **once**
+(`base_agent_gpt_oss_120b_l2_itr30_GH200_2026_08_22_20_34` — gpt-oss-120b, 50 problems ×
+30 iterations, verbatim render, all floors at defaults). The next L2 wave should read this
+rather than re-derive it. Split the contents accordingly:
+
+- **§8.1–8.2, §8.7–8.8 are mechanism**, read out of `l2_promotion.py`. Host-agnostic and
+  durable; they hold on any server and any model.
+- **§8.3–8.6 are calibration from that single arm.** One sample, one model. **Re-measure
+  before trusting any threshold on a different model** — §8.6 tells you how, and it is a
+  two-minute job once an L2 arm exists.
+
+Every number below was re-verified against artifacts on 2026-08-27.
+
+### 8.1 What the tier is
+
+L1 is **retrieved**: the extractor picks ~7 skills per iteration out of a candidate
+catalog. L2 is **standing**: promoted rules are concatenated into the coder system prompt
+for *every* iteration of *every* remaining problem, relevant or not.
+
+Promotion is one-way and self-freezing:
+
+- promoted skills are **removed from the extractor catalog**, so they stop accruing selections;
+- their evidence is snapshotted into `l2_meta` at promotion and never re-derived. The module
+  docstring gives the reason: recomputing `rate` afterwards grows the denominator against a
+  frozen numerator, which would demote every L2 skill on a delay.
+
+Promotion fires **only at a task boundary** — `governor.py:1430-1449`, after the last
+iteration of a problem. So the standing set is immutable while a problem runs, and the
+coder system prompt is constant across that problem's 30 iterations.
+
+### 8.2 The gate: four floors (a conjunction), then an optional cap
+
+| knob | default | what it screens | code |
+|---|---|---|---|
+| `--l2-min-tasks` | 3 | breadth — blocks skills that only ever fired on one problem | `l2_promotion.py:69` |
+| `--l2-min-selections` | 50 | sample size — blocks small-n noise | `:70` |
+| `--l2-min-rate` | 0.70 | **the load-bearing floor.** Extractor picks ~7 of ~50, so a random skill scores ~0.14; 0.70 is ~5× that | `:71` |
+| `--l2-min-new-bests` | **0 — disabled** | outcome attribution. Still recorded, still feeds the ranking score | `:75` |
+| `--l2-max-entries` | 0 — unlimited | top-N cap applied **after** the floors | `:76` |
+
+`rate = total_selections / max(1, global_iter - created_at_global_iter)` (`:155`) —
+normalized by opportunity, so the floor measures usefulness rather than seniority.
+
+Ranking is consulted **only when `max_entries > 0`**:
+`score = rate × log1p(tasks) × log1p(new_bests)` (`:138`), sorted `(-score, entry_id)`,
+truncated at `:187-188`.
+
+`--l2-render`: `verbatim` (default, the full L1 entry) · `extract` (only the
+`Generalizable Rule` / `Anti-Pattern to Avoid` bullets — `_RULE_HEADINGS`, `:196`) ·
+`distill` (LLM rewrite at the task boundary — **costs an extra LLM call per promotion**,
+fails soft to `extract`).
+
+### 8.3 What the one completed arm actually promoted
+
+9 rules, 0 demotions, 15,176 chars of standing text. Ranked by score (= the order a cap
+would keep):
+
+| score | tasks | rate | new_bests | sel | promoted@iter | chars | title |
+|---|---|---|---|---|---|---|---|
+| 3.3654 | 5 | 0.732 | 12 | 93 | 780 | 1397 | Read‑Only Cache (`__ldg`) Boost for Vectorized CUDA Kernels |
+| 2.7980 | 4 | 0.725 | 10 | 87 | 780 | 1489 | Optimal Block Size & Shared‑Memory Bias Caching |
+| 2.2421 | 3 | 0.778 | 7 | 70 | 1290 | 1981 | Avoid Trivial Custom Kernels When Compiler Already Fuses Ops |
+| 2.1356 | 3 | 0.792 | 6 | 57 | 240 | 1767 | Naïve Direct Conv2D Kernel Indexing Pitfalls |
+| 2.0546 | 3 | 0.827 | 5 | 67 | 1230 | 1698 | Avoid Trivial Custom Kernels in Hot Forward Paths |
+| 1.7570 | 3 | 0.787 | 4 | 63 | 1110 | 1784 | Fuse Compute Instead of Adding Trivial Kernels |
+| 1.7570 | 3 | 0.787 | 4 | 63 | 1230 | 1739 | Fuse Memory‑Bound Ops – Skip Trivial Copy Kernels |
+| 1.6381 | 3 | 0.734 | 4 | 58 | 1230 | 2057 | Avoid Trivial Copy Kernels as Performance Boosts |
+| 1.5234 | 3 | 0.793 | 3 | 65 | 1350 | 1264 | Avoid Trivial Dummy Kernels for Performance Gains |
+
+Outcome: geomean **1.347 vs the control's 1.389**, paired ratio 0.965 [0.816, 1.142],
+`fast_p_best@1.0` McNemar p = 1.000 — **a null**.
+
+Two structural facts visible in that table:
+
+- **7 of 9 sit exactly at `min_tasks = 3`.** The breadth floor is what admits most of the
+  set, not something they clear comfortably. `--l2-min-tasks 4` would cut 9 → 2.
+- **Promotions cluster late** — 5 of 9 after global iteration 1110 (problem ~37 of 50),
+  because `min_selections = 50` needs accumulated selections. A 50-problem run barely
+  exercises the tier at all.
+
+### 8.4 The defect: two-thirds of the standing set is one idea
+
+Rules 4–9 above all say *"don't add a trivial kernel; fuse instead; amortize launch
+overhead"*. Verified by reading each entry's `Generalizable Rule` bullet, not by title
+similarity. Rules 1–3 are genuinely distinct (conv2d tiling/indexing · `__ldg` read-only
+cache · block size ≤512 + shared-memory constant caching).
+
+> **Corrected 2026-08-27.** Open item 8 says *"7 of which are the same idea … 12,012 of the
+> 15,176 characters"*. The correct figures are **6 of 9, and 10,523 of 15,176 chars (69%)**.
+> The 12,012 figure is exactly `10,523 + 1,489`, i.e. it wrongly folded *"Optimal Block Size
+> & Shared-Memory Bias Caching"* into the trivial-kernel family. That entry is a distinct
+> rule and would survive any dedup gate. The defect is real and the correction makes it no
+> smaller in kind — but quote 6/69%, not 7/79%.
+
+**The cause is compositional, not a bad threshold.** L1 accumulates near-duplicate skills;
+`--skill-merging` exists to collapse them; this arm ran with merging **off**. So one popular
+idea existed as 6 separate L1 skills, each independently cleared the floors, and each was
+promoted. Promotion then froze their evidence *and* removed them from the extractor catalog,
+so nothing downstream can ever reclaim the tokens.
+
+### 8.5 The prompt burden is a step function — 4.79× is the terminal value, not the run
+
+Measured from `chat_history.jsonl`, filtering on `phase == "coder"` (the other three phases
+— `extractor` 542, `action_selector` 454, `summarizer` 1654 chars — are unaffected by L2 and
+identical in both arms, so a whole-file median hides the effect entirely).
+
+The control's coder system prompt is a **constant 4,190 chars** across all 1,500 calls. The
+L2 arm's is a 7-level step function, one level per cumulative promotion:
+
+| rules standing | chars | ×control | coder calls | share |
+|---|---|---|---|---|
+| 0 | 4,190 | 1.00× | 240 | 16.0% |
+| 1 | 6,191 | 1.48× | 540 | 36.0% |
+| 3 | 9,225 | 2.20× | 330 | 22.0% |
+| 4 | 11,062 | 2.64× | 120 | 8.0% |
+| 7 | 16,723 | 3.99× | 60 | 4.0% |
+| 8 | 18,771 | 4.48× | 60 | 4.0% |
+| 9 | 20,091 | **4.79×** | 150 | 10.0% |
+
+> **Corrected 2026-08-27.** Open item 8's "20,091 chars vs the control's 4,190, ~4.7x" is
+> the **end state**, reached only for the last 10% of coder calls. Over the whole run the
+> mean is **9,242 chars = 2.21× control**, the median is **1.48×**, and **16% of calls saw
+> no L2 text at all**. That materially weakens the "L2 bought nothing at 4.79× the prompt
+> cost" framing: most of the run barely had a tier to pay for. It is the same point §8.3
+> makes about late clustering — **a 50-problem run is too short to test L2 as designed**,
+> and that, not prompt bloat, may be why the arm read as a null.
+
+Counterfactual under `--l2-render extract`, same 9 rules, framing overhead held fixed:
+standing text **15,176 → 4,196 chars (27.6%)**, terminal prompt **4.79× → 2.17×**, run
+average **2.21× → 1.35×**.
+
+> *Corrected:* an earlier note in this project quoted the extract terminal ratio as 2.00×.
+> That omitted the per-entry framing the standing block adds; recomputed through the real
+> `render_l2_entry`, it is **2.17×**.
+
+### 8.6 Knob response curves — measured, and how to re-measure
+
+Survival counts out of the 9 promoted, sweeping one floor at a time over the frozen
+evidence in `l2_promotions.jsonl`:
+
+| knob | response |
+|---|---|
+| `--l2-min-new-bests` | 0→9 · **1→9 · 2→9 · 3→9 (all inert)** · 4→8 · **5→5** · 6→4 · 7→3 · ≥8→2 |
+| `--l2-min-rate` | 0.70→9 · 0.72→9 · 0.75→6 · **0.78→5** · 0.79→3 · **0.80→1** · 0.83→0 |
+| `--l2-min-tasks` | 3→9 · **4→2** · 5→1 · 6→0 |
+| `--l2-min-selections` | 50→9 · 60→7 · 70→3 · 80→2 · 90→1 |
+| `--l2-max-entries` | 3 → `__ldg`, block-size, "…When Compiler Already Fuses" · **4 → all three distinct rules + one representative of the duplicate family** · 5 → adds a second duplicate |
+
+Reading of those curves, for this model:
+
+- **`--l2-min-new-bests` below 4 is a no-op.** Do not set it to 1 expecting an effect
+  (except under a cap — see §8.7, where it becomes load-bearing for a different reason).
+- **`--l2-min-rate 0.80` switches L2 off**, it does not tune it: rates cluster in 0.72–0.83,
+  so one step past the default takes 9 → 1. Use 0.78 if you want ~half.
+- **`--l2-min-tasks` is the sharpest knob** and nobody has tried moving it: 3 → 4 takes 9 → 2.
+  It also attacks the defect most directly, since the duplicate family all sit at exactly 3.
+- **`--l2-max-entries 4`, not 3**, is the best cap on this data — it is the smallest cap that
+  keeps every distinct rule.
+
+**Re-measure on your own model** (cheap; needs only a finished L2 arm):
+
+```bash
+.venv/bin/python - <<'EOF'
+import json
+R="runs_evolving/<model>/<the l2 arm>"
+P=[json.loads(l) for l in open(f"{R}/l2_promotions.jsonl")]
+for k,f in (("new_bests","new_best_attributions"),("rate","selection_rate"),
+            ("tasks","distinct_tasks"),("selections","total_selections")):
+    print(k, sorted(round(p[f],3) for p in P))
+EOF
+```
+
+Then set each floor just below the value that keeps the fraction you want. A floor that
+every promoted rule already clears is inert; a floor above the cluster switches the tier off.
+
+### 8.7 The cap ranking degenerates at `new_bests = 0`
+
+`score = rate × log1p(tasks) × log1p(new_bests)` and `log1p(0) = 0`, so **any candidate with
+zero new-best attributions scores exactly 0 regardless of its rate or task count** — verified,
+`score_candidate(0.99, 99, 0) == 0.0`. Such a candidate still *passes* the default floors,
+because the new-bests floor ships **disabled at 0** — verified,
+`passes_floors(sel=80, tasks=5, rate=0.80, new_bests=0) is True`. Ties then break on
+`(-score, entry_id)`, i.e. **alphabetically**. Verified end to end: a cap of 3 over one real
+candidate plus three synthetic zero-score ones returns the real one and then `aaa`, `bbb`.
+
+**So a cap arm can silently select an arbitrary subset rather than the best one. Always arm
+the new-bests floor alongside a cap** — `--l2-max-entries 4 --l2-min-new-bests 1` — so every
+survivor has a non-zero score and the ranking means something.
+
+**It could not have bitten on the one completed arm**, and the argument is worth keeping
+because it is the only way to reason about eligibility after the fact:
+
+1. that arm ran `l2_max_entries=0` (confirmed in `run_summary.json`), and
+   `select_l2_promotions` truncates only under `max_entries > 0` (`:187-188`) — so it
+   returned the eligible list unchanged;
+2. the promotion loop's only other drops are the already-standing guard (`:417`, which
+   cannot drop a first-time candidate) and `if not rendered.strip()` (`:426`) — and **0 of
+   662 `shared_l1.jsonl` entries have empty content or produce an empty verbatim render**;
+3. therefore **promoted ≡ eligible**, and since the minimum `new_bests` among the 9 was 3,
+   **no skill was ever eligible with `new_bests = 0` in that arm**.
+
+That is what makes the "inert below 4" reading in §8.6 a statement about the *eligible* set
+and not merely the promoted one. It is conditional on no cap, one arm, one model.
+
+### 8.8 Three things you cannot recover after the run — design your arm accordingly
+
+1. **Do not replay eligibility from `l1_skill_usage.json`.** It stores a single *final*
+   `global_iteration`, so replaying `rate = total_selections / (final_iter - created_at)`
+   collapses to ~0.02 for every skill and reports **0 eligible in all 9 arms of the Aug-22
+   wave — including the arm that demonstrably promoted 9.** This is exactly the frozen-evidence
+   problem the module docstring describes: promotion fires at a task boundary when the
+   denominator was small, and the denominator keeps growing afterwards against a frozen
+   numerator. Eligibility is only replayable **boundary by boundary**, which is how the
+   shipped floors were calibrated in the first place.
+2. **`eligible_count` is computed and thrown away.** `l2_promotion.py:414` sets it on the
+   summary; nothing persists it and even the verbose print at `governor.py:1443-1447` reports
+   only `promoted`/`demoted`/`standing_count`. So **you cannot tell how many candidates
+   cleared the floors but lost to a cap** — which is precisely the quantity a `--l2-max-entries`
+   arm needs. If a cap arm matters, log it first (a one-line change) or the arm is
+   uninterpretable.
+3. **Rejected candidates leave no record at all.** `l2_promotions.jsonl` contains only
+   `event: promote` / `demote`. There is no artifact of what nearly made it.
+
+### 8.9 Candidate arms for an L2 batch, with what each is actually testing
+
+None of these has been run. All four attack the §8.4 defect at a different point.
+
+| arm | flags | attacks | measured expectation | caveat |
+|---|---|---|---|---|
+| `l2_merge` | `--enable-l2 --skill-merging --skill-merge-similarity 0.8` | **the source** — collapse the duplicates in L1 before anything can be promoted 6× | merging alone took a catalog 600 → 168 on a completed arm (open item 1) | **Confounded**: `--skill-merging` also uncaps the extractor catalog (open item 6). Read it against `merge_sim08`, **not** against `l2` — both have merging on, so the catalog confound cancels |
+| `l2_extract` | `--enable-l2 --l2-render extract` | **the cost** — same rules, less text | terminal 4.79× → 2.17×, run-average 2.21× → 1.35× | Rule *count* and duplication are unchanged; this only separates prompt volume from rule content |
+| `l2_cap4` | `--enable-l2 --l2-max-entries 4 --l2-min-new-bests 1` | **the count** — dedup as a side effect of ranking | keeps all 3 distinct rules + 1 representative | Ranking degenerates without the paired floor (§8.7); `eligible_count` is unlogged (§8.8) |
+| `l2_tasks4` | `--enable-l2 --l2-min-tasks 4` | **the gate** — demand real cross-problem breadth | 9 → 2 | Sharpest knob, untested; 2 rules may be too few to move anything. Prefer this over `--l2-min-rate 0.80`, which switches the tier off |
+
+The two **code** fixes are strictly better than any of these arms and cost no GPU time —
+add a similarity gate to the promotion pass in `l2_promotion.py`, or make `--enable-l2`
+require `--skill-merging`. Consider doing that *before* spending 4–5 arms measuring around
+the defect.
+
+### 8.10 Protocol for any L2 wave
+
+- **Land the analysis fix first.** `aggregate_runs.py` / `compare_runs.py` cannot see
+  `enable_l2` (open item 7), so an L2 arm and the control both render as design
+  `truncation` in every CSV and delta table. This must land **before** a report is
+  generated from a wave containing an L2 arm.
+- **Every L2 batch must carry its own plain `l2` control on the same GPU.** A control from
+  another batch sits in a different contention window and a different endpoint-latency
+  window (open items 10–11), and per §3.4 unequal arms-per-GPU biases the comparison
+  one-directionally.
+- **n=1 per cell is a screen, not a test.** Replicate noise is log-SD 0.147, so a single
+  contrast needs ≈×1.50 to clear 95% (open item 10). An L2 batch picks what to replicate;
+  it cannot name a winner.
+- **50 problems may be too short for this tier**, per §8.3/§8.5 — 16% of coder calls saw no
+  L2 at all and the median call saw one rule. Treat "L2 is a null" as untested until either
+  the run is longer or the floors are lowered enough to promote early.
+- **Model matters more here than elsewhere.** The whole prompt-volume axis (`l2_extract`,
+  `l2_cap4`) is premised on standing text being expensive. Check the context window of the
+  model you are running before spending an arm on it.
+
+```bash
+HW=scripts_integration/new_evolving_agent/env/<HARDWARE>
+
+# plain l2 control + the four probes, one spec, one GPU
+cat > $HW/wave_l2.spec <<'SPEC'
+l2            | truncation | --enable-l2
+l2_merge      | truncation | --enable-l2 --skill-merging --skill-merge-similarity 0.8
+l2_extract    | truncation | --enable-l2 --l2-render extract
+l2_cap4       | truncation | --enable-l2 --l2-max-entries 4 --l2-min-new-bests 1
+l2_tasks4     | truncation | --enable-l2 --l2-min-tasks 4
+SPEC
+
+bash $HW/launch_wave.sh 0 $HW/wave_l2.spec dry-run
+bash $HW/launch_wave.sh 0 $HW/wave_l2.spec
+```
+
+Health checks specific to L2 arms — both must be non-zero, and neither is covered by the
+generic checks in §3.5:
+
+```bash
+wc -l <run>/l2_promotions.jsonl <run>/l2_standing.jsonl
+.venv/bin/python -c "import json;print(json.load(open('<run>/run_summary.json'))['l2_standing_count'])"
+```
+
+A zero here is silent: `governor.py:1448` swallows every promotion-pass exception into a
+one-line `l2 promotion skipped:` print, and an arm that promotes nothing is
+indistinguishable from a truncation arm in every other artifact.

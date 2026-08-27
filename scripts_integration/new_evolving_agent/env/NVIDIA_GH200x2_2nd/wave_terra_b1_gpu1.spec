@@ -31,18 +31,36 @@
 # the 63 flags in that commit's validation corpus are almost certainly terra's --
 # and L1P55, the problem it cites as passing 14 times, is subset problem 8.
 #
-# Launch:
+# Launch -- pass NO baseline override; hardware_env.sh resolves this host's own
+# folder name, NVIDIA_GH200x2_2nd:
 #   HW=scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2_2nd
-#   HARDWARE=NVIDIA_GH200x2_median MODEL=gpt-5.6-terra MAX_ARMS_PER_GPU=9 \
-#   RESULTS_ROOT=runs_evolving/gpt-5.6-terra/median/ \
+#   MODEL=gpt-5.6-terra MAX_ARMS_PER_GPU=9 \
+#   RESULTS_ROOT=runs_evolving/gpt-5.6-terra/ \
 #   RUN_PREFIX=base_agent_gpt_5_6_terra_r3 \
 #     bash $HW/launch_wave.sh 1 $HW/wave_terra_b1_gpu1.spec
 #
-# HARDWARE=NVIDIA_GH200x2_median is REQUIRED and is NOT this host's default.
-# hardware_env.sh derives $HARDWARE from the launcher's folder name, giving
-# NVIDIA_GH200x2_2nd -- also median-bearing, so it would NOT fatal, it would
-# silently score against a different file (14/50 subset problems differ >5%, all
-# Level 3: L3 geomean 1.079, range 0.591-1.976; L1 1.007, L2 1.009).
+# BASELINE = NVIDIA_GH200x2_2nd, this host's own, measured on this silicon.
+# An earlier launch of this spec (killed 2026-08-25 ~11:00 at problem 1/50, nothing
+# lost) overrode it to NVIDIA_GH200x2_median to line up with terra replicate 1 on
+# the other server. That override was DROPPED, because:
+#   * rep 1 is not poolable with these arms anyway -- ede1898's STRICT check is
+#     parent-side, active here and unreachable there (see above), so matching its
+#     baseline bought nothing that the trajectory difference had not already cost;
+#   * _median was measured on the OTHER server (it reached this clone by a
+#     fast-forward pull from origin, not a local measurement);
+#   * this host's completed gpt-oss wave is scored against _2nd
+#     (hardware_server in all 9 run_summary.json), so _median would have put terra
+#     on a different scale from this host's own corpus;
+#   * neither GH200 Level-3 baseline is clean -- _median's meta note claims it
+#     removed an up-to-3x batch-position artifact, yet on this subset _median L3 is
+#     7.9% HIGHER than _2nd and they disagree in BOTH directions (per-problem ratios
+#     0.591-1.976), each being the outlier on different problems. With no clean
+#     choice, internal consistency on this host wins.
+# The two differ on 14/50 subset problems, ALL Level 3 (L3 geomean 1.079; L1 1.007,
+# L2 1.009). Being a per-problem constant it cancels in arm-vs-control ratios, so
+# this changes the absolute level -- not the within-wave comparisons -- EXCEPT that
+# the speedup is fed back into the coder prompt, so it does move the search. That
+# is why it had to be fixed by relaunching rather than re-scored afterwards.
 #
 # selective_r5 carries no flag on purpose: DEFAULT_SELECTIVE_RECENT_ROUNDS = 5 is
 # hardcoded and there is no CLI flag -- inventing one aborts the run.
