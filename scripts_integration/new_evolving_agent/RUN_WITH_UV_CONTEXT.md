@@ -74,8 +74,8 @@ CUDA_VISIBLE_DEVICES=3 nohup uv run python scripts_integration/new_evolving_agen
 
 Optional rewriter knobs (defaults are usually fine):
 
-- `--evolving-report-max-tokens` (default `1536`)
-- `--evolving-report-timeout-sec` (default `90`)
+- `--evolving-report-max-tokens` (default `65536`)
+- `--evolving-report-timeout-sec` (default `600`)
 
 ## After a real run
 

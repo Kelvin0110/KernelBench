@@ -121,6 +121,16 @@ someone runs `uv lock && uv sync`. Do that only when no run is in flight — it 
 
 Model IDs differ per endpoint: `gpt-oss-120b` → `openai/gpt-oss-120b` (integrate) vs
 `nvidia/openai/gpt-oss-120b` (inference). Use the aliases in `llm_client.py`, not raw IDs.
+`gpt-5.6-terra` and `qwen3.6-27b` are **inference-only** — neither is in the integrate table.
+
+**Per-model sampling lives in `MODEL_SAMPLING_PROFILES` (`llm_client.py`).** An entry pins the
+whole sampling config for one model and overrides the caller's per-role `temperature`;
+non-OpenAI knobs (`top_k`, `min_p`, `repetition_penalty`) go under `extra_body`. `qwen3.6-27b`
+is the only entry today (temp 0.6 / top_p 0.95 / top_k 20 / min_p 0.0 / presence_penalty 0.0 /
+repetition_penalty 1.0). **Verify a new entry behaviourally, never by acceptance** —
+inference-api returns 200 for parameters it does not understand, so a nonsense key still
+succeeds. The cheap test is a determinism contrast at `temperature=2.0`: `top_k=1` must repeat
+verbatim across calls while `top_k=0` must not.
 
 Embeddings choose their endpoint independently of chat via `NVIDIA_EMBED_ENDPOINT`
 (default `inference`; model default `nvidia/qwen/qwen3-embedding-0.6b`).
@@ -922,6 +932,89 @@ prefix ran with the trims off under 9-arm contention while the suffix runs with 
 Contention only ever deflates speedup, so the prefix is systematically penalised relative to
 the suffix **inside one run**. Restart instead of resume when the prefix is small.
 
+### 3.7 Token budgets and the context window (both changed 2026-08-27)
+
+Two protocol seams landed on the same day. Both are **parent-side** (`config.py`,
+`governor.py`, `evolve_kb_batch.py`), so per §3.4 they reach **newly launched runs only** —
+arms already running keep the old behaviour for their whole life.
+
+**(a) Every LLM completion budget is now a uniform `65536`.** Previously they ranged from
+512 to 16384. `max_tokens` bounds *reasoning + answer together*, so on a verbose reasoning
+model a small budget is spent entirely on chain-of-thought and `content` comes back empty —
+at which point `_assistant_visible_text` substitutes `reasoning_content`, handing the agent
+a truncated CoT that looks like an answer. Measured across the full corpus of recorded
+calls: **gpt-oss 236 / 134,042 = 0.176%** (worst phases preflight 1.16%, action_selector
+0.31%, l0_round_summarizer 0.28%), **terra 0 / 34,263** — terra returns no reasoning text at
+all, so it cannot hit this.
+
+Old → new, and where each is set:
+
+| role | old | new | set in |
+|---|---|---|---|
+| coder | 16384 | 65536 | `config.py` |
+| preflight | **1024 hardcoded** | 65536 | `gen3_stages.py` `min(coder, 65536)` |
+| l0_round_summary | 512 | 65536 | `config.py` |
+| action_selector | 4096 | 65536 | `config.py` |
+| summarizer / extractor | 8192 | 65536 | `config.py` |
+| skill_refinement | 8192 | 65536 | `config.py` |
+| skill_diagnosis | **4096 hardcoded** | 65536 | `governor.py` `min(refinement, 65536)` |
+| evolving_report | 1536 | 65536 | `DEFAULT_EVOLVING_REPORT_MAX_TOKENS` |
+| milestone_judge / compress | 4096 | 65536 | `context_management.py` |
+| l1_skill_unit_test / skill_merge | 8192 | 65536 | `memory_manager.py` |
+| l2_distill | 1024 | 65536 | `config.py` |
+
+Three of those were **hardcoded clamps, not config fields** — raising the config alone would
+have left preflight at 1024 and skill_diagnosis at 4096, i.e. the two worst offenders
+untouched. Grep for `min(.*max_tokens` before assuming a budget is settable.
+
+**`DEFAULT_COMPRESS_OUTPUT_RESERVE_TOKENS` was deliberately left at 4096.** It reads like an
+output budget but feeds the *compaction threshold* — `usable = context - max(buffer, reserve)`.
+Raising it to 65536 would cut gpt-oss's usable context 108,000 → 62,464 and change when
+compaction fires. Verified `usable_context_tokens(128000) == 108000`, unchanged.
+
+Raising `max_tokens` is safe on every model here: gpt-oss and terra perform **no validation
+at all** (both accept `max_tokens=100_000_000`) and the prompt+output **sum is not enforced**
+(gpt-oss served a 100,071-token prompt with `max_tokens=65536`). Only qwen validates, at
+`max_model_len=262144`.
+
+**(b) The context window now follows `--model`. It never did before.** `governor.py` sized
+the L0 budget from `KBGovernorConfig.model_name`, a field **nothing ever assigned**, so it
+kept its `"gpt-oss-120b"` class default and *every* run — terra included — packed to
+`0.9 × 128000 = 115,200` tokens. The `gpt-5.6-terra: 1050000` registry row had therefore
+**never once been used**: terra ran on ~11% of its real window.
+
+Fixed in two places: `evolve_kb_batch.py` now assigns `model_name` from
+`NVIDIA_CODER_MODEL`, and `governor.py` resolves the window from
+`get_dual_llm_model_ids()` — the same env vars the LLM client itself reads, so it cannot
+disagree with the model being called, and it stays correct for any caller that forgets the
+field. (`runner.py` always did it this way.)
+
+| `--model` | window | L0 pack budget | was |
+|---|---|---|---|
+| gpt-oss-120b | 128,000 | 115,200 | unchanged |
+| gpt-5.6-terra | 1,050,000 | **945,000** | 115,200 (**8.2×**) |
+| qwen3.6-27b | 262,144 | **235,929** | 115,200 |
+
+Only **folding**, **selective_retention** and **compress_trigger** read the window
+(`gen3_stages.py` `_resolve_folding_context_window`, `governor.py` selective/compress blocks).
+`truncation` and `markov_report` never touch it, so 6 of 9 cells per model are unaffected.
+
+**Do not resume a folding/selective/compress arm across this change** — its prefix packed at
+115,200 and its suffix would pack at the real window. Restart instead.
+
+**Timeouts were checked and left alone**: every `*_timeout_sec` already defaults to 600 s,
+and every timeout CLI flag resolves to 600.0. Nothing was below 300. Docs claiming
+`--evolving-report-timeout-sec` defaults to `90` were stale and are corrected.
+
+**`--model` is now validated.** A bare alias must exist in the selected endpoint's table;
+anything containing `/` is treated as a full model id and passed through, which is the
+documented escape hatch. A typo like `qwen3.6-27` used to be discovered only when the first
+coder call 404s, hours into a run.
+
+**`run_summary.json` still does not record `model_name`**, so a finished run does not state
+which context window it used. It is derivable from the recorded `coder_model`, but that was
+a constant 128000 before this change and is not any more — record it if you need it.
+
 ---
 
 ## 4. Analysis
@@ -1001,7 +1094,15 @@ independent things break comparability and none is visible in the number:
   use `_2nd` medians. Over the 50-problem subset those differ >5% on **25 of 50**
   problems, geomean ratio **1.149×**, worst ~4×. Historical `best_geomean` figures —
   including the ones quoted in the open items below — are on the old scale;
-- inference-endpoint latency drift (open item 10).
+- inference-endpoint latency drift (open item 10);
+- **`evolving_report_max_tokens`, for markov arms only.** The docs and the `infer_api/`
+  scripts pass `--evolving-report-max-tokens 65536`, but `launch_wave.sh` / `launch_run.sh`
+  never did, so wave-launched markov arms silently took the old `1536` default. The cell is
+  split **4 / 3** across the two values (the 2026-08-07 pair is 9 minutes apart with
+  different budgets), and at 1536 the rewriter truncated on **2.33% of terra's calls and
+  0.5-1.1% of gpt-oss's**. Read `run_summary.json`, which records the value per run — never
+  infer it from today's default, which is now 65536 and makes post-2026-08-27 markov runs a
+  *third* group.
 
 Prefer the truncation arm *from the same wave* as the comparison baseline over any
 historical run.

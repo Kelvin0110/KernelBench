@@ -46,6 +46,10 @@ from evolving_common.context_management import (
     DEFAULT_EVOLVING_REPORT_MAX_TOKENS,
     DEFAULT_EVOLVING_REPORT_TIMEOUT_SEC,
 )
+from evolving_common.llm_client import (
+    NVIDIA_INF_MODEL_ALIASES,
+    NVIDIA_MODEL_ALIASES,
+)
 from evolving_common.governor.l2_promotion import (
     DEFAULT_L2_MAX_ENTRIES,
     DEFAULT_L2_MIN_NEW_BESTS,
@@ -70,6 +74,31 @@ from evolving_common.memory_manager import (
     format_l1_entry_journal_block,
     resolve_l1_jsonl_path,
 )
+
+
+def _validate_model_spec(spec: str | None, *, flag: str, endpoint: str) -> None:
+    """Fail fast on a mistyped model alias, before a 40+ hour run burns hours.
+
+    A bare name (no "/") must be a known alias for the selected endpoint. Anything
+    containing "/" is a full vendor/name model id and is passed through untouched --
+    that passthrough is deliberate (``resolve_nvidia_model_id`` returns unknown specs
+    unchanged), so it cannot be rejected here. Without this check a typo such as
+    ``qwen3.6-27`` is only discovered when the first coder call 404s, well into the
+    run, and every iteration until then is recorded as a coder failure.
+    """
+    if spec is None:
+        return
+    s = spec.strip()
+    if not s or "/" in s:
+        return
+    table = NVIDIA_INF_MODEL_ALIASES if endpoint == "inference" else NVIDIA_MODEL_ALIASES
+    if s not in table:
+        known = ", ".join(sorted(table))
+        raise ValueError(
+            f"{flag}={spec!r} is not a known model alias for the {endpoint!r} "
+            f"endpoint. Known aliases: {known}. "
+            f"Pass a full 'vendor/name' model id to bypass the alias table."
+        )
 
 
 def _load_subset_rows(path: Path) -> list[dict[str, Any]]:
@@ -1346,6 +1375,18 @@ def main() -> int:
     # --model sets all four roles; individual flags take precedence over --model.
     if args.nvidia_endpoint is not None:
         os.environ["NVIDIA_ENDPOINT"] = args.nvidia_endpoint
+    # Reject a mistyped alias now rather than on the first LLM call.
+    _endpoint = (
+        args.nvidia_endpoint or os.getenv("NVIDIA_ENDPOINT") or "integrate"
+    ).strip().lower()
+    for _flag, _spec in (
+        ("--model", args.model),
+        ("--coder-model", args.coder_model),
+        ("--summarizer-model", args.summarizer_model),
+        ("--extractor-model", args.extractor_model),
+        ("--action-selector-model", args.action_selector_model),
+    ):
+        _validate_model_spec(_spec, flag=_flag, endpoint=_endpoint)
     if args.model is not None:
         os.environ["NVIDIA_CODER_MODEL"] = args.model
         os.environ["NVIDIA_SUMMARIZER_MODEL"] = args.model
@@ -1589,6 +1630,15 @@ def main() -> int:
                 l1_allowed_entry_ids = sorted(causal_ids)
             cfg = KBGovernorConfig(
                 run_name=args.run_name,
+                # Size the L0 context budget from the model that will actually be
+                # called. This field previously kept its "gpt-oss-120b" class default
+                # because nothing ever assigned it, so governor.py's
+                # resolve_context_window(config.model_name, ...) returned 128000 for
+                # EVERY run regardless of --model -- including terra, whose real
+                # window is 1_050_000. The NVIDIA_CODER_MODEL env var is set from
+                # --model / --coder-model earlier in main(), and resolve_context_window
+                # tolerates both a short alias and a full "vendor/name" id.
+                model_name=os.getenv("NVIDIA_CODER_MODEL") or "gpt-oss-120b",
                 level=level,
                 problem_id=problem_id,
                 backend=backend,
