@@ -62,3 +62,4 @@ smoke_l2_redesign.log
 run_smoke_l2.sh
 .venv
 wait_arms.sh
+wait_wave.sh
