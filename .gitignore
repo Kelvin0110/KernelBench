@@ -69,3 +69,5 @@ check_memgate_damage.py
 preseed/
 wait_quick.sh
 quick_launch.log
+l2_watchdog.log
+oom_headroom.py
