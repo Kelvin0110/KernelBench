@@ -49,9 +49,30 @@ KB_EVAL_HOIST_INPUT_GEN="${KB_EVAL_HOIST_INPUT_GEN:-1}"
 #     at once. 1 == the historical mutex. The 2026-08-23 probe measured degree 2/3
 #     at 1.2%/0.7% median runtime inflation (2.3%/2.8% worst), against ~20-30%
 #     replicate noise. NEVER mix slots=1 and slots>1 on one GPU -- different files.
-KB_EVAL_UNLOCK_CORRECTNESS="${KB_EVAL_UNLOCK_CORRECTNESS:-1}"
+#   CORRECTED 2026-08-27: UNLOCK_CORRECTNESS now defaults to 0, not 1. The A/B
+#     above measured RUNTIME, not MEMORY. Unlocking correctness removes the bound
+#     on how many evals are DEVICE-resident at once (correctness does the H2D of
+#     the whole input set plus two model forwards), and each eval retains ~30 GB on
+#     a level-1 problem / ~52 GB on L1P34. On 2026-08-23 that took a 146.8 GB card
+#     to 144.8 GB and 1.8% of evals to CUDA OOM -- each recorded compiled=True
+#     correct=False, so the governor debugs a kernel that was never broken.
+#     Re-locking cut peak 141.4 -> 72.6 GB and OOM to 0 for ~5.7 s of extra hold,
+#     with the lock still showing zero waits over 5 s. Do not flip this back.
+KB_EVAL_UNLOCK_CORRECTNESS="${KB_EVAL_UNLOCK_CORRECTNESS:-0}"
 KB_GPU_EVAL_LOCK_SLOTS="${KB_GPU_EVAL_LOCK_SLOTS:-3}"
-export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN KB_EVAL_UNLOCK_CORRECTNESS KB_GPU_EVAL_LOCK_SLOTS
+#   KB_EVAL_MEM_GATE_FACTOR -- byte-sized admission gate on top of the slots:
+#     reserves factor x input_bytes, so effective concurrency is
+#     min(slots, budget/need). With correctness LOCKED the residents are bounded by
+#     SLOTS, but SLOTS does not bound how much they NEED: 3 x ~52 GB on L1P34
+#     overruns a 143.4 GB card. On this card (budget 0.85 x 143.4 = 122 GB, largest
+#     input 7.0 GB) the admit-2 band is 5.80 < factor <= 8.71; measured retention is
+#     ~7x input, so 7 is both the physical value and inside the band. 9 would admit
+#     only 1 and needlessly serialise the biggest problems; 2.5 provably never binds.
+#     VERIFY IT FIRES: mem_gate_waited_sec must be non-zero for some eval inside
+#     subset problems 1-5. An all-zero column is how factor=2.5 went unnoticed.
+KB_EVAL_MEM_GATE_FACTOR="${KB_EVAL_MEM_GATE_FACTOR:-7}"
+export KB_EVAL_SKIP_DEAD_REF_TIMING KB_EVAL_HOIST_INPUT_GEN KB_EVAL_UNLOCK_CORRECTNESS
+export KB_GPU_EVAL_LOCK_SLOTS KB_EVAL_MEM_GATE_FACTOR
 
 set -euo pipefail
 
@@ -237,7 +258,7 @@ for ((i=0; i<TOTAL; i++)); do
 done
 echo "      ${MAX_PROBLEMS} problems x ${MAX_ITERATIONS} iterations"
 echo "      KB_GPU_RESERVE_GB=0, KB_GPU_EVAL_LOCK_TIMEOUT_SEC=$KB_GPU_EVAL_LOCK_TIMEOUT_SEC"
-echo "      SKIP_REF=$KB_EVAL_SKIP_DEAD_REF_TIMING HOIST=$KB_EVAL_HOIST_INPUT_GEN UNLOCK_CORR=$KB_EVAL_UNLOCK_CORRECTNESS LOCK_SLOTS=$KB_GPU_EVAL_LOCK_SLOTS, phase log per arm"
+echo "      SKIP_REF=$KB_EVAL_SKIP_DEAD_REF_TIMING HOIST=$KB_EVAL_HOIST_INPUT_GEN UNLOCK_CORR=$KB_EVAL_UNLOCK_CORRECTNESS LOCK_SLOTS=$KB_GPU_EVAL_LOCK_SLOTS MEM_GATE=$KB_EVAL_MEM_GATE_FACTOR, phase log per arm"
 echo
 
 if [ "$MODE" = "dry-run" ]; then echo "(dry-run: nothing launched)"; exit 0; fi
@@ -265,6 +286,7 @@ for ((i=0; i<TOTAL; i++)); do
   KB_EVAL_HOIST_INPUT_GEN="$KB_EVAL_HOIST_INPUT_GEN" \
   KB_EVAL_UNLOCK_CORRECTNESS="$KB_EVAL_UNLOCK_CORRECTNESS" \
   KB_GPU_EVAL_LOCK_SLOTS="$KB_GPU_EVAL_LOCK_SLOTS" \
+  KB_EVAL_MEM_GATE_FACTOR="$KB_EVAL_MEM_GATE_FACTOR" \
   KB_EVAL_PHASE_LOG="$REPO_ROOT/$PHASE_LOG" \
   setsid nohup uv run --no-sync python \
     scripts_integration/new_evolving_agent/evolve_kb_batch.py \
