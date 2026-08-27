@@ -4,693 +4,694 @@
       "arms": {
         "base_agent_gpt_oss_120b_compress_itr30_GH200_2026_08_22_21_20": {
           "stored": {
-            "best_geomean": 1.265986504558694,
-            "best_median": 1.1487603305785123,
+            "best_geomean": 1.3355335993547874,
+            "best_median": 1.2113702623906706,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.9411764705882353,
-            "fast_p_best@2.0": 0.058823529411764705,
-            "n_correct": 17,
-            "n_problems": 17
+            "fast_p_best@1.0": 0.78,
+            "fast_p_best@2.0": 0.16,
+            "n_correct": 50,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 1.265986504558694,
-            "best_median": 1.1487603305785123,
+            "best_geomean": 1.3355335993547874,
+            "best_median": 1.2113702623906706,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.9411764705882353,
-            "fast_p_best@2.0": 0.058823529411764705,
-            "n_correct": 17,
-            "n_problems": 17
+            "fast_p_best@1.0": 0.78,
+            "fast_p_best@2.0": 0.16,
+            "n_correct": 50,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_oss_120b_deletion_itr30_GH200_2026_08_22_21_23": {
           "stored": {
-            "best_geomean": 1.4903719950156251,
-            "best_median": 1.0673443456162643,
+            "best_geomean": 1.4329002026109214,
+            "best_median": 1.1317365269461077,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.7647058823529411,
-            "fast_p_best@2.0": 0.17647058823529413,
-            "n_correct": 17,
-            "n_problems": 17
+            "fast_p_best@1.0": 0.7,
+            "fast_p_best@2.0": 0.18,
+            "n_correct": 50,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 1.4903719950156251,
-            "best_median": 1.0673443456162643,
+            "best_geomean": 1.4329002026109214,
+            "best_median": 1.1317365269461077,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.7647058823529411,
-            "fast_p_best@2.0": 0.17647058823529413,
-            "n_correct": 17,
-            "n_problems": 17
+            "fast_p_best@1.0": 0.7,
+            "fast_p_best@2.0": 0.18,
+            "n_correct": 50,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_oss_120b_folding_itr30_GH200_2026_08_22_21_11": {
           "stored": {
-            "best_geomean": 1.5810565715173759,
-            "best_median": 1.34640522875817,
-            "fast_p_best@0.0": 0.9411764705882353,
-            "fast_p_best@1.0": 0.8235294117647058,
-            "fast_p_best@2.0": 0.17647058823529413,
-            "n_correct": 16,
-            "n_problems": 17
+            "best_geomean": 1.4425680641315728,
+            "best_median": 1.1317365269461077,
+            "fast_p_best@0.0": 0.92,
+            "fast_p_best@1.0": 0.66,
+            "fast_p_best@2.0": 0.18,
+            "n_correct": 46,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 1.5810565715173759,
-            "best_median": 1.34640522875817,
-            "fast_p_best@0.0": 0.9411764705882353,
-            "fast_p_best@1.0": 0.8235294117647058,
-            "fast_p_best@2.0": 0.17647058823529413,
-            "n_correct": 16,
-            "n_problems": 17
+            "best_geomean": 1.4425680641315728,
+            "best_median": 1.1317365269461077,
+            "fast_p_best@0.0": 0.92,
+            "fast_p_best@1.0": 0.66,
+            "fast_p_best@2.0": 0.18,
+            "n_correct": 46,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_oss_120b_itr30_GH200_2026_08_22_21_07": {
           "stored": {
-            "best_geomean": 1.4884413147435656,
-            "best_median": 1.2143611404435057,
-            "fast_p_best@0.0": 0.9411764705882353,
-            "fast_p_best@1.0": 0.9411764705882353,
-            "fast_p_best@2.0": 0.11764705882352941,
-            "n_correct": 16,
-            "n_problems": 17
+            "best_geomean": 1.2918033000590368,
+            "best_median": 1.0978260869565217,
+            "fast_p_best@0.0": 0.9,
+            "fast_p_best@1.0": 0.66,
+            "fast_p_best@2.0": 0.14,
+            "n_correct": 45,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 1.4884413147435656,
-            "best_median": 1.2143611404435057,
-            "fast_p_best@0.0": 0.9411764705882353,
-            "fast_p_best@1.0": 0.9411764705882353,
-            "fast_p_best@2.0": 0.11764705882352941,
-            "n_correct": 16,
-            "n_problems": 17
+            "best_geomean": 1.3262701302886626,
+            "best_median": 1.0978260869565217,
+            "fast_p_best@0.0": 0.9,
+            "fast_p_best@1.0": 0.66,
+            "fast_p_best@2.0": 0.14,
+            "n_correct": 45,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_oss_120b_l2_itr30_GH200_2026_08_22_21_32": {
           "stored": {
-            "best_geomean": 1.5362014332970144,
-            "best_median": 1.205,
-            "fast_p_best@0.0": 0.9411764705882353,
-            "fast_p_best@1.0": 0.8235294117647058,
-            "fast_p_best@2.0": 0.23529411764705882,
-            "n_correct": 16,
-            "n_problems": 17
+            "best_geomean": 1.4708976175639168,
+            "best_median": 1.1358024691358024,
+            "fast_p_best@0.0": 0.96,
+            "fast_p_best@1.0": 0.72,
+            "fast_p_best@2.0": 0.22,
+            "n_correct": 48,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 1.5362014332970144,
-            "best_median": 1.205,
-            "fast_p_best@0.0": 0.9411764705882353,
-            "fast_p_best@1.0": 0.8235294117647058,
-            "fast_p_best@2.0": 0.23529411764705882,
-            "n_correct": 16,
-            "n_problems": 17
+            "best_geomean": 1.4708976175639168,
+            "best_median": 1.1358024691358024,
+            "fast_p_best@0.0": 0.96,
+            "fast_p_best@1.0": 0.72,
+            "fast_p_best@2.0": 0.22,
+            "n_correct": 48,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_oss_120b_markov_itr30_GH200_2026_08_22_21_14": {
           "stored": {
-            "best_geomean": 1.039343153803173,
-            "best_median": 1.0664961636828645,
-            "fast_p_best@0.0": 0.8823529411764706,
-            "fast_p_best@1.0": 0.7647058823529411,
-            "fast_p_best@2.0": 0.0,
-            "n_correct": 15,
-            "n_problems": 17
+            "best_geomean": 1.1885923382855421,
+            "best_median": 1.0848375451263539,
+            "fast_p_best@0.0": 0.96,
+            "fast_p_best@1.0": 0.7,
+            "fast_p_best@2.0": 0.1,
+            "n_correct": 48,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 1.039343153803173,
-            "best_median": 1.0664961636828645,
-            "fast_p_best@0.0": 0.8823529411764706,
-            "fast_p_best@1.0": 0.7647058823529411,
-            "fast_p_best@2.0": 0.0,
-            "n_correct": 15,
-            "n_problems": 17
+            "best_geomean": 1.1959723687018178,
+            "best_median": 1.0848375451263539,
+            "fast_p_best@0.0": 0.96,
+            "fast_p_best@1.0": 0.7,
+            "fast_p_best@2.0": 0.1,
+            "n_correct": 48,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_oss_120b_merge_sim08_itr30_GH200_2026_08_22_21_29": {
           "stored": {
-            "best_geomean": 1.7021845345262756,
-            "best_median": 1.3714285714285714,
-            "fast_p_best@0.0": 0.9411764705882353,
-            "fast_p_best@1.0": 0.8235294117647058,
-            "fast_p_best@2.0": 0.23529411764705882,
-            "n_correct": 16,
-            "n_problems": 17
+            "best_geomean": 1.3617947543312043,
+            "best_median": 1.1385542168674696,
+            "fast_p_best@0.0": 0.96,
+            "fast_p_best@1.0": 0.66,
+            "fast_p_best@2.0": 0.16,
+            "n_correct": 48,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 1.7338249930628935,
-            "best_median": 1.3714285714285714,
-            "fast_p_best@0.0": 0.9411764705882353,
-            "fast_p_best@1.0": 0.8235294117647058,
-            "fast_p_best@2.0": 0.23529411764705882,
-            "n_correct": 16,
-            "n_problems": 17
+            "best_geomean": 1.3701807545283589,
+            "best_median": 1.1385542168674696,
+            "fast_p_best@0.0": 0.96,
+            "fast_p_best@1.0": 0.66,
+            "fast_p_best@2.0": 0.16,
+            "n_correct": 48,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_oss_120b_refinement_itr30_GH200_2026_08_22_21_26": {
           "stored": {
-            "best_geomean": 1.5668268824059801,
-            "best_median": 1.1993355481727574,
-            "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.8235294117647058,
-            "fast_p_best@2.0": 0.23529411764705882,
-            "n_correct": 17,
-            "n_problems": 17
+            "best_geomean": 1.524922141778355,
+            "best_median": 1.1317365269461077,
+            "fast_p_best@0.0": 0.98,
+            "fast_p_best@1.0": 0.68,
+            "fast_p_best@2.0": 0.22,
+            "n_correct": 49,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 1.5668268824059801,
-            "best_median": 1.1993355481727574,
-            "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.8235294117647058,
-            "fast_p_best@2.0": 0.23529411764705882,
-            "n_correct": 17,
-            "n_problems": 17
+            "best_geomean": 1.524922141778355,
+            "best_median": 1.1317365269461077,
+            "fast_p_best@0.0": 0.98,
+            "fast_p_best@1.0": 0.68,
+            "fast_p_best@2.0": 0.22,
+            "n_correct": 49,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_oss_120b_selective_r5_itr30_GH200_2026_08_22_21_17": {
           "stored": {
-            "best_geomean": 1.404658865062668,
-            "best_median": 1.3084112149532712,
+            "best_geomean": 1.4018273745136818,
+            "best_median": 1.1385542168674696,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.7647058823529411,
-            "fast_p_best@2.0": 0.17647058823529413,
-            "n_correct": 17,
-            "n_problems": 17
+            "fast_p_best@1.0": 0.66,
+            "fast_p_best@2.0": 0.2,
+            "n_correct": 50,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 1.404658865062668,
-            "best_median": 1.3084112149532712,
+            "best_geomean": 1.4018273745136818,
+            "best_median": 1.1385542168674696,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.7647058823529411,
-            "fast_p_best@2.0": 0.17647058823529413,
-            "n_correct": 17,
-            "n_problems": 17
+            "fast_p_best@1.0": 0.66,
+            "fast_p_best@2.0": 0.2,
+            "n_correct": 50,
+            "n_problems": 50
           }
         }
       },
-      "n_aligned": 17
+      "n_aligned": 50
     },
     "terra": {
       "arms": {
         "base_agent_gpt_5_6_terra_compress_itr30_GH200_2026_08_22_21_17": {
           "stored": {
-            "best_geomean": 2.4660387312778447,
-            "best_median": 2.4416135881104033,
-            "fast_p_best@0.0": 0.90625,
-            "fast_p_best@1.0": 0.78125,
-            "fast_p_best@2.0": 0.5,
-            "n_correct": 29,
-            "n_problems": 32
+            "best_geomean": 2.900701324268786,
+            "best_median": 2.7203947368421053,
+            "fast_p_best@0.0": 0.94,
+            "fast_p_best@1.0": 0.84,
+            "fast_p_best@2.0": 0.6,
+            "n_correct": 47,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 3.0742675484287774,
-            "best_median": 2.7203947368421053,
+            "best_geomean": 3.307863326657034,
+            "best_median": 2.7348484848484844,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.875,
-            "fast_p_best@2.0": 0.59375,
-            "n_correct": 32,
-            "n_problems": 32
+            "fast_p_best@1.0": 0.9,
+            "fast_p_best@2.0": 0.66,
+            "n_correct": 50,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_5_6_terra_deletion_itr30_GH200_2026_08_22_21_20": {
           "stored": {
-            "best_geomean": 2.0648001998244254,
-            "best_median": 1.7443868739205526,
+            "best_geomean": 2.479077947381513,
+            "best_median": 1.9395348837209303,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.9375,
-            "fast_p_best@2.0": 0.34375,
-            "n_correct": 32,
-            "n_problems": 32
+            "fast_p_best@1.0": 0.98,
+            "fast_p_best@2.0": 0.46,
+            "n_correct": 50,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 2.6051969198608633,
-            "best_median": 1.9311663479923515,
+            "best_geomean": 2.8767769909196512,
+            "best_median": 2.515657620041754,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.9375,
-            "fast_p_best@2.0": 0.40625,
-            "n_correct": 32,
-            "n_problems": 32
+            "fast_p_best@1.0": 0.98,
+            "fast_p_best@2.0": 0.5,
+            "n_correct": 50,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_5_6_terra_itr30_GH200_2026_08_22_21_08": {
           "stored": {
-            "best_geomean": 2.3584488815571754,
-            "best_median": 2.0518518518518523,
+            "best_geomean": 2.417011351398555,
+            "best_median": 1.9855595667870036,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.90625,
-            "fast_p_best@2.0": 0.5,
-            "n_correct": 32,
-            "n_problems": 32
+            "fast_p_best@1.0": 0.86,
+            "fast_p_best@2.0": 0.48,
+            "n_correct": 50,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 2.9231695604379353,
-            "best_median": 2.359813084112149,
+            "best_geomean": 2.772964538532447,
+            "best_median": 2.0170454545454546,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.90625,
-            "fast_p_best@2.0": 0.53125,
-            "n_correct": 32,
-            "n_problems": 32
+            "fast_p_best@1.0": 0.86,
+            "fast_p_best@2.0": 0.5,
+            "n_correct": 50,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_5_6_terra_l2_itr30_GH200_2026_08_22_21_23": {
           "stored": {
-            "best_geomean": 1.9313734326098393,
-            "best_median": 1.534013605442177,
+            "best_geomean": 1.9664612260557959,
+            "best_median": 1.529850746268657,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.84375,
-            "fast_p_best@2.0": 0.34375,
-            "n_correct": 32,
-            "n_problems": 32
+            "fast_p_best@1.0": 0.8,
+            "fast_p_best@2.0": 0.36,
+            "n_correct": 50,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 2.5148002872540722,
-            "best_median": 1.7566909975669098,
+            "best_geomean": 2.3283766022108074,
+            "best_median": 1.6076923076923075,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.84375,
-            "fast_p_best@2.0": 0.4375,
-            "n_correct": 32,
-            "n_problems": 32
+            "fast_p_best@1.0": 0.8,
+            "fast_p_best@2.0": 0.42,
+            "n_correct": 50,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_5_6_terra_markov_itr30_GH200_2026_08_22_21_11": {
           "stored": {
-            "best_geomean": 1.8345854677813538,
-            "best_median": 1.4928571428571429,
-            "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.90625,
-            "fast_p_best@2.0": 0.28125,
-            "n_correct": 32,
-            "n_problems": 32
+            "best_geomean": 1.7582134510695446,
+            "best_median": 1.4595469255663431,
+            "fast_p_best@0.0": 0.98,
+            "fast_p_best@1.0": 0.84,
+            "fast_p_best@2.0": 0.3,
+            "n_correct": 49,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 2.150988658084283,
-            "best_median": 1.5295238095238095,
-            "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.90625,
-            "fast_p_best@2.0": 0.3125,
-            "n_correct": 32,
-            "n_problems": 32
+            "best_geomean": 1.9507348412971757,
+            "best_median": 1.4928571428571429,
+            "fast_p_best@0.0": 0.98,
+            "fast_p_best@1.0": 0.84,
+            "fast_p_best@2.0": 0.32,
+            "n_correct": 49,
+            "n_problems": 50
           }
         },
         "base_agent_gpt_5_6_terra_selective_r5_itr30_GH200_2026_08_22_21_14": {
           "stored": {
-            "best_geomean": 1.8656548174749348,
+            "best_geomean": 2.0489137395031554,
             "best_median": 1.5279878971255672,
-            "fast_p_best@0.0": 0.96875,
-            "fast_p_best@1.0": 0.8125,
-            "fast_p_best@2.0": 0.28125,
-            "n_correct": 31,
-            "n_problems": 32
+            "fast_p_best@0.0": 0.98,
+            "fast_p_best@1.0": 0.82,
+            "fast_p_best@2.0": 0.32,
+            "n_correct": 49,
+            "n_problems": 50
           },
           "uniform": {
-            "best_geomean": 2.2048182932193936,
+            "best_geomean": 2.275812053626095,
             "best_median": 1.5807086614173227,
             "fast_p_best@0.0": 1.0,
-            "fast_p_best@1.0": 0.84375,
-            "fast_p_best@2.0": 0.34375,
-            "n_correct": 32,
-            "n_problems": 32
+            "fast_p_best@1.0": 0.84,
+            "fast_p_best@2.0": 0.36,
+            "n_correct": 50,
+            "n_problems": 50
           }
         }
       },
-      "n_aligned": 32
+      "n_aligned": 50
     }
   },
   "arms": {
     "base_agent_gpt_5_6_terra_compress_itr30_GH200_2026_08_22_21_17": {
       "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_compress_itr30_GH200_2026_08_22_21_17",
       "model": "terra",
-      "n_evals": 1042,
+      "n_evals": 1500,
       "n_flipped_evals": 58,
       "root": "runs_evolving/gpt-5.6-terra/median",
       "stored": {
-        "best_geomean": 2.5625373058478726,
+        "best_geomean": 2.900701324268786,
         "best_median": 2.7203947368421053,
-        "fast_p_best@0.0": 0.9142857142857143,
-        "fast_p_best@1.0": 0.8,
-        "fast_p_best@2.0": 0.5428571428571428,
-        "n_correct": 32,
-        "n_problems": 35
+        "fast_p_best@0.0": 0.94,
+        "fast_p_best@1.0": 0.84,
+        "fast_p_best@2.0": 0.6,
+        "n_correct": 47,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 3.1244720478924846,
-        "best_median": 2.73224043715847,
+        "best_geomean": 3.307863326657034,
+        "best_median": 2.7348484848484844,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8857142857142857,
-        "fast_p_best@2.0": 0.6285714285714286,
-        "n_correct": 35,
-        "n_problems": 35
+        "fast_p_best@1.0": 0.9,
+        "fast_p_best@2.0": 0.66,
+        "n_correct": 50,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_5_6_terra_deletion_itr30_GH200_2026_08_22_21_20": {
       "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_deletion_itr30_GH200_2026_08_22_21_20",
       "model": "terra",
-      "n_evals": 939,
+      "n_evals": 1500,
       "n_flipped_evals": 41,
       "root": "runs_evolving/gpt-5.6-terra/median",
       "stored": {
-        "best_geomean": 2.0648001998244254,
-        "best_median": 1.7443868739205526,
+        "best_geomean": 2.479077947381513,
+        "best_median": 1.9395348837209303,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.9375,
-        "fast_p_best@2.0": 0.34375,
-        "n_correct": 32,
-        "n_problems": 32
+        "fast_p_best@1.0": 0.98,
+        "fast_p_best@2.0": 0.46,
+        "n_correct": 50,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 2.6051969198608633,
-        "best_median": 1.9311663479923515,
+        "best_geomean": 2.8767769909196512,
+        "best_median": 2.515657620041754,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.9375,
-        "fast_p_best@2.0": 0.40625,
-        "n_correct": 32,
-        "n_problems": 32
+        "fast_p_best@1.0": 0.98,
+        "fast_p_best@2.0": 0.5,
+        "n_correct": 50,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_5_6_terra_itr30_GH200_2026_08_22_21_08": {
       "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_itr30_GH200_2026_08_22_21_08",
       "model": "terra",
-      "n_evals": 1063,
+      "n_evals": 1500,
       "n_flipped_evals": 21,
       "root": "runs_evolving/gpt-5.6-terra/median",
       "stored": {
-        "best_geomean": 2.2552017406172586,
+        "best_geomean": 2.417011351398555,
         "best_median": 1.9855595667870036,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8611111111111112,
-        "fast_p_best@2.0": 0.4722222222222222,
-        "n_correct": 36,
-        "n_problems": 36
+        "fast_p_best@1.0": 0.86,
+        "fast_p_best@2.0": 0.48,
+        "n_correct": 50,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 2.7293191513088786,
-        "best_median": 2.0518518518518523,
+        "best_geomean": 2.772964538532447,
+        "best_median": 2.0170454545454546,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8611111111111112,
+        "fast_p_best@1.0": 0.86,
         "fast_p_best@2.0": 0.5,
-        "n_correct": 36,
-        "n_problems": 36
+        "n_correct": 50,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_5_6_terra_l2_itr30_GH200_2026_08_22_21_23": {
       "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_l2_itr30_GH200_2026_08_22_21_23",
       "model": "terra",
-      "n_evals": 1054,
+      "n_evals": 1500,
       "n_flipped_evals": 32,
       "root": "runs_evolving/gpt-5.6-terra/median",
       "stored": {
-        "best_geomean": 1.8461567540617438,
-        "best_median": 1.5295238095238095,
+        "best_geomean": 1.9664612260557959,
+        "best_median": 1.529850746268657,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8055555555555556,
-        "fast_p_best@2.0": 0.3333333333333333,
-        "n_correct": 36,
-        "n_problems": 36
+        "fast_p_best@1.0": 0.8,
+        "fast_p_best@2.0": 0.36,
+        "n_correct": 50,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 2.3343627778688814,
+        "best_geomean": 2.3283766022108074,
         "best_median": 1.6076923076923075,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8055555555555556,
-        "fast_p_best@2.0": 0.4166666666666667,
-        "n_correct": 36,
-        "n_problems": 36
+        "fast_p_best@1.0": 0.8,
+        "fast_p_best@2.0": 0.42,
+        "n_correct": 50,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_5_6_terra_markov_itr30_GH200_2026_08_22_21_11": {
       "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_markov_itr30_GH200_2026_08_22_21_11",
       "model": "terra",
-      "n_evals": 1027,
+      "n_evals": 1500,
       "n_flipped_evals": 45,
       "root": "runs_evolving/gpt-5.6-terra/median",
       "stored": {
-        "best_geomean": 1.7745721128540093,
+        "best_geomean": 1.7582134510695446,
         "best_median": 1.4595469255663431,
-        "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8571428571428571,
-        "fast_p_best@2.0": 0.2857142857142857,
-        "n_correct": 35,
-        "n_problems": 35
+        "fast_p_best@0.0": 0.98,
+        "fast_p_best@1.0": 0.84,
+        "fast_p_best@2.0": 0.3,
+        "n_correct": 49,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 2.052442277320894,
+        "best_geomean": 1.9507348412971757,
         "best_median": 1.4928571428571429,
-        "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8571428571428571,
-        "fast_p_best@2.0": 0.3142857142857143,
-        "n_correct": 35,
-        "n_problems": 35
+        "fast_p_best@0.0": 0.98,
+        "fast_p_best@1.0": 0.84,
+        "fast_p_best@2.0": 0.32,
+        "n_correct": 49,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_5_6_terra_selective_r5_itr30_GH200_2026_08_22_21_14": {
       "dir": "runs_evolving/gpt-5.6-terra/median/base_agent_gpt_5_6_terra_selective_r5_itr30_GH200_2026_08_22_21_14",
       "model": "terra",
-      "n_evals": 1017,
+      "n_evals": 1500,
       "n_flipped_evals": 51,
       "root": "runs_evolving/gpt-5.6-terra/median",
       "stored": {
-        "best_geomean": 1.9479690308655238,
-        "best_median": 1.5807086614173227,
-        "fast_p_best@0.0": 0.9705882352941176,
-        "fast_p_best@1.0": 0.8235294117647058,
-        "fast_p_best@2.0": 0.3235294117647059,
-        "n_correct": 33,
-        "n_problems": 34
+        "best_geomean": 2.0489137395031554,
+        "best_median": 1.5279878971255672,
+        "fast_p_best@0.0": 0.98,
+        "fast_p_best@1.0": 0.82,
+        "fast_p_best@2.0": 0.32,
+        "n_correct": 49,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 2.2766953334500353,
-        "best_median": 1.7028301886792452,
+        "best_geomean": 2.275812053626095,
+        "best_median": 1.5807086614173227,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8529411764705882,
-        "fast_p_best@2.0": 0.38235294117647056,
-        "n_correct": 34,
-        "n_problems": 34
+        "fast_p_best@1.0": 0.84,
+        "fast_p_best@2.0": 0.36,
+        "n_correct": 50,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_oss_120b_compress_itr30_GH200_2026_08_22_21_20": {
       "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_compress_itr30_GH200_2026_08_22_21_20",
       "model": "gpt-oss-120b",
-      "n_evals": 1230,
+      "n_evals": 1500,
       "n_flipped_evals": 0,
       "root": "runs_evolving/gpt-oss-120b/median",
       "stored": {
-        "best_geomean": 1.3505632805419916,
-        "best_median": 1.1683168316831685,
+        "best_geomean": 1.3355335993547874,
+        "best_median": 1.2113702623906706,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.7560975609756098,
-        "fast_p_best@2.0": 0.17073170731707318,
-        "n_correct": 41,
-        "n_problems": 41
+        "fast_p_best@1.0": 0.78,
+        "fast_p_best@2.0": 0.16,
+        "n_correct": 50,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 1.3505632805419916,
-        "best_median": 1.1683168316831685,
+        "best_geomean": 1.3355335993547874,
+        "best_median": 1.2113702623906706,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.7560975609756098,
-        "fast_p_best@2.0": 0.17073170731707318,
-        "n_correct": 41,
-        "n_problems": 41
+        "fast_p_best@1.0": 0.78,
+        "fast_p_best@2.0": 0.16,
+        "n_correct": 50,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_oss_120b_deletion_itr30_GH200_2026_08_22_21_23": {
       "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_deletion_itr30_GH200_2026_08_22_21_23",
       "model": "gpt-oss-120b",
-      "n_evals": 998,
+      "n_evals": 1500,
       "n_flipped_evals": 0,
       "root": "runs_evolving/gpt-oss-120b/median",
       "stored": {
-        "best_geomean": 1.4368527297412301,
+        "best_geomean": 1.4329002026109214,
         "best_median": 1.1317365269461077,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.7058823529411765,
-        "fast_p_best@2.0": 0.20588235294117646,
-        "n_correct": 34,
-        "n_problems": 34
+        "fast_p_best@1.0": 0.7,
+        "fast_p_best@2.0": 0.18,
+        "n_correct": 50,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 1.4368527297412301,
+        "best_geomean": 1.4329002026109214,
         "best_median": 1.1317365269461077,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.7058823529411765,
-        "fast_p_best@2.0": 0.20588235294117646,
-        "n_correct": 34,
-        "n_problems": 34
+        "fast_p_best@1.0": 0.7,
+        "fast_p_best@2.0": 0.18,
+        "n_correct": 50,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_oss_120b_folding_itr30_GH200_2026_08_22_21_11": {
       "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_folding_itr30_GH200_2026_08_22_21_11",
       "model": "gpt-oss-120b",
-      "n_evals": 498,
+      "n_evals": 1500,
       "n_flipped_evals": 0,
       "root": "runs_evolving/gpt-oss-120b/median",
       "stored": {
-        "best_geomean": 1.5810565715173759,
-        "best_median": 1.34640522875817,
-        "fast_p_best@0.0": 0.9411764705882353,
-        "fast_p_best@1.0": 0.8235294117647058,
-        "fast_p_best@2.0": 0.17647058823529413,
-        "n_correct": 16,
-        "n_problems": 17
+        "best_geomean": 1.4425680641315728,
+        "best_median": 1.1317365269461077,
+        "fast_p_best@0.0": 0.92,
+        "fast_p_best@1.0": 0.66,
+        "fast_p_best@2.0": 0.18,
+        "n_correct": 46,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 1.5810565715173759,
-        "best_median": 1.34640522875817,
-        "fast_p_best@0.0": 0.9411764705882353,
-        "fast_p_best@1.0": 0.8235294117647058,
-        "fast_p_best@2.0": 0.17647058823529413,
-        "n_correct": 16,
-        "n_problems": 17
+        "best_geomean": 1.4425680641315728,
+        "best_median": 1.1317365269461077,
+        "fast_p_best@0.0": 0.92,
+        "fast_p_best@1.0": 0.66,
+        "fast_p_best@2.0": 0.18,
+        "n_correct": 46,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_oss_120b_itr30_GH200_2026_08_22_21_07": {
       "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_itr30_GH200_2026_08_22_21_07",
       "model": "gpt-oss-120b",
-      "n_evals": 1165,
+      "n_evals": 1500,
       "n_flipped_evals": 13,
       "root": "runs_evolving/gpt-oss-120b/median",
       "stored": {
-        "best_geomean": 1.2643097301084354,
-        "best_median": 1.1261682242990654,
-        "fast_p_best@0.0": 0.9230769230769231,
-        "fast_p_best@1.0": 0.6666666666666666,
-        "fast_p_best@2.0": 0.1282051282051282,
-        "n_correct": 36,
-        "n_problems": 39
+        "best_geomean": 1.2918033000590368,
+        "best_median": 1.0978260869565217,
+        "fast_p_best@0.0": 0.9,
+        "fast_p_best@1.0": 0.66,
+        "fast_p_best@2.0": 0.14,
+        "n_correct": 45,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 1.3066160214463707,
-        "best_median": 1.1261682242990654,
-        "fast_p_best@0.0": 0.9230769230769231,
-        "fast_p_best@1.0": 0.6666666666666666,
-        "fast_p_best@2.0": 0.1282051282051282,
-        "n_correct": 36,
-        "n_problems": 39
+        "best_geomean": 1.3262701302886626,
+        "best_median": 1.0978260869565217,
+        "fast_p_best@0.0": 0.9,
+        "fast_p_best@1.0": 0.66,
+        "fast_p_best@2.0": 0.14,
+        "n_correct": 45,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_oss_120b_l2_itr30_GH200_2026_08_22_21_32": {
       "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_l2_itr30_GH200_2026_08_22_21_32",
       "model": "gpt-oss-120b",
-      "n_evals": 1179,
+      "n_evals": 1500,
       "n_flipped_evals": 0,
       "root": "runs_evolving/gpt-oss-120b/median",
       "stored": {
-        "best_geomean": 1.402029835676786,
-        "best_median": 1.1117647058823528,
-        "fast_p_best@0.0": 0.95,
-        "fast_p_best@1.0": 0.65,
-        "fast_p_best@2.0": 0.225,
-        "n_correct": 38,
-        "n_problems": 40
+        "best_geomean": 1.4708976175639168,
+        "best_median": 1.1358024691358024,
+        "fast_p_best@0.0": 0.96,
+        "fast_p_best@1.0": 0.72,
+        "fast_p_best@2.0": 0.22,
+        "n_correct": 48,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 1.402029835676786,
-        "best_median": 1.1117647058823528,
-        "fast_p_best@0.0": 0.95,
-        "fast_p_best@1.0": 0.65,
-        "fast_p_best@2.0": 0.225,
-        "n_correct": 38,
-        "n_problems": 40
+        "best_geomean": 1.4708976175639168,
+        "best_median": 1.1358024691358024,
+        "fast_p_best@0.0": 0.96,
+        "fast_p_best@1.0": 0.72,
+        "fast_p_best@2.0": 0.22,
+        "n_correct": 48,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_oss_120b_markov_itr30_GH200_2026_08_22_21_14": {
       "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_markov_itr30_GH200_2026_08_22_21_14",
       "model": "gpt-oss-120b",
-      "n_evals": 1262,
+      "n_evals": 1500,
       "n_flipped_evals": 7,
       "root": "runs_evolving/gpt-oss-120b/median",
       "stored": {
-        "best_geomean": 1.1727862409797396,
-        "best_median": 1.0664961636828645,
-        "fast_p_best@0.0": 0.9302325581395349,
-        "fast_p_best@1.0": 0.6744186046511628,
-        "fast_p_best@2.0": 0.09302325581395349,
-        "n_correct": 40,
-        "n_problems": 43
+        "best_geomean": 1.1885923382855421,
+        "best_median": 1.0848375451263539,
+        "fast_p_best@0.0": 0.96,
+        "fast_p_best@1.0": 0.7,
+        "fast_p_best@2.0": 0.1,
+        "n_correct": 48,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 1.1815299251189613,
-        "best_median": 1.0664961636828645,
-        "fast_p_best@0.0": 0.9302325581395349,
-        "fast_p_best@1.0": 0.6744186046511628,
-        "fast_p_best@2.0": 0.09302325581395349,
-        "n_correct": 40,
-        "n_problems": 43
+        "best_geomean": 1.1959723687018178,
+        "best_median": 1.0848375451263539,
+        "fast_p_best@0.0": 0.96,
+        "fast_p_best@1.0": 0.7,
+        "fast_p_best@2.0": 0.1,
+        "n_correct": 48,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_oss_120b_merge_sim08_itr30_GH200_2026_08_22_21_29": {
       "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_merge_sim08_itr30_GH200_2026_08_22_21_29",
       "model": "gpt-oss-120b",
-      "n_evals": 1161,
+      "n_evals": 1500,
       "n_flipped_evals": 3,
       "root": "runs_evolving/gpt-oss-120b/median",
       "stored": {
-        "best_geomean": 1.3332476137277243,
+        "best_geomean": 1.3617947543312043,
         "best_median": 1.1385542168674696,
-        "fast_p_best@0.0": 0.9487179487179487,
-        "fast_p_best@1.0": 0.6410256410256411,
-        "fast_p_best@2.0": 0.1794871794871795,
-        "n_correct": 37,
-        "n_problems": 39
+        "fast_p_best@0.0": 0.96,
+        "fast_p_best@1.0": 0.66,
+        "fast_p_best@2.0": 0.16,
+        "n_correct": 48,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 1.3439084269226838,
+        "best_geomean": 1.3701807545283589,
         "best_median": 1.1385542168674696,
-        "fast_p_best@0.0": 0.9487179487179487,
-        "fast_p_best@1.0": 0.6410256410256411,
-        "fast_p_best@2.0": 0.1794871794871795,
-        "n_correct": 37,
-        "n_problems": 39
+        "fast_p_best@0.0": 0.96,
+        "fast_p_best@1.0": 0.66,
+        "fast_p_best@2.0": 0.16,
+        "n_correct": 48,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_oss_120b_refinement_itr30_GH200_2026_08_22_21_26": {
       "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_refinement_itr30_GH200_2026_08_22_21_26",
       "model": "gpt-oss-120b",
-      "n_evals": 606,
+      "n_evals": 1500,
       "n_flipped_evals": 0,
       "root": "runs_evolving/gpt-oss-120b/median",
       "stored": {
-        "best_geomean": 2.0855717794452318,
-        "best_median": 1.391304347826087,
-        "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8571428571428571,
-        "fast_p_best@2.0": 0.3333333333333333,
-        "n_correct": 21,
-        "n_problems": 21
+        "best_geomean": 1.524922141778355,
+        "best_median": 1.1317365269461077,
+        "fast_p_best@0.0": 0.98,
+        "fast_p_best@1.0": 0.68,
+        "fast_p_best@2.0": 0.22,
+        "n_correct": 49,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 2.0855717794452318,
-        "best_median": 1.391304347826087,
-        "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8571428571428571,
-        "fast_p_best@2.0": 0.3333333333333333,
-        "n_correct": 21,
-        "n_problems": 21
+        "best_geomean": 1.524922141778355,
+        "best_median": 1.1317365269461077,
+        "fast_p_best@0.0": 0.98,
+        "fast_p_best@1.0": 0.68,
+        "fast_p_best@2.0": 0.22,
+        "n_correct": 49,
+        "n_problems": 50
       }
     },
     "base_agent_gpt_oss_120b_selective_r5_itr30_GH200_2026_08_22_21_17": {
       "dir": "runs_evolving/gpt-oss-120b/median/base_agent_gpt_oss_120b_selective_r5_itr30_GH200_2026_08_22_21_17",
       "model": "gpt-oss-120b",
-      "n_evals": 643,
+      "n_evals": 1500,
       "n_flipped_evals": 0,
       "root": "runs_evolving/gpt-oss-120b/median",
       "stored": {
-        "best_geomean": 1.6542691991983798,
-        "best_median": 1.4364937388193202,
+        "best_geomean": 1.4018273745136818,
+        "best_median": 1.1385542168674696,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8181818181818182,
-        "fast_p_best@2.0": 0.2727272727272727,
-        "n_correct": 22,
-        "n_problems": 22
+        "fast_p_best@1.0": 0.66,
+        "fast_p_best@2.0": 0.2,
+        "n_correct": 50,
+        "n_problems": 50
       },
       "uniform": {
-        "best_geomean": 1.6542691991983798,
-        "best_median": 1.4364937388193202,
+        "best_geomean": 1.4018273745136818,
+        "best_median": 1.1385542168674696,
         "fast_p_best@0.0": 1.0,
-        "fast_p_best@1.0": 0.8181818181818182,
-        "fast_p_best@2.0": 0.2727272727272727,
-        "n_correct": 22,
-        "n_problems": 22
+        "fast_p_best@1.0": 0.66,
+        "fast_p_best@2.0": 0.2,
+        "n_correct": 50,
+        "n_problems": 50
       }
     }
   },
   "baseline": "results/timing/NVIDIA_GH200x2_median (speedups are governor-computed against this fixed baseline; re-scoring does not touch the baseline)",
-  "generated_utc": "2026-08-25T06:49:31.761362+00:00",
-  "live_filtered": true,
+  "generated_utc": "2026-08-27T00:42:20.606329+00:00",
+  "incomplete_arms": [],
+  "live_filtered": false,
   "per_problem": {
     "base_agent_gpt_5_6_terra_compress_itr30_GH200_2026_08_22_21_17": {
       "level_1_problem_100": {
@@ -864,7 +865,25 @@
       "level_3_problem_19": {
         "best_stored": 4.331550802139037,
         "best_uniform": 4.331550802139037,
-        "n_evals": 22,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_2": {
+        "best_stored": 2.4229074889867843,
+        "best_uniform": 2.4229074889867843,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 5.678571428571429,
+        "best_uniform": 5.678571428571429,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 4.99236641221374,
+        "best_uniform": 4.99236641221374,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_24": {
@@ -879,9 +898,57 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_29": {
+        "best_stored": 6.41304347826087,
+        "best_uniform": 6.41304347826087,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 3.6726546906187627,
+        "best_uniform": 3.6726546906187627,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 23.55871886120996,
+        "best_uniform": 23.55871886120996,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 15.270270270270268,
+        "best_uniform": 15.270270270270268,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_35": {
         "best_stored": 1.1739130434782608,
         "best_uniform": 1.1739130434782608,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.1875,
+        "best_uniform": 1.1875,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 3.7004608294930876,
+        "best_uniform": 3.7004608294930876,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.138257575757576,
+        "best_uniform": 1.138257575757576,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 2.4798387096774195,
+        "best_uniform": 2.4798387096774195,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -897,9 +964,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 2.517730496453901,
+        "best_uniform": 2.517730496453901,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 14.94413407821229,
+        "best_uniform": 14.94413407821229,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.8672566371681416,
+        "best_uniform": 1.8672566371681416,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 4.214953271028037,
         "best_uniform": 4.214953271028037,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.9016393442622952,
+        "best_uniform": 0.9016393442622952,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -1056,9 +1147,45 @@
         "n_flipped": 0
       },
       "level_3_problem_10": {
-        "best_stored": 0.7325581395348837,
-        "best_uniform": 0.7325581395348837,
-        "n_evals": 9,
+        "best_stored": 4.784810126582278,
+        "best_uniform": 4.784810126582278,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_16": {
+        "best_stored": 3.70253164556962,
+        "best_uniform": 3.70253164556962,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_17": {
+        "best_stored": 4.583333333333334,
+        "best_uniform": 4.583333333333334,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_19": {
+        "best_stored": 4.550561797752809,
+        "best_uniform": 4.550561797752809,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_2": {
+        "best_stored": 1.0185185185185184,
+        "best_uniform": 1.0185185185185184,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 6.115384615384615,
+        "best_uniform": 6.115384615384615,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 5.5423728813559325,
+        "best_uniform": 5.5423728813559325,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_24": {
@@ -1073,9 +1200,57 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_29": {
+        "best_stored": 3.6760124610591904,
+        "best_uniform": 3.6760124610591904,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 1.0697674418604652,
+        "best_uniform": 1.0697674418604652,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 3.6983240223463687,
+        "best_uniform": 3.6983240223463687,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 15.479452054794521,
+        "best_uniform": 15.479452054794521,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_35": {
         "best_stored": 1.0106951871657754,
         "best_uniform": 1.0106951871657754,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.1728395061728396,
+        "best_uniform": 1.1728395061728396,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 2.5654952076677318,
+        "best_uniform": 2.5654952076677318,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.063716814159292,
+        "best_uniform": 1.063716814159292,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.5241635687732342,
+        "best_uniform": 1.5241635687732342,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -1091,9 +1266,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 1.844155844155844,
+        "best_uniform": 1.844155844155844,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 12.104072398190045,
+        "best_uniform": 12.104072398190045,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.3973509933774835,
+        "best_uniform": 1.3973509933774835,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 1.7480620155038757,
         "best_uniform": 1.7480620155038757,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 7.291666666666666,
+        "best_uniform": 7.291666666666666,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -1274,9 +1473,21 @@
         "n_flipped": 0
       },
       "level_3_problem_2": {
-        "best_stored": 5.314009661835749,
-        "best_uniform": 5.314009661835749,
-        "n_evals": 13,
+        "best_stored": 5.365853658536586,
+        "best_uniform": 5.365853658536586,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 0.6973684210526315,
+        "best_uniform": 0.6973684210526315,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 0.7389830508474576,
+        "best_uniform": 0.7389830508474576,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_24": {
@@ -1291,9 +1502,57 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_29": {
+        "best_stored": 7.421383647798742,
+        "best_uniform": 7.421383647798742,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 5.542168674698795,
+        "best_uniform": 5.542168674698795,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 21.21794871794872,
+        "best_uniform": 21.21794871794872,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 29.736842105263158,
+        "best_uniform": 29.736842105263158,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_35": {
         "best_stored": 1.0106951871657754,
         "best_uniform": 1.0106951871657754,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.0160427807486632,
+        "best_uniform": 1.0160427807486632,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 1.7085106382978725,
+        "best_uniform": 1.7085106382978725,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.0674955595026643,
+        "best_uniform": 1.0674955595026643,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.5241635687732342,
+        "best_uniform": 1.5241635687732342,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -1309,9 +1568,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 2.0170454545454546,
+        "best_uniform": 2.0170454545454546,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 3.6643835616438354,
+        "best_uniform": 3.6643835616438354,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.3790849673202614,
+        "best_uniform": 1.3790849673202614,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 3.6666666666666665,
         "best_uniform": 3.6666666666666665,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 7.2368421052631575,
+        "best_uniform": 7.2368421052631575,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -1494,7 +1777,19 @@
       "level_3_problem_2": {
         "best_stored": 1.0091743119266054,
         "best_uniform": 1.0091743119266054,
-        "n_evals": 4,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 0.7794117647058825,
+        "best_uniform": 0.7794117647058825,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 0.7703180212014135,
+        "best_uniform": 0.7703180212014135,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_24": {
@@ -1509,9 +1804,57 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_29": {
+        "best_stored": 4.214285714285714,
+        "best_uniform": 4.214285714285714,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 1.0574712643678161,
+        "best_uniform": 1.0574712643678161,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 16.10705596107056,
+        "best_uniform": 16.10705596107056,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 30.0,
+        "best_uniform": 30.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_35": {
         "best_stored": 1.1666666666666667,
         "best_uniform": 1.1666666666666667,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.1801242236024843,
+        "best_uniform": 1.1801242236024843,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 3.823809523809524,
+        "best_uniform": 3.823809523809524,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.1212686567164178,
+        "best_uniform": 1.1212686567164178,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.529850746268657,
+        "best_uniform": 1.529850746268657,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -1527,9 +1870,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 2.0285714285714285,
+        "best_uniform": 2.0285714285714285,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 3.590604026845637,
+        "best_uniform": 3.590604026845637,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.9181818181818182,
+        "best_uniform": 1.9181818181818182,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 1.534013605442177,
         "best_uniform": 1.534013605442177,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.8974358974358975,
+        "best_uniform": 0.8974358974358975,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -1704,9 +2071,27 @@
         "n_flipped": 0
       },
       "level_3_problem_19": {
-        "best_stored": 0.7431192660550459,
-        "best_uniform": 0.7431192660550459,
-        "n_evals": 7,
+        "best_stored": 4.05,
+        "best_uniform": 4.05,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_2": {
+        "best_stored": 1.0091743119266054,
+        "best_uniform": 1.0091743119266054,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 0.7571428571428571,
+        "best_uniform": 0.7571428571428571,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 0.7712264150943395,
+        "best_uniform": 0.7712264150943395,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_24": {
@@ -1721,9 +2106,57 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_29": {
+        "best_stored": 1.6120218579234973,
+        "best_uniform": 1.6120218579234973,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 1.0823529411764707,
+        "best_uniform": 1.0823529411764707,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 6.9831223628691985,
+        "best_uniform": 6.9831223628691985,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 0.0,
+        "best_uniform": 0.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_35": {
         "best_stored": 1.1666666666666667,
         "best_uniform": 1.1666666666666667,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.165644171779141,
+        "best_uniform": 1.165644171779141,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 3.3181818181818183,
+        "best_uniform": 3.3181818181818183,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.011784511784512,
+        "best_uniform": 1.011784511784512,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.5260545905707197,
+        "best_uniform": 1.5260545905707197,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -1739,9 +2172,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 2.0343839541547277,
+        "best_uniform": 2.0343839541547277,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 3.8489208633093526,
+        "best_uniform": 3.8489208633093526,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.3790849673202614,
+        "best_uniform": 1.3790849673202614,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 1.4595469255663431,
         "best_uniform": 1.4595469255663431,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.7730923694779116,
+        "best_uniform": 0.7730923694779116,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -1910,9 +2367,33 @@
         "n_flipped": 0
       },
       "level_3_problem_17": {
-        "best_stored": 4.198473282442748,
-        "best_uniform": 4.198473282442748,
-        "n_evals": 27,
+        "best_stored": 4.21455938697318,
+        "best_uniform": 4.21455938697318,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_19": {
+        "best_stored": 0.7655954631379962,
+        "best_uniform": 0.7655954631379962,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_2": {
+        "best_stored": 1.0377358490566038,
+        "best_uniform": 1.0377358490566038,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 0.75,
+        "best_uniform": 0.75,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 4.917293233082707,
+        "best_uniform": 4.917293233082707,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_24": {
@@ -1927,9 +2408,57 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_29": {
+        "best_stored": 1.4081145584725536,
+        "best_uniform": 1.4081145584725536,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 1.0574712643678161,
+        "best_uniform": 1.0574712643678161,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 16.84478371501272,
+        "best_uniform": 16.84478371501272,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 29.736842105263158,
+        "best_uniform": 29.736842105263158,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_35": {
         "best_stored": 1.1739130434782608,
         "best_uniform": 1.1739130434782608,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.1585365853658538,
+        "best_uniform": 1.1585365853658538,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 4.92638036809816,
+        "best_uniform": 4.92638036809816,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.1191806331471135,
+        "best_uniform": 1.1191806331471135,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.5241635687732342,
+        "best_uniform": 1.5241635687732342,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -1945,9 +2474,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 1.8489583333333333,
+        "best_uniform": 1.8489583333333333,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 10.408560311284045,
+        "best_uniform": 10.408560311284045,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.5984848484848486,
+        "best_uniform": 1.5984848484848486,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 1.7279693486590038,
         "best_uniform": 1.7279693486590038,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.7777777777777778,
+        "best_uniform": 0.7777777777777778,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -2175,9 +2728,39 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_34": {
+        "best_stored": 1.288973384030418,
+        "best_uniform": 1.288973384030418,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_35": {
         "best_stored": 1.1249999999999998,
         "best_uniform": 1.1249999999999998,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.043956043956044,
+        "best_uniform": 1.043956043956044,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 1.4187279151943466,
+        "best_uniform": 1.4187279151943466,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.0434027777777777,
+        "best_uniform": 1.0434027777777777,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.5073529411764706,
+        "best_uniform": 1.5073529411764706,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -2193,9 +2776,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 1.0380116959064327,
+        "best_uniform": 1.0380116959064327,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 2.6616915422885574,
+        "best_uniform": 2.6616915422885574,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.31875,
+        "best_uniform": 1.31875,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 2.324742268041237,
         "best_uniform": 2.324742268041237,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.7809330628803246,
+        "best_uniform": 0.7809330628803246,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -2364,9 +2971,33 @@
         "n_flipped": 0
       },
       "level_3_problem_17": {
-        "best_stored": 0.8208955223880596,
-        "best_uniform": 0.8208955223880596,
-        "n_evals": 8,
+        "best_stored": 1.0,
+        "best_uniform": 1.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_19": {
+        "best_stored": 0.7431192660550459,
+        "best_uniform": 0.7431192660550459,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_2": {
+        "best_stored": 5.188679245283018,
+        "best_uniform": 5.188679245283018,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 0.7794117647058825,
+        "best_uniform": 0.7794117647058825,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 0.8074074074074075,
+        "best_uniform": 0.8074074074074075,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_24": {
@@ -2381,9 +3012,57 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_29": {
+        "best_stored": 1.2715517241379313,
+        "best_uniform": 1.2715517241379313,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 1.1572327044025157,
+        "best_uniform": 1.1572327044025157,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 1.340080971659919,
+        "best_uniform": 1.340080971659919,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 19.482758620689655,
+        "best_uniform": 19.482758620689655,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_35": {
         "best_stored": 1.1317365269461077,
         "best_uniform": 1.1317365269461077,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.032608695652174,
+        "best_uniform": 1.032608695652174,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 1.3383333333333334,
+        "best_uniform": 1.3383333333333334,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.0488656195462478,
+        "best_uniform": 1.0488656195462478,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.0081967213114755,
+        "best_uniform": 1.0081967213114755,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -2399,9 +3078,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 0.920881971465629,
+        "best_uniform": 0.920881971465629,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 1.7774086378737541,
+        "best_uniform": 1.7774086378737541,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.2485207100591718,
+        "best_uniform": 1.2485207100591718,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 1.375,
         "best_uniform": 1.375,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.8480176211453745,
+        "best_uniform": 0.8480176211453745,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -2467,6 +3170,12 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_2_problem_10": {
+        "best_stored": 1.1414835164835164,
+        "best_uniform": 1.1414835164835164,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_2_problem_11": {
         "best_stored": 1.309782608695652,
         "best_uniform": 1.309782608695652,
@@ -2504,9 +3213,201 @@
         "n_flipped": 0
       },
       "level_2_problem_41": {
-        "best_stored": 5.111111111111111,
-        "best_uniform": 5.111111111111111,
-        "n_evals": 18,
+        "best_stored": 5.348837209302326,
+        "best_uniform": 5.348837209302326,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_42": {
+        "best_stored": 21.272084805653712,
+        "best_uniform": 21.272084805653712,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_51": {
+        "best_stored": 1.014388489208633,
+        "best_uniform": 1.014388489208633,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_56": {
+        "best_stored": 5.323529411764706,
+        "best_uniform": 5.323529411764706,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_72": {
+        "best_stored": 2.6741573033707864,
+        "best_uniform": 2.6741573033707864,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_90": {
+        "best_stored": 1.0620399579390116,
+        "best_uniform": 1.0620399579390116,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_94": {
+        "best_stored": 0.9807073954983923,
+        "best_uniform": 0.9807073954983923,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_97": {
+        "best_stored": 7.3366834170854265,
+        "best_uniform": 7.3366834170854265,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_10": {
+        "best_stored": 0.7470355731225296,
+        "best_uniform": 0.7470355731225296,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_16": {
+        "best_stored": 0.5792079207920792,
+        "best_uniform": 0.5792079207920792,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_17": {
+        "best_stored": 0.9821428571428572,
+        "best_uniform": 0.9821428571428572,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_19": {
+        "best_stored": 0.7472324723247232,
+        "best_uniform": 0.7472324723247232,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_2": {
+        "best_stored": 1.0091743119266054,
+        "best_uniform": 1.0091743119266054,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 0.9013605442176871,
+        "best_uniform": 0.9013605442176871,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 0.6700819672131147,
+        "best_uniform": 0.6700819672131147,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_24": {
+        "best_stored": 0.7535070140280561,
+        "best_uniform": 0.7535070140280561,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_28": {
+        "best_stored": 0.0,
+        "best_uniform": 0.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_29": {
+        "best_stored": 0.0,
+        "best_uniform": 0.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 0.989247311827957,
+        "best_uniform": 0.989247311827957,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 1.6844783715012723,
+        "best_uniform": 1.6844783715012723,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 1.5915492957746478,
+        "best_uniform": 1.5915492957746478,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_35": {
+        "best_stored": 1.1317365269461077,
+        "best_uniform": 1.1317365269461077,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.1176470588235294,
+        "best_uniform": 1.1176470588235294,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 1.2057057057057057,
+        "best_uniform": 1.2057057057057057,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.0134907251264755,
+        "best_uniform": 1.0134907251264755,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.5279503105590062,
+        "best_uniform": 1.5279503105590062,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_45": {
+        "best_stored": 0.6,
+        "best_uniform": 0.6,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_46": {
+        "best_stored": 1.1278195488721805,
+        "best_uniform": 1.1278195488721805,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_48": {
+        "best_stored": 0.0,
+        "best_uniform": 0.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 2.14859437751004,
+        "best_uniform": 2.14859437751004,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.6106870229007635,
+        "best_uniform": 1.6106870229007635,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_50": {
+        "best_stored": 2.766871165644172,
+        "best_uniform": 2.766871165644172,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.8261802575107297,
+        "best_uniform": 0.8261802575107297,
+        "n_evals": 30,
         "n_flipped": 0
       }
     },
@@ -2718,12 +3619,54 @@
       "level_3_problem_29": {
         "best_stored": 0.7151515151515152,
         "best_uniform": 0.7151515151515152,
-        "n_evals": 25,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 0.9839572192513368,
+        "best_uniform": 0.9839572192513368,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 2.0623052959501558,
+        "best_uniform": 2.0623052959501558,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 7.566964285714285,
+        "best_uniform": 7.566964285714285,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_35": {
         "best_stored": 1.0738636363636362,
         "best_uniform": 1.0738636363636362,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.027027027027027,
+        "best_uniform": 1.027027027027027,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 0.0,
+        "best_uniform": 0.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.0397923875432526,
+        "best_uniform": 1.0397923875432526,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.5413533834586466,
+        "best_uniform": 1.5413533834586466,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -2739,9 +3682,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 1.047197640117994,
+        "best_uniform": 1.047197640117994,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 0.0,
+        "best_uniform": 0.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.6614173228346458,
+        "best_uniform": 1.6614173228346458,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 0.0,
         "best_uniform": 0.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.4942233632862644,
+        "best_uniform": 0.4942233632862644,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -2958,14 +3925,50 @@
         "n_flipped": 0
       },
       "level_3_problem_3": {
-        "best_stored": 0.6279863481228669,
-        "best_uniform": 0.6279863481228669,
-        "n_evals": 9,
+        "best_stored": 1.1358024691358024,
+        "best_uniform": 1.1358024691358024,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 1.3849372384937237,
+        "best_uniform": 1.3849372384937237,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 29.224137931034484,
+        "best_uniform": 29.224137931034484,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_35": {
         "best_stored": 1.1117647058823528,
         "best_uniform": 1.1117647058823528,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.032608695652174,
+        "best_uniform": 1.032608695652174,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 1.1106500691562933,
+        "best_uniform": 1.1106500691562933,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.082882882882883,
+        "best_uniform": 1.082882882882883,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.4573459715639812,
+        "best_uniform": 1.4573459715639812,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -2981,9 +3984,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 1.0142857142857142,
+        "best_uniform": 1.0142857142857142,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 2.3883928571428568,
+        "best_uniform": 2.3883928571428568,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.2196531791907514,
+        "best_uniform": 1.2196531791907514,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 1.3225806451612903,
         "best_uniform": 1.3225806451612903,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.7490272373540857,
+        "best_uniform": 0.7490272373540857,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -3224,9 +4251,27 @@
         "n_flipped": 0
       },
       "level_3_problem_37": {
-        "best_stored": 0.0,
-        "best_uniform": 0.0,
-        "n_evals": 2,
+        "best_stored": 1.1445783132530118,
+        "best_uniform": 1.1445783132530118,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 1.1722627737226277,
+        "best_uniform": 1.1722627737226277,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.0848375451263539,
+        "best_uniform": 1.0848375451263539,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.5055079559363527,
+        "best_uniform": 1.5055079559363527,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_45": {
@@ -3241,9 +4286,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 0.9659863945578231,
+        "best_uniform": 0.9659863945578231,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 2.454128440366972,
+        "best_uniform": 2.454128440366972,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.5514705882352942,
+        "best_uniform": 1.5514705882352942,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 1.3708206686930091,
         "best_uniform": 1.3708206686930091,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.8442982456140352,
+        "best_uniform": 0.8442982456140352,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -3456,12 +4525,54 @@
       "level_3_problem_29": {
         "best_stored": 1.193124368048534,
         "best_uniform": 1.193124368048534,
-        "n_evals": 21,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 1.4488188976377954,
+        "best_uniform": 1.4488188976377954,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 1.210237659963437,
+        "best_uniform": 1.210237659963437,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 28.487394957983195,
+        "best_uniform": 28.487394957983195,
+        "n_evals": 30,
         "n_flipped": 0
       },
       "level_3_problem_35": {
         "best_stored": 1.1385542168674696,
         "best_uniform": 1.1385542168674696,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.124260355029586,
+        "best_uniform": 1.124260355029586,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 1.0151706700379266,
+        "best_uniform": 1.0151706700379266,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.0732142857142857,
+        "best_uniform": 1.0732142857142857,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.426914153132251,
+        "best_uniform": 1.426914153132251,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -3477,9 +4588,33 @@
         "n_evals": 30,
         "n_flipped": 0
       },
+      "level_3_problem_48": {
+        "best_stored": 0.8142201834862385,
+        "best_uniform": 0.8142201834862385,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 0.9762773722627736,
+        "best_uniform": 0.9762773722627736,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.2339181286549707,
+        "best_uniform": 1.2339181286549707,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
       "level_3_problem_50": {
         "best_stored": 0.0,
         "best_uniform": 0.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.763888888888889,
+        "best_uniform": 0.763888888888889,
         "n_evals": 30,
         "n_flipped": 0
       }
@@ -3542,6 +4677,12 @@
       "level_1_problem_58": {
         "best_stored": 3.5971563981042656,
         "best_uniform": 3.5971563981042656,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_10": {
+        "best_stored": 1.1367989056087553,
+        "best_uniform": 1.1367989056087553,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -3608,7 +4749,175 @@
       "level_2_problem_72": {
         "best_stored": 1.1018518518518519,
         "best_uniform": 1.1018518518518519,
-        "n_evals": 6,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_90": {
+        "best_stored": 1.318537859007833,
+        "best_uniform": 1.318537859007833,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_94": {
+        "best_stored": 6.124497991967871,
+        "best_uniform": 6.124497991967871,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_97": {
+        "best_stored": 7.487179487179486,
+        "best_uniform": 7.487179487179486,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_10": {
+        "best_stored": 0.7186311787072243,
+        "best_uniform": 0.7186311787072243,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_16": {
+        "best_stored": 0.6743515850144092,
+        "best_uniform": 0.6743515850144092,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_17": {
+        "best_stored": 0.990990990990991,
+        "best_uniform": 0.990990990990991,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_19": {
+        "best_stored": 1.2423312883435582,
+        "best_uniform": 1.2423312883435582,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_2": {
+        "best_stored": 4.932735426008969,
+        "best_uniform": 4.932735426008969,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 0.6068702290076337,
+        "best_uniform": 0.6068702290076337,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 0.36741573033707864,
+        "best_uniform": 0.36741573033707864,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_24": {
+        "best_stored": 0.7300970873786407,
+        "best_uniform": 0.7300970873786407,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_28": {
+        "best_stored": 0.6645056726094003,
+        "best_uniform": 0.6645056726094003,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_29": {
+        "best_stored": 1.0727272727272728,
+        "best_uniform": 1.0727272727272728,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 0.8288288288288288,
+        "best_uniform": 0.8288288288288288,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 1.9413489736070382,
+        "best_uniform": 1.9413489736070382,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 1.0830670926517572,
+        "best_uniform": 1.0830670926517572,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_35": {
+        "best_stored": 1.1317365269461077,
+        "best_uniform": 1.1317365269461077,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.111111111111111,
+        "best_uniform": 1.111111111111111,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 0.9272517321016167,
+        "best_uniform": 0.9272517321016167,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.071301247771836,
+        "best_uniform": 1.071301247771836,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 2.430830039525692,
+        "best_uniform": 2.430830039525692,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_45": {
+        "best_stored": 0.8729096989966554,
+        "best_uniform": 0.8729096989966554,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_46": {
+        "best_stored": 1.2,
+        "best_uniform": 1.2,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_48": {
+        "best_stored": 0.9329829172141918,
+        "best_uniform": 0.9329829172141918,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 0.9519572953736654,
+        "best_uniform": 0.9519572953736654,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.623076923076923,
+        "best_uniform": 1.623076923076923,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_50": {
+        "best_stored": 0.0,
+        "best_uniform": 0.0,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 1.0052219321148825,
+        "best_uniform": 1.0052219321148825,
+        "n_evals": 30,
         "n_flipped": 0
       }
     },
@@ -3670,6 +4979,12 @@
       "level_1_problem_58": {
         "best_stored": 3.5971563981042656,
         "best_uniform": 3.5971563981042656,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_10": {
+        "best_stored": 1.2096069868995634,
+        "best_uniform": 1.2096069868995634,
         "n_evals": 30,
         "n_flipped": 0
       },
@@ -3740,15 +5055,177 @@
         "n_flipped": 0
       },
       "level_2_problem_90": {
-        "best_stored": 1.446991404011461,
-        "best_uniform": 1.446991404011461,
-        "n_evals": 13,
+        "best_stored": 1.476608187134503,
+        "best_uniform": 1.476608187134503,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_94": {
+        "best_stored": 7.439024390243903,
+        "best_uniform": 7.439024390243903,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_2_problem_97": {
+        "best_stored": 6.47450110864745,
+        "best_uniform": 6.47450110864745,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_10": {
+        "best_stored": 0.7132075471698113,
+        "best_uniform": 0.7132075471698113,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_16": {
+        "best_stored": 0.6481994459833794,
+        "best_uniform": 0.6481994459833794,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_17": {
+        "best_stored": 1.1066398390342054,
+        "best_uniform": 1.1066398390342054,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_19": {
+        "best_stored": 0.791015625,
+        "best_uniform": 0.791015625,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_2": {
+        "best_stored": 5.213270142180095,
+        "best_uniform": 5.213270142180095,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_20": {
+        "best_stored": 0.7098214285714286,
+        "best_uniform": 0.7098214285714286,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_22": {
+        "best_stored": 0.5030769230769231,
+        "best_uniform": 0.5030769230769231,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_24": {
+        "best_stored": 0.7343749999999999,
+        "best_uniform": 0.7343749999999999,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_28": {
+        "best_stored": 0.4170905391658189,
+        "best_uniform": 0.4170905391658189,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_29": {
+        "best_stored": 1.1568627450980393,
+        "best_uniform": 1.1568627450980393,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_3": {
+        "best_stored": 0.9684210526315791,
+        "best_uniform": 0.9684210526315791,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_32": {
+        "best_stored": 1.4085106382978723,
+        "best_uniform": 1.4085106382978723,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_34": {
+        "best_stored": 8.288508557457213,
+        "best_uniform": 8.288508557457213,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_35": {
+        "best_stored": 1.1385542168674696,
+        "best_uniform": 1.1385542168674696,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_37": {
+        "best_stored": 1.124260355029586,
+        "best_uniform": 1.124260355029586,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_4": {
+        "best_stored": 0.9198167239404353,
+        "best_uniform": 0.9198167239404353,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_42": {
+        "best_stored": 1.0770609318996416,
+        "best_uniform": 1.0770609318996416,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_43": {
+        "best_stored": 1.5375,
+        "best_uniform": 1.5375,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_45": {
+        "best_stored": 0.8018433179723502,
+        "best_uniform": 0.8018433179723502,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_46": {
+        "best_stored": 1.0273972602739727,
+        "best_uniform": 1.0273972602739727,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_48": {
+        "best_stored": 0.9916201117318435,
+        "best_uniform": 0.9916201117318435,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_49": {
+        "best_stored": 1.0268714011516313,
+        "best_uniform": 1.0268714011516313,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_5": {
+        "best_stored": 1.623076923076923,
+        "best_uniform": 1.623076923076923,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_50": {
+        "best_stored": 0.9616204690831556,
+        "best_uniform": 0.9616204690831556,
+        "n_evals": 30,
+        "n_flipped": 0
+      },
+      "level_3_problem_9": {
+        "best_stored": 0.731939163498099,
+        "best_uniform": 0.731939163498099,
+        "n_evals": 30,
         "n_flipped": 0
       }
     }
   },
   "seam_note": "eval.py excessive_speedup_threshold 10.0 -> 30.0 (commit 588a6a5)",
   "seam_utc": "2026-08-24T15:11:45",
-  "status": "PARTIAL -- runs incomplete; ANALYSIS_RULES.md forbids partial prefixes as a final comparative result. Magnitude only.",
+  "status": "COMPLETE -- all 15 arms finished 50/50 with run_summary.json. Levels are quotable; n=1 replicate per cell, so per ANALYSIS_RULES/open-item-9 this still cannot support an arm-vs-arm winner claim.",
   "uniform_threshold": 30.0
 }

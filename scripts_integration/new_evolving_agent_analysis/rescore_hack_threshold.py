@@ -85,6 +85,35 @@ def geometric_mean(xs: list) -> float:
     return math.exp(sum(math.log(x) for x in xs) / len(xs))
 
 
+# A run_summary.json is written ONLY after the last problem (evolve_kb_batch.py), so
+# its presence plus a full batch_timing.jsonl is the artifact-level proof that an arm
+# actually finished -- as opposed to a killed arm, which leaves a complete-looking dir.
+# Hardcoding "PARTIAL" was wrong once the wave completed: a stale warning on a final
+# result is worse than no warning, because it invites discounting a valid comparison.
+PROTOCOL_PROBLEMS = 50
+
+
+def _incomplete(arms: dict) -> list:
+    bad = []
+    for name, a in arms.items():
+        d = a.get("dir") or ""
+        bt = os.path.join(d, "batch_timing.jsonl")
+        n = sum(1 for _ in open(bt)) if os.path.isfile(bt) else 0
+        if n < PROTOCOL_PROBLEMS or not os.path.isfile(os.path.join(d, "run_summary.json")):
+            bad.append(f"{name} ({n}/{PROTOCOL_PROBLEMS})")
+    return sorted(bad)
+
+
+def _status_line(arms: dict) -> str:
+    bad = _incomplete(arms)
+    if bad:
+        return ("PARTIAL -- " + ", ".join(bad) + "; ANALYSIS_RULES.md:158 forbids partial "
+                "prefixes as a final comparative result. Magnitude only.")
+    return (f"COMPLETE -- all {len(arms)} arms finished {PROTOCOL_PROBLEMS}/{PROTOCOL_PROBLEMS} "
+            "with run_summary.json. Levels are quotable; n=1 replicate per cell, so per "
+            "ANALYSIS_RULES/open-item-9 this still cannot support an arm-vs-arm winner claim.")
+
+
 def scan_arm(run_dir: str, threshold: float) -> dict:
     """problem -> {best_stored, best_uniform, n_evals, n_flipped}."""
     probs = {}
@@ -206,8 +235,8 @@ def main() -> int:
         "seam_note": f"eval.py excessive_speedup_threshold {OLD_T} -> {NEW_T} (commit 588a6a5)",
         "baseline": "results/timing/NVIDIA_GH200x2_median (speedups are governor-computed "
                     "against this fixed baseline; re-scoring does not touch the baseline)",
-        "status": "PARTIAL -- runs incomplete; ANALYSIS_RULES.md forbids partial prefixes "
-                  "as a final comparative result. Magnitude only.",
+        "status": _status_line(arms),
+        "incomplete_arms": _incomplete(arms),
         "live_filtered": not args.all_dirs,
         "aligned_within_model": aligned,
         "arms": {n: {k: v for k, v in a.items() if k != "problems"} for n, a in arms.items()},
@@ -237,7 +266,7 @@ def main() -> int:
     # ---- console report -------------------------------------------------
     print(f"uniform threshold {args.threshold}x   seam {SEAM_UTC}   arms {len(arms)}"
           f"   {'live-filtered' if not args.all_dirs else 'ALL DIRS'}")
-    print("STATUS: PARTIAL runs -- magnitude only, not a final comparative result.\n")
+    print("STATUS: " + doc["status"] + "\n")
     for model in sorted(aligned):
         al = aligned[model]
         print(f"=== {model}: aligned on {al['n_aligned']} problems common to all "
@@ -258,9 +287,15 @@ def main() -> int:
     L = []
     L.append(f"# Uniform-threshold re-score ({args.threshold:g}x)\n")
     L.append(f"Generated {doc['generated_utc']}. Baseline: `NVIDIA_GH200x2_median`.\n")
-    L.append("> **STATUS: PARTIAL.** These runs are incomplete. `ANALYSIS_RULES.md:158` forbids\n"
-             "> partial prefixes as a final comparative result -- read the *deltas* as magnitude,\n"
-             "> not the levels as a leaderboard.\n")
+    if doc["incomplete_arms"]:
+        L.append("> **STATUS: PARTIAL.** Incomplete: " + ", ".join(doc["incomplete_arms"]) +
+                 ". `ANALYSIS_RULES.md:158` forbids partial prefixes as a final comparative\n"
+                 "> result -- read the *deltas* as magnitude, not the levels as a leaderboard.\n")
+    else:
+        L.append(f"> **STATUS: COMPLETE.** All {len(arms)} arms finished 50/50 with\n"
+                 "> `run_summary.json`. Levels are quotable. **But n=1 replicate per cell:** per\n"
+                 "> `ANALYSIS_RULES.md` and open item 9 (log-SD 0.147 across identical-config\n"
+                 "> replicates), a single replicate cannot support an arm-vs-arm winner claim.\n")
     L.append("## The seam\n")
     L.append(f"`src/kernelbench/eval.py` changed `excessive_speedup_threshold` {OLD_T:g} -> {NEW_T:g} at\n"
              f"**{SEAM_UTC}** (commit `588a6a5`). eval.py is re-imported by every eval spawn, so it\n"
