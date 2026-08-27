@@ -67,3 +67,5 @@ wait_batch2.sh
 batch2_launch.log
 check_memgate_damage.py
 preseed/
+wait_quick.sh
+quick_launch.log
