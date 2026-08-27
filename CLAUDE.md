@@ -199,6 +199,33 @@ against a different baseline file. Record which baseline a run used.
 - **Log:** auto-derived, `<run_name>_<Mon>_<D>.log` in the repo root.
 - **Results:** `runs_evolving/gpt-oss-120b/<run_name>_<timestamp>/`
 
+**Two arms must never share a run name inside the same minute.** The timestamp the
+runner appends is `_YYYY_MM_DD_HH_MM` — **minute** resolution — so two arms with the
+same run name launched less than a minute apart resolve to **one directory** and
+silently interleave their results into each other's artifacts. There is no error;
+you find out at analysis time, if at all.
+
+This is a *replicate* hazard, not a matrix hazard. Nine cells with nine distinct tags
+can launch a second apart safely. Three replicates of one setting all render to the
+same `${RUN_PREFIX}_<tag>_itr30_GH200` and cannot.
+
+`launch_wave.sh` enforces exactly that invariant: it derives every run name from the
+spec up front and **FATALs on a duplicate when `LAG_SEC <= 60`**, and merely warns
+above 60 (where the minute stamps do separate them). So:
+
+- **Distinct tags → any `LAG_SEC`.** `LAG_SEC=20` for a 9-cell wave is fine and cuts
+  launch time from 24 min to 3.
+- **Replicates → give each one its own tag** (`merge_sim08_r1` / `_r2` / `_r3`) and
+  keep any lag, or leave the tags identical and accept `LAG_SEC > 60`. Distinct tags
+  are strictly better: they also keep the arms distinguishable in every downstream
+  analysis, which identical names do not.
+
+Note the lag is *also* what desynchronises arms. Per §3.4 arms launched together
+collide on the first ~9 problems (1.35× penalty) before drifting apart, and problems
+1–5 carry 74% of the benchmark's input-generation cost — so a short lag concentrates
+every arm in the expensive, mem-gated region at once. Lower `LAG_SEC` for naming
+reasons, but expect a slower first day.
+
 ### 3.3 Examples
 
 Substitute your own `$HW` (`env/<HARDWARE>/`, per `CLAUDE.local.md`).

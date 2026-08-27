@@ -13,6 +13,9 @@ column is shown beside it only to expose the 10x->30x seam.
 """
 from __future__ import annotations
 import argparse, glob, json, math, os, re, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _model_naming import arm_tag
 from datetime import datetime, timezone
 
 # Problems whose reference model computes something large and then collapses it,
@@ -28,13 +31,14 @@ ORDER = ["truncation", "folding", "markov", "selective_r5", "compress",
          "deletion", "merge_sim08", "refinement", "l2"]
 
 
-def tag(name: str) -> str:
-    for p in ("base_agent_gpt_oss_120b_", "base_agent_gpt_5_6_terra_"):
-        if name.startswith(p):
-            name = name[len(p):]
-            break
-    name = re.sub(r"^itr30_GH200_\d{4}(_\d{2}){4}$", "truncation", name)
-    return re.sub(r"_itr30_GH200_\d{4}(_\d{2}){4}$", "", name)
+def tag(name: str, model: str | None = None) -> str:
+    """Arm tag from a run name, model-agnostic.
+
+    The old two-prefix list left any third model's names unstripped, so its tags
+    rendered as full run names and silently stopped matching the cross-arm join
+    keys -- the arm just vanished from the comparison instead of erroring.
+    """
+    return arm_tag(name, model)
 
 
 def geo(xs):

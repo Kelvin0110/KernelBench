@@ -50,9 +50,15 @@ import re
 import sys
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _model_naming import arm_tag, discover_roots, model_from_root
+
 SEAM_UTC = "2026-08-24T15:11:45"   # commit 588a6a5 -- threshold 10 -> 30
 OLD_T, NEW_T = 10.0, 30.0
-DEFAULT_ROOTS = ["runs_evolving/gpt-oss-120b/median", "runs_evolving/gpt-5.6-terra/median"]
+# Discovered, not hardcoded: any runs_evolving/<model>[/median] holding run dirs.
+# The old two-element literal made a third model invisible unless passed by hand.
+DEFAULT_ROOTS = discover_roots() or [
+    "runs_evolving/gpt-oss-120b/median", "runs_evolving/gpt-5.6-terra/median"]
 THRESHOLDS = [0.0, 1.0, 2.0]
 
 
@@ -227,7 +233,12 @@ def main() -> int:
         a["uniform"] = metrics(un)
         a["n_flipped_evals"] = sum(p["n_flipped"] for p in a["problems"].values())
         a["n_evals"] = sum(p["n_evals"] for p in a["problems"].values())
-        a["model"] = "terra" if "terra" in name else "gpt-oss-120b"
+        # From the RESULTS ROOT, not the run name. The old substring test
+        # (`"terra" if "terra" in name else "gpt-oss-120b"`) labelled every
+        # non-terra model gpt-oss, so a qwen arm was silently pooled into the
+        # gpt-oss aligned intersection -- the cross-model contrast the comment
+        # below calls invalid, with numbers that still look plausible.
+        a["model"] = model_from_root(a["root"])
 
     # aligned intersection, computed WITHIN each model group (cross-model is not a
     # valid contrast: different endpoints, different latency, different GPUs)
@@ -291,8 +302,7 @@ def main() -> int:
             d1 = u["fast_p_best@1.0"] - s["fast_p_best@1.0"]
             d2 = u["best_geomean"] - s["best_geomean"]
             mark = "  <-- MOVED" if abs(d1) > 1e-9 or abs(d2) > 0.005 else ""
-            tag = n.replace("base_agent_gpt_oss_120b", "oss").replace("base_agent_gpt_5_6_terra", "terra")
-            tag = re.sub(r"_itr30_GH200_.*$", "", tag) or "(truncation)"
+            tag = arm_tag(n, model)
             print(f"{tag:46s} {s['fast_p_best@1.0']:11.3f} -> {u['fast_p_best@1.0']:<11.3f}"
                   f" {s['best_geomean']:11.3f} -> {u['best_geomean']:<11.3f}{mark}")
         print()
@@ -331,7 +341,7 @@ def main() -> int:
         for n in sorted(al["arms"]):
             s_, u_ = al["arms"][n]["stored"], al["arms"][n]["uniform"]
             tag = re.sub(r"_itr30_GH200_.*$", "",
-                         n.replace("base_agent_gpt_oss_120b", "oss").replace("base_agent_gpt_5_6_terra", "terra")) or "(truncation)"
+                         arm_tag(n, model)) or "(truncation)"
             d1 = u_["fast_p_best@1.0"] - s_["fast_p_best@1.0"]
             d2 = u_["best_geomean"] - s_["best_geomean"]
             b = "**" if (abs(d1) > 1e-9 or abs(d2) > 0.005) else ""
