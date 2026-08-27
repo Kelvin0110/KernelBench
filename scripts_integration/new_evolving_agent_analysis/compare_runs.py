@@ -155,6 +155,25 @@ def design_variant_label(record: dict[str, Any]) -> str:
         flags.append(f"merge@{similarity}" if similarity is not None else "merge")
     if _dig(record, "config.enable_skill_refinement"):
         flags.append("refine")
+    # L2 is a third axis. Omitting it renders an L2 arm and a plain truncation
+    # control as the same design, so every delta table compares an arm with
+    # itself (CLAUDE.md open item 7). Encode the knobs that change the standing
+    # set, since two L2 arms with different gates are different treatments.
+    if _dig(record, "config.enable_l2"):
+        l2 = "l2"
+        render = _dig(record, "config.l2_render")
+        if render and str(render) != "verbatim":
+            l2 += f":{render}"
+        if _dig(record, "config.l2_use_hit_rate"):
+            hit = _dig(record, "config.l2_min_hit_rate")
+            l2 += f":hit{hit}" if hit is not None else ":hit"
+        cap = _dig(record, "config.l2_standing_cap")
+        if cap:
+            l2 += f":cap{cap}"
+        dedup = _dig(record, "config.l2_dedup_similarity")
+        if dedup:
+            l2 += f":dedup{dedup}"
+        flags.append(l2)
     if not flags:
         return mode
     return f"{mode}+{'+'.join(flags)}"

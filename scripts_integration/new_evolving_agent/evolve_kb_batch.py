@@ -47,8 +47,11 @@ from evolving_common.context_management import (
     DEFAULT_EVOLVING_REPORT_TIMEOUT_SEC,
 )
 from evolving_common.governor.l2_promotion import (
+    DEFAULT_L2_DEDUP_SIMILARITY,
     DEFAULT_L2_MAX_ENTRIES,
+    DEFAULT_L2_MIN_HIT_RATE,
     DEFAULT_L2_MIN_NEW_BESTS,
+    DEFAULT_L2_STANDING_CAP,
     DEFAULT_L2_MIN_RATE,
     DEFAULT_L2_MIN_SELECTIONS,
     DEFAULT_L2_MIN_TASKS,
@@ -714,6 +717,10 @@ def _check_resume_config_mismatch(
         "l2_min_rate",
         "l2_min_new_bests",
         "l2_max_entries",
+        "l2_use_hit_rate",
+        "l2_min_hit_rate",
+        "l2_standing_cap",
+        "l2_dedup_similarity",
     )
     for key in flag_keys:
         if key not in prior:
@@ -728,7 +735,11 @@ def _check_resume_config_mismatch(
                         continue
                 except (TypeError, ValueError):
                     pass
-            if key in ("l2_min_rate",) and prior_val is not None and current_val is not None:
+            if (
+                key in ("l2_min_rate", "l2_min_hit_rate", "l2_dedup_similarity")
+                and prior_val is not None
+                and current_val is not None
+            ):
                 try:
                     if abs(float(prior_val) - float(current_val)) < 1e-9:
                         continue
@@ -741,6 +752,7 @@ def _check_resume_config_mismatch(
                 "l2_min_selections",
                 "l2_min_new_bests",
                 "l2_max_entries",
+                "l2_standing_cap",
             ):
                 try:
                     if int(prior_val) == int(current_val):
@@ -1197,8 +1209,61 @@ def main() -> int:
         type=int,
         default=DEFAULT_L2_MAX_ENTRIES,
         help=(
-            "Optional cap on standing rules, applied after the floors and ranked by "
-            f"score. 0 means unlimited — the floors decide (default: {DEFAULT_L2_MAX_ENTRIES})."
+            "PER-PASS cap on how many rules one task boundary may promote, applied "
+            "after the floors and ranked by score. This does NOT bound the standing "
+            "set: the pass runs at every boundary and the set accumulates across "
+            "them (measured: --l2-max-entries 4 admitted 19 rules on a 50-problem "
+            "gpt-oss arm). Use --l2-standing-cap to bound the standing set. "
+            f"0 means unlimited (default: {DEFAULT_L2_MAX_ENTRIES})."
+        ),
+    )
+    parser.add_argument(
+        "--l2-standing-cap",
+        type=int,
+        default=DEFAULT_L2_STANDING_CAP,
+        help=(
+            "Cap on the size of the accumulated L2 standing set. Unlike "
+            "--l2-max-entries this bounds the total, so the coder system prompt "
+            "cannot grow without limit. 0 = unbounded "
+            f"(default: {DEFAULT_L2_STANDING_CAP})."
+        ),
+    )
+    parser.add_argument(
+        "--l2-use-hit-rate",
+        action="store_true",
+        help=(
+            "Gate on hit_rate = selections / times-offered instead of "
+            "selection_rate = selections / iterations-since-created. The shipped "
+            "denominator counts iterations in which the skill could not have been "
+            "picked, because it had scrolled out of the newest-50 extractor "
+            "catalog, so it decays at a speed set by how fast the arm mints "
+            "skills. Measured on two completed L2 arms with identical flags: the "
+            "gpt-oss arm (557 skills) peaked at selection_rate 0.7059 against a "
+            "0.70 floor and promoted 0; the terra arm (308 skills) reached 1.0 and "
+            "promoted 4."
+        ),
+    )
+    parser.add_argument(
+        "--l2-min-hit-rate",
+        type=float,
+        default=DEFAULT_L2_MIN_HIT_RATE,
+        help=(
+            "Floor for --l2-use-hit-rate. Replaces --l2-min-rate rather than "
+            f"adding to it (default: {DEFAULT_L2_MIN_HIT_RATE})."
+        ),
+    )
+    parser.add_argument(
+        "--l2-dedup-similarity",
+        type=float,
+        default=DEFAULT_L2_DEDUP_SIMILARITY,
+        help=(
+            "Reject a candidate whose cosine similarity to an already-standing or "
+            "higher-ranked rule reaches this threshold, using the same embedding "
+            "model as skill merging. Promotion is one-way and freezes evidence, so "
+            "a duplicate admitted here holds prompt space for the rest of the run. "
+            "0 = off (default). 0.80 was chosen by reading the ranked pairs: it "
+            "separates a four-member 'enable TF32/cuDNN' family and a 'avoid "
+            "trivial kernels' family from genuinely distinct rules."
         ),
     )
     parser.add_argument(
@@ -1331,6 +1396,18 @@ def main() -> int:
         parser.error("--l2-min-new-bests must be >= 0")
     if int(args.l2_max_entries) < 0:
         parser.error("--l2-max-entries must be >= 0 (0 = unlimited)")
+    if int(args.l2_standing_cap) < 0:
+        parser.error("--l2-standing-cap must be >= 0 (0 = unbounded)")
+    if not (0.0 < float(args.l2_min_hit_rate) <= 1.0):
+        parser.error("--l2-min-hit-rate must be in (0, 1]")
+    if not (0.0 <= float(args.l2_dedup_similarity) <= 1.0):
+        parser.error("--l2-dedup-similarity must be in [0, 1] (0 = off)")
+    if bool(args.l2_use_hit_rate) and not bool(args.enable_l2):
+        parser.error("--l2-use-hit-rate requires --enable-l2")
+    if float(args.l2_dedup_similarity) > 0 and not bool(args.enable_l2):
+        parser.error("--l2-dedup-similarity requires --enable-l2")
+    if int(args.l2_standing_cap) > 0 and not bool(args.enable_l2):
+        parser.error("--l2-standing-cap requires --enable-l2")
 
     if args.baseline_timing_file:
         baseline_path = Path(args.baseline_timing_file)
@@ -1442,6 +1519,10 @@ def main() -> int:
         "l2_min_rate": float(args.l2_min_rate),
         "l2_min_new_bests": int(args.l2_min_new_bests),
                 "l2_max_entries": int(args.l2_max_entries),
+                "l2_use_hit_rate": bool(args.l2_use_hit_rate),
+                "l2_min_hit_rate": float(args.l2_min_hit_rate),
+                "l2_standing_cap": int(args.l2_standing_cap),
+                "l2_dedup_similarity": float(args.l2_dedup_similarity),
             },
             allow_mismatch=bool(args.allow_resume_config_mismatch),
         )
@@ -1630,6 +1711,10 @@ def main() -> int:
                 enable_l2=bool(args.enable_l2),
                 l2_render=str(args.l2_render),
                 l2_max_entries=int(args.l2_max_entries),
+                l2_use_hit_rate=bool(args.l2_use_hit_rate),
+                l2_min_hit_rate=float(args.l2_min_hit_rate),
+                l2_standing_cap=int(args.l2_standing_cap),
+                l2_dedup_similarity=float(args.l2_dedup_similarity),
                 l2_min_tasks=int(args.l2_min_tasks),
                 l2_min_selections=int(args.l2_min_selections),
                 l2_min_rate=float(args.l2_min_rate),
@@ -1775,6 +1860,10 @@ def main() -> int:
         "l2_min_rate": float(args.l2_min_rate),
         "l2_min_new_bests": int(args.l2_min_new_bests),
         "l2_max_entries": int(args.l2_max_entries),
+        "l2_use_hit_rate": bool(args.l2_use_hit_rate),
+        "l2_min_hit_rate": float(args.l2_min_hit_rate),
+        "l2_standing_cap": int(args.l2_standing_cap),
+        "l2_dedup_similarity": float(args.l2_dedup_similarity),
         "l2_standing_path": str(resolve_l2_standing_path(shared_l1_path)),
         "l2_standing_count": len(load_l2_standing(shared_l1_path)),
         "total_attempted": len(rows),
