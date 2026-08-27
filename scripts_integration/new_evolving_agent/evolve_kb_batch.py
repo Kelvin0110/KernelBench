@@ -48,6 +48,7 @@ from evolving_common.context_management import (
 )
 from evolving_common.governor.l2_promotion import (
     DEFAULT_L2_DEDUP_SIMILARITY,
+    DEFAULT_L2_JUDGE,
     DEFAULT_L2_MAX_ENTRIES,
     DEFAULT_L2_MIN_HIT_RATE,
     DEFAULT_L2_MIN_NEW_BESTS,
@@ -721,6 +722,8 @@ def _check_resume_config_mismatch(
         "l2_min_hit_rate",
         "l2_standing_cap",
         "l2_dedup_similarity",
+        "l2_judge",
+        "l2_freeze",
     )
     for key in flag_keys:
         if key not in prior:
@@ -1267,6 +1270,46 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--l2-judge",
+        action="store_true",
+        help=(
+            "Let an LLM decide which candidates become standing rules, from the "
+            "rule TEXT, instead of ranking on usage counts. Motivated by "
+            "measurement: selection carries no outcome signal -- "
+            "P(new best | skill selected) is 0.1423 vs 0.1440 for offered-but-"
+            "not-selected on gpt-oss (0.2057 vs 0.2275 on terra), and the lift "
+            "stays at zero within attempt-position strata. min_new_bests is not "
+            "independent either (corr with selections 0.87/0.68). So every floor "
+            "ranks on one signal that does not predict outcome. The judge reads "
+            "the rule and asks whether it is general, actionable, non-redundant "
+            "and non-obvious. Fails CLOSED: on any error it promotes nothing. "
+            "Set the floors LOW alongside it -- they become a weak admission bar, "
+            "not the ranking."
+        ),
+    )
+    parser.add_argument(
+        "--l2-freeze",
+        action="store_true",
+        help=(
+            "Never promote; keep whatever is already standing. Pairs with "
+            "--l2-preseed so the treatment is exactly the injected rule set."
+        ),
+    )
+    parser.add_argument(
+        "--l2-preseed",
+        type=str,
+        default=None,
+        help=(
+            "Path to an l2_standing.jsonl from a previous run, installed before "
+            "problem 1. Separates the two questions every L2 arm currently "
+            "confounds -- can the gate FIND good rules, and do standing rules "
+            "HELP -- and removes the accumulation wait, so a short run can test "
+            "the second. Rows are copied verbatim, so the injected prompt text is "
+            "byte-identical to the source run's. Refuses to overwrite a non-empty "
+            "standing set."
+        ),
+    )
+    parser.add_argument(
         "--baseline-timing-file",
         type=str,
         default=None,
@@ -1408,6 +1451,15 @@ def main() -> int:
         parser.error("--l2-dedup-similarity requires --enable-l2")
     if int(args.l2_standing_cap) > 0 and not bool(args.enable_l2):
         parser.error("--l2-standing-cap requires --enable-l2")
+    if bool(args.l2_judge) and not bool(args.enable_l2):
+        parser.error("--l2-judge requires --enable-l2")
+    if bool(args.l2_freeze) and not bool(args.enable_l2):
+        parser.error("--l2-freeze requires --enable-l2")
+    if args.l2_preseed:
+        if not bool(args.enable_l2):
+            parser.error("--l2-preseed requires --enable-l2")
+        if not Path(args.l2_preseed).is_file():
+            parser.error(f"--l2-preseed: no such file: {args.l2_preseed}")
 
     if args.baseline_timing_file:
         baseline_path = Path(args.baseline_timing_file)
@@ -1523,6 +1575,8 @@ def main() -> int:
                 "l2_min_hit_rate": float(args.l2_min_hit_rate),
                 "l2_standing_cap": int(args.l2_standing_cap),
                 "l2_dedup_similarity": float(args.l2_dedup_similarity),
+                "l2_judge": bool(args.l2_judge),
+                "l2_freeze": bool(args.l2_freeze),
             },
             allow_mismatch=bool(args.allow_resume_config_mismatch),
         )
@@ -1564,6 +1618,16 @@ def main() -> int:
         shared_l1_path.write_text(
             "# Shared L1 journal for evolving KernelBench batch\n",
             encoding="utf-8",
+        )
+
+    if args.l2_preseed and not bool(args.dry_run):
+        from evolving_common.governor.l2_promotion import preseed_l2_standing
+
+        n_seeded = preseed_l2_standing(shared_l1_path, Path(args.l2_preseed))
+        print(
+            f"[batch] L2 pre-seeded with {n_seeded} standing rule(s) from "
+            f"{args.l2_preseed}"
+            + ("  (frozen: no new promotions)" if args.l2_freeze else "")
         )
 
     eval_path = run_dir / "eval_results.json"
@@ -1715,6 +1779,8 @@ def main() -> int:
                 l2_min_hit_rate=float(args.l2_min_hit_rate),
                 l2_standing_cap=int(args.l2_standing_cap),
                 l2_dedup_similarity=float(args.l2_dedup_similarity),
+                l2_judge=bool(args.l2_judge),
+                l2_freeze=bool(args.l2_freeze),
                 l2_min_tasks=int(args.l2_min_tasks),
                 l2_min_selections=int(args.l2_min_selections),
                 l2_min_rate=float(args.l2_min_rate),
@@ -1864,6 +1930,8 @@ def main() -> int:
         "l2_min_hit_rate": float(args.l2_min_hit_rate),
         "l2_standing_cap": int(args.l2_standing_cap),
         "l2_dedup_similarity": float(args.l2_dedup_similarity),
+        "l2_judge": bool(args.l2_judge),
+        "l2_freeze": bool(args.l2_freeze),
         "l2_standing_path": str(resolve_l2_standing_path(shared_l1_path)),
         "l2_standing_count": len(load_l2_standing(shared_l1_path)),
         "total_attempted": len(rows),

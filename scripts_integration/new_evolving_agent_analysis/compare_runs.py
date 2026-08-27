@@ -173,6 +173,10 @@ def design_variant_label(record: dict[str, Any]) -> str:
         dedup = _dig(record, "config.l2_dedup_similarity")
         if dedup:
             l2 += f":dedup{dedup}"
+        if _dig(record, "config.l2_judge"):
+            l2 += ":judge"
+        if _dig(record, "config.l2_freeze"):
+            l2 += ":frozen"
         flags.append(l2)
     if not flags:
         return mode
