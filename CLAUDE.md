@@ -1149,7 +1149,12 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    quoting them. The durable invariant is capped-at-50 versus uncapped.
    Until it is decoupled (give the cap its own flag, held fixed across arms), report
    governance results as "rule + catalog size", not as the rule.
-7. **L2 is invisible to the analysis scripts.** `aggregate_runs.py`'s config extraction
+7. **L2 is invisible to the analysis scripts. — FIXED 2026-08-27, see §8.11.**
+   `aggregate_runs.py` now extracts the L2 config and `compare_runs.py`'s
+   `design_variant_label` renders the L2 knobs, so an L2 arm no longer collapses to
+   the same design string as its control. Original text follows.
+
+   **L2 is invisible to the analysis scripts.** `aggregate_runs.py`'s config extraction
    has no `enable_l2` field, and `compare_runs.py`'s `design_variant_label` (`:147-159`)
    reads only the context mode plus `skill_deletion`/`skill_merging`/`enable_skill_refinement`
    — so an L2 arm and the truncation control both render as design `truncation` in the CSV
@@ -1536,3 +1541,103 @@ wc -l <run>/l2_promotions.jsonl <run>/l2_standing.jsonl
 A zero here is silent: `governor.py:1448` swallows every promotion-pass exception into a
 one-line `l2 promotion skipped:` print, and an arm that promotes nothing is
 indistinguishable from a truncation arm in every other artifact.
+
+### 8.11 Corrections and mechanism fixes (2026-08-27)
+
+Everything in §8.1–8.10 above was derived from **one** arm,
+`base_agent_gpt_oss_120b_l2_itr30_GH200_2026_08_22_20_34`. **That run directory no
+longer exists on this host** — it survives only as rows in
+`output/GH200x2_2nd_aug22_wave/`, so §8.6's re-measure recipe cannot be run against
+it. The two L2 arms that *are* on disk change the picture:
+
+| | gpt-oss-120b `…_21_32` | gpt-5.6-terra `…_21_23` |
+|---|---|---|
+| flags / protocol | identical | identical |
+| problems | 50/50 | 50/50 |
+| **rules promoted** | **0** | **4** |
+
+Same gate, same defaults, 0 vs 4 — and 9 on the arm §8 is written from. **The
+promotion count is not reproducible at defaults**, which is a prior question to
+§8's "L2 is a null". A 0-promotion L2 arm is byte-identical to a truncation arm in
+every metric, so §8's null may partly be measuring arms that had no tier at all.
+
+**The gate is exactly replayable offline.** §8.8 says eligibility is replayable only
+boundary-by-boundary; that is now implemented and validated to reproduce
+`l2_promotions.jsonl` exactly on both arms (entry id, boundary, selections, tasks,
+opportunity, rate). See `new_evolving_agent_analysis/l2_redesign/` — gate variants
+can now be evaluated at zero GPU cost. Two traps it documents: both arms were
+**resumed**, so the reconstructed `global_iteration` is offset by
+`ledger_final − reconstructed` (26 terra, 42 oss) and mixing scales invents phantom
+promotions; and the extractor prompt renders **two** `- id=` blocks, the second
+being the standing-rules list, so a naive parse inflates a promoted skill's
+visibility for the rest of the run.
+
+**Corrected — `--l2-max-entries` is a PER-PASS cap, not a standing-set cap.**
+§8.6 reads it as bounding the standing set ("4 → all three distinct rules + one
+representative") and §8.9's `l2_cap4` arm is designed on that reading. Both are
+wrong. `select_l2_promotions` runs at every task boundary and the standing set
+accumulates across them: measured in replay, `--l2-max-entries 4` admits **19**
+rules on the gpt-oss arm. Separately, already-standing skills were *counted against*
+the cap — `compute_l2_candidates` reads `read_selectable_l1_jsonl`, which filters on
+`status`, while `set_skill_tier` writes `tier` (`entry_tier` was imported into
+`l2_promotion.py` and never used). Use the new `--l2-standing-cap` to bound the set.
+
+**New defect — `selection_rate`'s denominator is not the support of its numerator.**
+A skill can only be selected while it is inside the extractor's candidate set, and
+`read_l1_extractor_catalog` returns `entries[-50:]` when governance is off
+(`memory_manager.py:798`). Once a skill scrolls out of that tail its numerator
+freezes while its denominator keeps ticking, so `rate` **decays monotonically**, at
+a speed set by how fast the arm mints L1 skills — an arm-level property, not a
+property of the skill. Measured with the exact per-iteration candidate sets:
+
+| | gpt-oss | terra |
+|---|---|---|
+| L1 skills minted | 557 | 308 |
+| median iterations a skill is *offered* | 118 | 231 |
+| mean picks per extractor call | 6.81 | 3.85 |
+| clearing tasks≥3 **and** selections≥50 | 49 | 35 |
+| **best `selection_rate` ever reached** | **0.7059** | 1.0 |
+| best `hit_rate` (selections / offers) | 0.9667 | 1.0 |
+
+The gpt-oss arm's best candidate **missed the 0.70 floor by 0.0115** while being
+picked in 96.7% of the iterations it was actually offered. This is why that arm
+promoted nothing, and it is a threshold sitting on top of an arm-dependent ceiling.
+
+**Three knobs added, all default OFF** (`--l2-use-hit-rate` / `--l2-min-hit-rate`,
+`--l2-standing-cap`, `--l2-dedup-similarity`). Proven inert by replaying both arms
+through the patched functions. `hit_rate` needs a new `total_offers` counter in the
+usage ledger; ledgers without it give `hit_rate` 0, which fails the floor rather
+than scoring an unmeasured skill as a perfect hit.
+
+Combined (`hit≥0.60`, standing cap 6, dedup 0.80) **both arms land on exactly 6
+rules with zero pairs at cosine ≥0.80**, against 0-vs-4 shipped and 19-vs-8 under
+the per-pass cap. **Be precise about what earns that:** `hit_rate` alone is *not*
+arm-invariant — its floor response is only a shifted copy of `selection_rate`'s
+(oss 19→4→2→0 across floors 0.60→0.80; terra 8→6→6→4). The arm-invariance comes
+from the **standing cap**, by construction. `hit_rate` removes an unphysical decay
+term and un-sticks the zero-collapse; it does not by itself make the metric
+comparable across arms.
+
+**§8.4's duplicate-family defect reproduces on a different arm and model.** Ranked
+pairwise cosine over the gpt-oss candidate set at `hit≥0.60` shows a four-member
+"enable TF32/cuDNN benchmark" family (0.82–0.87) and an "avoid trivial kernels"
+family, 9 of 171 pairs at ≥0.80. τ=0.80 separates those from rules that merely share
+vocabulary; it was chosen by reading the ranked list. Dedup is **greedy-pairwise
+against already-kept rules, not transitive-closure clustering**, and fails **open and
+loud** if embeddings are unavailable rather than silently promoting nothing.
+
+**Fixed, both flagged in §8.8/open item 7 as blockers:**
+
+- `eligible_count` is now persisted. A `pass` census row is appended to
+  `l2_promotions.jsonl` at every boundary with `candidate_count`, `eligible_count`,
+  `standing_after`, the full gate config and per-candidate drop reasons. §8.8 notes
+  it was computed and discarded, leaving any capped arm uninterpretable.
+- **Open item 7 is fixed.** `aggregate_runs.py` now extracts the L2 config and
+  `compare_runs.py::design_variant_label` renders
+  `truncation+l2:hit0.6:cap6:dedup0.8` instead of collapsing an L2 arm and its own
+  control to the same design string. §8.10 calls this a launch blocker; it is
+  cleared.
+
+**Still true:** none of this shows L2 helps quality. It changes *which* rules get
+promoted and makes the count reproducible. §8's null stands until a fresh arm says
+otherwise, and at n=1 per cell no such arm can name a winner (open item 10).
