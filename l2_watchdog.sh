@@ -89,6 +89,35 @@ while true; do
 
   say "arms=$n mem=${pct}% gate_timeouts=${gate_to} oom=${oom} unlocked=${unlocked} |$prog"
 
+  # --- L2 tier state: promotions, judge decisions, pre-seed survival ---
+  # A zero here is otherwise silent (governor.py swallows promotion-pass
+  # exceptions into one line), and a pre-seeded rule set being demoted to empty
+  # would quietly gut the three arms that depend on it.
+  l2line=""
+  for a in $arms; do
+    d=$(ls -dt runs_evolving/gpt-oss-120b/*/"${a}"_* 2>/dev/null | head -1)
+    [ -z "$d" ] && continue
+    [ -f "$d/l2_standing.jsonl" ] || continue
+    short=${a#base_agent_gpt_oss_120b_}; short=${short%_itr30_GH200}
+    st=$(wc -l < "$d/l2_standing.jsonl")
+    pr=0; ps=0
+    if [ -f "$d/l2_promotions.jsonl" ]; then
+      pr=$(count_in '"event": "promote"' "$d/l2_promotions.jsonl")
+      ps=$(count_in '"event": "preseed"' "$d/l2_promotions.jsonl")
+    fi
+    # A pre-seeded arm whose standing set has fallen to zero has been demoted.
+    if [ "$ps" -gt 0 ] && [ "$st" -eq 0 ]; then
+      say "ALERT $short was pre-seeded with $ps rule(s) but standing is now 0 -- demoted"
+    fi
+    l2line="$l2line ${short}=st${st}/pr${pr}"
+  done
+  [ -n "$l2line" ] && say "  L2:$l2line"
+
+  jd=$(cat base_agent_gpt_oss_120b_l2_judge_*wave.log 2>/dev/null | grep -c "\[l2\] judge" | head -1)
+  jf=$(cat base_agent_gpt_oss_120b_l2_judge_*wave.log 2>/dev/null | grep -c "judge FAILED\|judge SKIPPED" | head -1)
+  [ "${jf:-0}" -gt 0 ] && say "ALERT judge failed/skipped ${jf} time(s) -- it fails closed, so this looks like 'rejected everything'"
+  say "  judge: decisions=${jd:-0} failures=${jf:-0}"
+
   # Stop when every arm is gone (wave finished or was killed).
   if [ "$n" -eq 0 ]; then
     say "no arms left; watchdog exiting"
