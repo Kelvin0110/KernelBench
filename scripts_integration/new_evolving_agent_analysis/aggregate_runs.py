@@ -828,6 +828,27 @@ def build_run_record(
             "skill_merging": _as_bool(summary.get("skill_merging")),
             "enable_skill_refinement": _as_bool(summary.get("enable_skill_refinement")),
             "enable_l1_skill_unit_test_gc": _as_bool(summary.get("enable_l1_skill_unit_test_gc")),
+            # L2 standing-instruction tier. Without these an L2 arm is INDISTINGUISHABLE
+            # from a plain truncation control in every downstream table -- run_summary.json
+            # has carried the flag since evolve_kb_batch.py:1479, but nothing read it.
+            "enable_l2": _as_bool(summary.get("enable_l2")),
+            "l2_render": _as_str(summary.get("l2_render")),
+            "l2_min_tasks": _as_int(summary.get("l2_min_tasks"))
+            if summary.get("l2_min_tasks") is not None
+            else None,
+            "l2_min_selections": _as_int(summary.get("l2_min_selections"))
+            if summary.get("l2_min_selections") is not None
+            else None,
+            "l2_min_rate": safe_float(summary.get("l2_min_rate")),
+            "l2_min_new_bests": _as_int(summary.get("l2_min_new_bests"))
+            if summary.get("l2_min_new_bests") is not None
+            else None,
+            "l2_max_entries": _as_int(summary.get("l2_max_entries"))
+            if summary.get("l2_max_entries") is not None
+            else None,
+            "l2_standing_count": _as_int(summary.get("l2_standing_count"))
+            if summary.get("l2_standing_count") is not None
+            else None,
             "skill_merge_similarity": safe_float(summary.get("skill_merge_similarity")),
             "skill_merge_interval": _as_int(summary.get("skill_merge_interval"))
             if summary.get("skill_merge_interval") is not None
@@ -892,6 +913,9 @@ def flatten_record(record: dict[str, Any], thresholds: list[float]) -> dict[str,
         "skill_merging": config.get("skill_merging"),
         "enable_skill_refinement": config.get("enable_skill_refinement"),
         "enable_l1_skill_unit_test_gc": config.get("enable_l1_skill_unit_test_gc"),
+        "enable_l2": config.get("enable_l2"),
+        "l2_render": config.get("l2_render"),
+        "l2_standing_count": config.get("l2_standing_count"),
         "max_iterations": record.get("max_iterations"),
         "total_attempted": outcomes.get("total_attempted"),
         "total_completed": outcomes.get("total_completed"),

@@ -155,6 +155,23 @@ def design_variant_label(record: dict[str, Any]) -> str:
         flags.append(f"merge@{similarity}" if similarity is not None else "merge")
     if _dig(record, "config.enable_skill_refinement"):
         flags.append("refine")
+    # L2 standing-instruction tier. Until this was added an L2 arm and a plain
+    # truncation control BOTH rendered as design `truncation`, so every delta table
+    # silently compared an arm against itself-by-another-name (CLAUDE.md open item 7).
+    # Carry the knobs that distinguish the 8.9 probe arms from a default l2 cell.
+    if _dig(record, "config.enable_l2"):
+        render = _dig(record, "config.l2_render")
+        label = "l2" if render in (None, "verbatim") else f"l2@{render}"
+        cap = _dig(record, "config.l2_max_entries")
+        if cap:  # 0 / None both mean unlimited
+            label += f"/cap{cap}"
+        min_tasks = _dig(record, "config.l2_min_tasks")
+        if min_tasks is not None and int(min_tasks) != 3:
+            label += f"/tasks{min_tasks}"
+        min_new_bests = _dig(record, "config.l2_min_new_bests")
+        if min_new_bests:  # 0 = floor disabled
+            label += f"/nb{min_new_bests}"
+        flags.append(label)
     if not flags:
         return mode
     return f"{mode}+{'+'.join(flags)}"
