@@ -1342,14 +1342,24 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    quoting them. The durable invariant is capped-at-50 versus uncapped.
    Until it is decoupled (give the cap its own flag, held fixed across arms), report
    governance results as "rule + catalog size", not as the rule.
-7. **L2 is invisible to the analysis scripts.** `aggregate_runs.py`'s config extraction
-   has no `enable_l2` field, and `compare_runs.py`'s `design_variant_label` (`:147-159`)
-   reads only the context mode plus `skill_deletion`/`skill_merging`/`enable_skill_refinement`
-   — so an L2 arm and the truncation control both render as design `truncation` in the CSV
-   and every delta table. `run_summary.json` does carry the flag
-   (`evolve_kb_batch.py:1771`), so this is a small extraction fix, but it must land
-   **before** any report is generated from a wave containing an L2 arm.
-   This is a launch-blocker for any L2 wave — see §8.10.
+7. **L2 is invisible to the analysis scripts — FIXED 2026-08-28 (`81058ff`).**
+   *Was:* `aggregate_runs.py`'s config extraction had no `enable_l2` field, and
+   `compare_runs.py`'s `design_variant_label` read only the context mode plus
+   `skill_deletion`/`skill_merging`/`enable_skill_refinement` — so an L2 arm and the
+   truncation control both rendered as design `truncation` in the CSV and every delta
+   table, i.e. any L2 report silently compared an arm against itself-by-another-name.
+   `run_summary.json` had carried the flag since `evolve_kb_batch.py:1479` all along;
+   nothing read it.
+   `aggregate_runs.py` now extracts `enable_l2` plus `l2_render` / `l2_min_tasks` /
+   `l2_min_selections` / `l2_min_rate` / `l2_min_new_bests` / `l2_max_entries` /
+   `l2_standing_count`, and emits `enable_l2`, `l2_render`, `l2_standing_count` to the
+   CSV. `design_variant_label` gained an `l2` flag that also encodes the knobs
+   separating the §8.9 probe arms, so a future probe batch does not collapse either:
+   `truncation+l2` · `truncation+l2@extract` · `truncation+l2/cap4/nb1` ·
+   `truncation+l2/tasks4`. Verified against the one completed L2 run, which now
+   reports `enable_l2=True, l2_standing_count=9, l2_render=verbatim`.
+   **Still true:** nothing else about §8.10 changed — an L2 batch must still bring its
+   own control on the same GPU, and n=1 remains a screen rather than a test.
 8. **L2 promotion has no dedup gate — measured, and it is the tier's main defect.**
    The completed `l2` arm promoted **9 standing rules, 7 of which are the same idea**
    ("Fuse Compute Instead of Adding Trivial Kernels", "Avoid Trivial Custom Kernels in
