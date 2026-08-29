@@ -161,6 +161,8 @@ def design_variant_label(record: dict[str, Any]) -> str:
     # set, since two L2 arms with different gates are different treatments.
     if _dig(record, "config.enable_l2"):
         l2 = "l2"
+        if _dig(record, "config.redesign_l2"):
+            l2 += ":redesign"
         render = _dig(record, "config.l2_render")
         if render and str(render) != "verbatim":
             l2 += f":{render}"
@@ -168,7 +170,9 @@ def design_variant_label(record: dict[str, Any]) -> str:
             hit = _dig(record, "config.l2_min_hit_rate")
             l2 += f":hit{hit}" if hit is not None else ":hit"
         cap = _dig(record, "config.l2_standing_cap")
-        if cap:
+        # Any value <= 0 means NO CAP. A bare `if cap:` renders ":cap-1" for the
+        # default, which reads like a cap of -1 rather than the absence of one.
+        if cap is not None and int(cap) > 0:
             l2 += f":cap{cap}"
         dedup = _dig(record, "config.l2_dedup_similarity")
         if dedup:

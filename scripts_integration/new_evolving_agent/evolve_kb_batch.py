@@ -47,6 +47,7 @@ from evolving_common.context_management import (
     DEFAULT_EVOLVING_REPORT_TIMEOUT_SEC,
 )
 from evolving_common.governor.l2_promotion import (
+    L2_REDESIGN_PRESET,
     DEFAULT_L2_DEDUP_SIMILARITY,
     DEFAULT_L2_JUDGE,
     DEFAULT_L2_MAX_ENTRIES,
@@ -724,6 +725,7 @@ def _check_resume_config_mismatch(
         "l2_dedup_similarity",
         "l2_judge",
         "l2_freeze",
+        "redesign_l2",
     )
     for key in flag_keys:
         if key not in prior:
@@ -946,6 +948,43 @@ def _check_integration_dependencies(*, dry_run: bool) -> None:
                 f"{key_var} is required for non-dry runs "
                 f"(NVIDIA_ENDPOINT={endpoint}). Set it in .env or the environment."
             )
+
+
+# argparse default -> the shipped value each preset knob falls back to when
+# neither --redesign-l2 nor an explicit flag supplies one. The preset itself lives
+# in l2_promotion.L2_REDESIGN_PRESET so the KernelBench and MLE entry points cannot
+# drift apart.
+_L2_PRESET_FIELDS: dict[str, tuple[str, Any]] = {
+    "l2_use_hit_rate": ("use_hit_rate", False),
+    "l2_min_hit_rate": ("min_hit_rate", DEFAULT_L2_MIN_HIT_RATE),
+    "l2_dedup_similarity": ("dedup_similarity", DEFAULT_L2_DEDUP_SIMILARITY),
+    "l2_standing_cap": ("standing_cap", DEFAULT_L2_STANDING_CAP),
+}
+
+
+def _resolve_l2_preset(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Resolve the --redesign-l2 preset. Precedence: explicit flag > preset > shipped.
+
+    The four preset knobs parse with ``default=None`` so that "not passed" is
+    distinguishable from "passed the shipped default" -- without the sentinel a
+    user writing ``--redesign-l2 --l2-min-hit-rate 0.70`` would be silently
+    overridden by the preset, or the preset could never be applied at all.
+
+    Must run BEFORE the validation block: it is what turns the None sentinels into
+    real values, and every ``parser.error`` bound below reads them.
+    """
+    if bool(args.redesign_l2) and not bool(args.enable_l2):
+        # Fail loudly rather than implying --enable-l2. Silently switching a tier
+        # on produces an arm whose design cannot be read off its own flags.
+        parser.error("--redesign-l2 requires --enable-l2")
+    for arg_name, (preset_key, shipped) in _L2_PRESET_FIELDS.items():
+        if getattr(args, arg_name) is not None:
+            continue  # explicit flag wins over the preset
+        setattr(
+            args,
+            arg_name,
+            L2_REDESIGN_PRESET[preset_key] if args.redesign_l2 else shipped,
+        )
 
 
 def main() -> int:
@@ -1221,19 +1260,41 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--redesign-l2",
+        action="store_true",
+        help=(
+            "Apply the vetted L2 redesign preset: --l2-use-hit-rate, "
+            "--l2-min-hit-rate 0.60, --l2-dedup-similarity 0.80, and no standing "
+            "cap. Requires --enable-l2. Any of those flags passed explicitly wins "
+            "over the preset. Without this flag the SHIPPED gate runs unchanged, "
+            "so the two designs are directly comparable: --enable-l2 versus "
+            "--enable-l2 --redesign-l2. Note the preset does NOT include "
+            "--l2-judge, which measured worst on quality, costs an LLM call per "
+            "pass, and does not remove duplicates."
+        ),
+    )
+    parser.add_argument(
         "--l2-standing-cap",
         type=int,
-        default=DEFAULT_L2_STANDING_CAP,
+        default=None,  # sentinel; resolved by _resolve_l2_preset
         help=(
             "Cap on the size of the accumulated L2 standing set. Unlike "
             "--l2-max-entries this bounds the total, so the coder system prompt "
-            "cannot grow without limit. 0 = unbounded "
-            f"(default: {DEFAULT_L2_STANDING_CAP})."
+            "cannot grow without limit. -1 (default) = NO CAP; 0 is a legacy "
+            "alias for no cap. The floors, not a cap, are what bound the set at "
+            "ordinary run lengths -- two arms with no cap both ended at exactly 6 "
+            "standing rules on a 50-problem run. A cap IS needed when the floors "
+            "are loosened (the judge arm hit 6 rules by problem 3 of 50) or for "
+            "long runs, since promotion is one-way and the set is monotone. Pair "
+            "any cap with --l2-min-new-bests 1: a cap makes the ranking "
+            "load-bearing and score is exactly 0 for candidates with no new-best "
+            "attributions, so ties break alphabetically."
         ),
     )
     parser.add_argument(
         "--l2-use-hit-rate",
         action="store_true",
+        default=None,  # sentinel; resolved by _resolve_l2_preset
         help=(
             "Gate on hit_rate = selections / times-offered instead of "
             "selection_rate = selections / iterations-since-created. The shipped "
@@ -1249,7 +1310,7 @@ def main() -> int:
     parser.add_argument(
         "--l2-min-hit-rate",
         type=float,
-        default=DEFAULT_L2_MIN_HIT_RATE,
+        default=None,  # sentinel; resolved by _resolve_l2_preset
         help=(
             "Floor for --l2-use-hit-rate. Replaces --l2-min-rate rather than "
             f"adding to it (default: {DEFAULT_L2_MIN_HIT_RATE})."
@@ -1258,7 +1319,7 @@ def main() -> int:
     parser.add_argument(
         "--l2-dedup-similarity",
         type=float,
-        default=DEFAULT_L2_DEDUP_SIMILARITY,
+        default=None,  # sentinel; resolved by _resolve_l2_preset
         help=(
             "Reject a candidate whose cosine similarity to an already-standing or "
             "higher-ranked rule reaches this threshold, using the same embedding "
@@ -1422,6 +1483,7 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    _resolve_l2_preset(args, parser)
 
     if int(args.compress_hot_rounds) < 1:
         parser.error("--compress-hot-rounds must be >= 1")
@@ -1439,8 +1501,8 @@ def main() -> int:
         parser.error("--l2-min-new-bests must be >= 0")
     if int(args.l2_max_entries) < 0:
         parser.error("--l2-max-entries must be >= 0 (0 = unlimited)")
-    if int(args.l2_standing_cap) < 0:
-        parser.error("--l2-standing-cap must be >= 0 (0 = unbounded)")
+    if int(args.l2_standing_cap) < -1:
+        parser.error("--l2-standing-cap must be >= -1 (-1 = no cap, 0 = legacy alias)")
     if not (0.0 < float(args.l2_min_hit_rate) <= 1.0):
         parser.error("--l2-min-hit-rate must be in (0, 1]")
     if not (0.0 <= float(args.l2_dedup_similarity) <= 1.0):
@@ -1577,6 +1639,7 @@ def main() -> int:
                 "l2_dedup_similarity": float(args.l2_dedup_similarity),
                 "l2_judge": bool(args.l2_judge),
                 "l2_freeze": bool(args.l2_freeze),
+                "redesign_l2": bool(args.redesign_l2),
             },
             allow_mismatch=bool(args.allow_resume_config_mismatch),
         )
@@ -1781,6 +1844,7 @@ def main() -> int:
                 l2_dedup_similarity=float(args.l2_dedup_similarity),
                 l2_judge=bool(args.l2_judge),
                 l2_freeze=bool(args.l2_freeze),
+                redesign_l2=bool(args.redesign_l2),
                 l2_min_tasks=int(args.l2_min_tasks),
                 l2_min_selections=int(args.l2_min_selections),
                 l2_min_rate=float(args.l2_min_rate),
@@ -1932,6 +1996,9 @@ def main() -> int:
         "l2_dedup_similarity": float(args.l2_dedup_similarity),
         "l2_judge": bool(args.l2_judge),
         "l2_freeze": bool(args.l2_freeze),
+        # Which DESIGN ran. The resolved knobs above are authoritative; this
+        # records the intent so an arm is readable without re-deriving the preset.
+        "redesign_l2": bool(args.redesign_l2),
         "l2_standing_path": str(resolve_l2_standing_path(shared_l1_path)),
         "l2_standing_count": len(load_l2_standing(shared_l1_path)),
         "total_attempted": len(rows),

@@ -1653,7 +1653,9 @@ promoted nothing, and it is a threshold sitting on top of an arm-dependent ceili
 
 **Three knobs added, all default OFF** (`--l2-use-hit-rate` / `--l2-min-hit-rate`,
 `--l2-standing-cap`, `--l2-dedup-similarity`). Proven inert by replaying both arms
-through the patched functions. `hit_rate` needs a new `total_offers` counter in the
+through the patched functions. *(Superseded by §8.13: they are now reachable
+together as `--redesign-l2`, and `--l2-standing-cap` defaults to `-1` = no cap
+rather than `0`. The default gate is still the shipped one.)* `hit_rate` needs a new `total_offers` counter in the
 usage ledger; ledgers without it give `hit_rate` 0, which fails the floor rather
 than scoring an unmeasured skill as a perfect hit.
 
@@ -1747,3 +1749,75 @@ entries 1 and 7 appear under `dropped` at `global_iteration 60` and were promote
 that same boundary. Now emits `decisions[]` with an explicit `promoted` flag, and
 `dropped` is filtered to genuine rejections. **Artifacts written before this fix
 carry the misleading key** — cross-reference the `promote` events.
+
+### 8.13 `--redesign-l2`: the merged design, and the no-cap default (2026-08-29)
+
+The redesign landed on `features/evolving-agent-final` behind one switch. **The
+shipped gate remains the default and is byte-unchanged**; the two designs are
+directly comparable as `--enable-l2` versus `--enable-l2 --redesign-l2`.
+
+```bash
+--enable-l2                  # shipped gate (selection_rate, no dedup, no cap)
+--enable-l2 --redesign-l2    # hit_rate 0.60 + dedup 0.80, no cap
+```
+
+**The preset is two knobs, both with measured support** (`L2_REDESIGN_PRESET` in
+`l2_promotion.py` is the single source of truth, shared by the KernelBench and MLE
+entry points so they cannot drift):
+
+| knob | preset | why |
+|---|---|---|
+| `l2_use_hit_rate` / `l2_min_hit_rate` | on / 0.60 | `selection_rate`'s denominator counts iterations where selection was impossible, so it decays at a speed set by arm-level catalog growth |
+| `l2_dedup_similarity` | 0.80 | the only change with a reproducible effect (section 8.12) |
+| `l2_standing_cap` | **-1, no cap** | see below |
+
+Deliberately excluded: `--l2-judge` (measured worst on quality, costs an LLM call
+per pass, and does not dedup).
+
+Precedence is **explicit flag > preset > shipped default**, implemented with
+`None` argparse sentinels resolved in `_resolve_l2_preset` before validation --
+without the sentinel, `--redesign-l2 --l2-min-hit-rate 0.70` would be silently
+overridden. `--redesign-l2` without `--enable-l2` is a hard error rather than an
+implicit enable. `run_summary.json` records `redesign_l2` alongside the *resolved*
+knobs, and `compare_runs.py` renders `truncation+l2:redesign:hit0.6:dedup0.8`.
+
+**Why the cap defaults to no cap (`-1`).** Measured on the 2026-08-27 wave: the
+two arms that ran with **no cap at all** both ended at exactly **6** standing
+rules (`l2` reached 6 at global iteration 1380, `l2_hit` at 1050). At ordinary run
+lengths the *floors*, not a cap, are what bound the set -- so a cap in the default
+preset would add a mechanism that does nothing while introducing the section 8.7
+ranking degeneracy. Dropping it also drops the need for `--l2-min-new-bests 1`.
+
+`-1` is the no-cap spelling; **any value `<= 0` means no cap**, and `0` is kept as
+a silent alias because it was both the previous default and the previous
+"unbounded" spelling. Re-purposing `0` to mean "promote nothing" would flip
+behaviour under anything already passing it -- and "promote nothing" is already
+expressible by omitting `--enable-l2`.
+
+**A cap is still necessary in two regimes**, and the help text says so:
+
+- **Loosened floors.** The judge arm (`min_tasks 2`, `min_selections 15`,
+  `min_rate 0.05`) hit 6 rules at global iteration **90** -- problem 3 of 50 --
+  and would have kept promoting for the remaining 47 problems uncapped. Any arm
+  that relaxes the floors to let something else do the selecting needs a cap.
+- **Long runs.** Promotion is one-way and the demote pass fires only on liveness,
+  so the standing set is monotone and every rule sits in every remaining coder
+  prompt. "Unbounded is fine" is a property of 50 problems, not of the design.
+
+Pair any cap with `--l2-min-new-bests 1` (section 8.7).
+
+**Census gap closed.** A cap *refusal* was previously recorded nowhere:
+`select_l2_promotions` truncates with `eligible = eligible[:room]` and the census
+binds `eligible_count` from that function's return, so a capped arm could not be
+told apart from one whose floors simply admitted less -- the quantity section 8.8
+says a capped arm needs. Refused candidates now carry a `standing cap: ...` reason
+and the census gains `cap_refused_count`, so floors-eligible is recoverable as
+`eligible_count + cap_refused_count + dedup drops`.
+
+**Open, and cheap to settle:** no arm has run hit-rate 0.60 + dedup 0.80 with *no*
+cap -- `l2_redesign` had a cap of 6, and because refusals were unrecorded at the
+time, whether that cap bound in its tail is unknown. The bracketing evidence says
+the risk is small (late promotions are rare: uncapped `l2` added one rule after
+global iteration 1050, uncapped `l2_hit` none), but it is not a number. Replay it
+offline at zero GPU cost with `new_evolving_agent_analysis/l2_redesign/` before
+quoting an expected rule count for the preset.

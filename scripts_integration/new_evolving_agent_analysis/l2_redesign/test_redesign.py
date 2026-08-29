@@ -63,7 +63,7 @@ def fake_embed(dim_map):
 print("1) DEFAULTS ARE INERT")
 cfg_default = L2PromotionConfig(enabled=True)
 check("use_hit_rate defaults off", cfg_default.use_hit_rate is False)
-check("standing_cap defaults 0", cfg_default.standing_cap == 0)
+check("standing_cap defaults -1 (no cap)", cfg_default.standing_cap == -1)
 check("dedup_similarity defaults 0", cfg_default.dedup_similarity == 0.0)
 c_lowhit = mk("1", rate=0.9, offers=100, hits=1)  # hit_rate 0.01, rate 0.9
 check("default gate ignores hit_rate", passes_floors(c_lowhit, cfg_default) is True,

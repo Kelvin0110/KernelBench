@@ -850,6 +850,7 @@ def build_run_record(
             "l2_dedup_similarity": safe_float(summary.get("l2_dedup_similarity")),
             "l2_judge": _as_bool(summary.get("l2_judge")),
             "l2_freeze": _as_bool(summary.get("l2_freeze")),
+            "redesign_l2": _as_bool(summary.get("redesign_l2")),
             "l2_standing_count": _as_int(summary.get("l2_standing_count"))
             if summary.get("l2_standing_count") is not None
             else None,
@@ -924,6 +925,7 @@ def flatten_record(record: dict[str, Any], thresholds: list[float]) -> dict[str,
         "l2_dedup_similarity": config.get("l2_dedup_similarity"),
         "l2_judge": config.get("l2_judge"),
         "l2_freeze": config.get("l2_freeze"),
+        "redesign_l2": config.get("redesign_l2"),
         "l2_standing_count": config.get("l2_standing_count"),
         "max_iterations": record.get("max_iterations"),
         "total_attempted": outcomes.get("total_attempted"),
