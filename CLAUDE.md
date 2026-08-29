@@ -1134,6 +1134,71 @@ independent things break comparability and none is visible in the number:
 Prefer the truncation arm *from the same wave* as the comparison baseline over any
 historical run.
 
+### How to test a cell once you have replicates (2026-08-28)
+
+Written from the 18-arm terra batch, the first wave in this series with n=2 in every
+cell. Three mistakes are easy to make here and I made two of them before catching them.
+
+**1. `max/min` across arms is a RANGE statistic — never compare it to the
+single-contrast threshold.** The ×1.50 / ×1.23 figures in open item 10 are for *one
+pre-specified* arm-vs-control contrast. The spread of N arms has a much wider null: at
+σ=0.076 over 18 arms the null range has median **1.698×** and 95th percentile 2.069×,
+so the terra wave's observed 1.631× sits at the **36th percentile of pure noise**. A
+wave whose spread "exceeds the floor" has shown nothing. Simulate the null for your own
+N and report the observed spread as a percentile of it.
+
+**2. A paired per-problem CI answers a different question than a cell test.** Pairing
+per problem (best clean sample of arm vs control on the same problem, mean of log
+ratios) treats **problems** as the replication unit, so it ignores run-to-run variance
+entirely and **overstates confidence about the cell**. In the terra wave it declared
+`r2_markov` significant at 0.673 [0.541, 0.837] while its own replicate `r3_markov` was
+0.835 [0.679, 1.026] — not significant. Use the paired CI to compare *two runs*; use the
+cell test below to compare *two settings*.
+
+**3. The cell test.** With n replicates per cell, take
+`d = mean over replicates of log(arm_geomean / same-replicate control_geomean)` and test
+it against the **pooled replicate log-SD** from every closed pair in the wave (`sd =
+sqrt(Σ|log r2/r3|² / 2k)` over k pairs, k df). That SD is a far better variance estimate
+than anything derivable from a single cell, and it is the same quantity open item 10
+calibrates. Report the t, the CI, and a Bonferroni line for the number of treatment
+cells. Note the pooled SD includes the tested cell's own pair, which is conservative for
+whichever cell happens to be the noisiest.
+
+None of the three shipped scripts does any of this: `compare_runs.py` matches on
+iteration with no per-problem or CI logic, `analyze_feature_evidence.py` rejects partial
+runs, and `aggregate_runs.py` reports per-run figures only.
+
+**Measured result of applying it (terra, gpt-5.6-terra, 50×30, `NVIDIA_GH200x2_2nd`
+baseline, n=2/cell, pooled log-SD 0.0759 on 8 pairs).** Only one cell separates from the
+control, and it is the same direction the gpt-oss wave saw:
+
+| cell | ratio | 95% CI | p | Bonferroni/7 (p<0.0071) |
+|---|---|---|---|---|
+| **markov_report** | **0.731** | **[0.614, 0.871]** | **0.0033** | **survives** |
+| folding | 0.929 | [0.780, 1.107] | 0.36 | — |
+| compress_trigger | 0.954 | [0.801, 1.137] | 0.56 | — |
+| deletion (+gate +uncapped catalog) | 0.958 | [0.804, 1.141] | 0.59 | — |
+| selective_retention | 0.969 | [0.813, 1.154] | 0.69 | — |
+| merge_sim08 | 1.033 | [0.867, 1.231] | 0.68 | — |
+| refinement | 1.039 | [0.872, 1.237] | 0.63 | — |
+
+`markov_report` costs ~27% of geomean and is the **only** L0 or L1 treatment in either
+wave with support beyond noise. Its `fast_p_best@1.0` also drops 0.880 → 0.740 while
+every other cell stays within 0.850–0.910. Corroborating, **not** independent: the
+gpt-oss wave put markov last as well (paired 0.812, McNemar p=0.057). That is agreement
+in *direction* across models — quoting the two magnitudes together would cross the
+model boundary this section forbids.
+
+**Single-arm table position is noise, demonstrated twice in one wave.** `r3_refinement`
+topped the 11-arm table and `r2_merge_sim08` posted the wave's highest single geomean
+(2.9712); both cells then closed as flat nulls (1.039 p=0.63 and 1.033 p=0.68). Rank
+nothing until the pair is closed.
+
+**`fast_p_best@1.0` and `best_geomean` routinely disagree, so report both.**
+`r2_merge_sim09` had the wave's best headline score (0.920, 46/50) while its paired
+geomean ratio was 0.913 — it clears 1.0× on more problems by smaller margins.
+`ANALYSIS_RULES.md:81` makes `fast_p_best@1.0` the headline.
+
 ---
 
 ## 5. Repo layout
@@ -1277,14 +1342,24 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    quoting them. The durable invariant is capped-at-50 versus uncapped.
    Until it is decoupled (give the cap its own flag, held fixed across arms), report
    governance results as "rule + catalog size", not as the rule.
-7. **L2 is invisible to the analysis scripts.** `aggregate_runs.py`'s config extraction
-   has no `enable_l2` field, and `compare_runs.py`'s `design_variant_label` (`:147-159`)
-   reads only the context mode plus `skill_deletion`/`skill_merging`/`enable_skill_refinement`
-   — so an L2 arm and the truncation control both render as design `truncation` in the CSV
-   and every delta table. `run_summary.json` does carry the flag
-   (`evolve_kb_batch.py:1771`), so this is a small extraction fix, but it must land
-   **before** any report is generated from a wave containing an L2 arm.
-   This is a launch-blocker for any L2 wave — see §8.10.
+7. **L2 is invisible to the analysis scripts — FIXED 2026-08-28 (`81058ff`).**
+   *Was:* `aggregate_runs.py`'s config extraction had no `enable_l2` field, and
+   `compare_runs.py`'s `design_variant_label` read only the context mode plus
+   `skill_deletion`/`skill_merging`/`enable_skill_refinement` — so an L2 arm and the
+   truncation control both rendered as design `truncation` in the CSV and every delta
+   table, i.e. any L2 report silently compared an arm against itself-by-another-name.
+   `run_summary.json` had carried the flag since `evolve_kb_batch.py:1479` all along;
+   nothing read it.
+   `aggregate_runs.py` now extracts `enable_l2` plus `l2_render` / `l2_min_tasks` /
+   `l2_min_selections` / `l2_min_rate` / `l2_min_new_bests` / `l2_max_entries` /
+   `l2_standing_count`, and emits `enable_l2`, `l2_render`, `l2_standing_count` to the
+   CSV. `design_variant_label` gained an `l2` flag that also encodes the knobs
+   separating the §8.9 probe arms, so a future probe batch does not collapse either:
+   `truncation+l2` · `truncation+l2@extract` · `truncation+l2/cap4/nb1` ·
+   `truncation+l2/tasks4`. Verified against the one completed L2 run, which now
+   reports `enable_l2=True, l2_standing_count=9, l2_render=verbatim`.
+   **Still true:** nothing else about §8.10 changed — an L2 batch must still bring its
+   own control on the same GPU, and n=1 remains a screen rather than a test.
 8. **L2 promotion has no dedup gate — measured, and it is the tier's main defect.**
    The completed `l2` arm promoted **9 standing rules, 7 of which are the same idea**
    ("Fuse Compute Instead of Adding Trivial Kernels", "Avoid Trivial Custom Kernels in
@@ -1345,6 +1420,30 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    arm-vs-arm winner claim** — only descriptive reporting with n stated. Spend arms on
    replicates of the one or two cells you intend to claim, launched on the *same GPU* as
    their control, and report a paired per-problem log-ratio CI.
+
+   **The 0.147 figure is gpt-oss-specific — terra is half as noisy (measured 2026-08-28).**
+   The 18-arm terra batch 1 closed **8 same-config replicate pairs** (truncation, compress,
+   deletion, folding, markov, merge_sim08, refinement, selective_r5), giving a pooled
+   replicate **log-SD of 0.0759** (95% CI 0.051–0.145) against gpt-oss's 0.147. The
+   single-contrast 95% threshold at n=1/cell is therefore **×1.23 for terra, not ×1.50**.
+   Re-measure per model before quoting either number; do not carry ×1.50 onto a model that
+   has its own pairs. Individual pair ratios ranged 1.032–1.188, so **one pair estimates
+   the SD very poorly** — the figure only stabilised past ~4 pairs.
+
+   **Per-LEVEL blocks are far noisier than the overall geomean, and this invalidates most
+   level-wise commentary.** Same 8 terra pairs, pooled log-SD by block:
+
+   | block | log-SD | single-contrast 95% needs |
+   |---|---|---|
+   | overall | 0.076 | ×1.23 |
+   | L1 (n=10) | 0.082 | ×1.25 |
+   | **L2 (n=15)** | **0.243** | **×1.96** |
+   | L3 (n=25) | 0.105 | ×1.34 |
+
+   `selective_r5`'s own two replicates differ on L2 by **1.81×** (4.90 vs 2.71) at identical
+   config. So an L2 difference under ~2× is noise. The gpt-oss wave's "L0 context management
+   bites on Level 2" reading (`CLAUDE.local.md`-era, n=1/cell) sits well inside that band and
+   should not be repeated without replicates.
 
    No script does that pairing today: `compare_runs.py` matches on iteration and has no
    per-problem or CI logic; `analyze_feature_evidence.py` pairs per problem but rejects
