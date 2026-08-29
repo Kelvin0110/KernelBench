@@ -276,3 +276,50 @@ $V probe_cap_semantics.py      # what --l2-max-entries actually caps
   needs ≈×1.50 to clear 95%. Any L2 batch is a screen, not a winner-claim.
 - These changes alter which rules get promoted. They do **not** show that L2 helps
   quality; §8's null result stands until a fresh arm says otherwise.
+
+---
+
+## Merged to `features/evolving-agent-final` (2026-08-29)
+
+The redesign is now reachable behind one switch, with the **shipped gate still the
+default and byte-unchanged**, so the two designs are a matched pair:
+
+```bash
+--enable-l2                  # shipped: selection_rate, no dedup, no cap
+--enable-l2 --redesign-l2    # hit_rate 0.60 + dedup 0.80, no cap
+```
+
+Preset lives in `l2_promotion.L2_REDESIGN_PRESET` (shared by the KernelBench and
+MLE entry points). Precedence is **explicit flag > preset > shipped default**.
+`--redesign-l2` without `--enable-l2` is a hard error.
+
+**`--l2-standing-cap` now defaults to `-1` = no cap** (any value `<= 0` means no
+cap; `0` is a legacy alias). Rationale, measured: the two arms on the 2026-08-27
+wave that ran with no cap **both ended at exactly 6 standing rules**, so at
+ordinary run lengths the floors are what bound the set. A cap is still needed when
+the floors are loosened (the judge arm hit 6 rules at problem 3 of 50) or for long
+runs. Pair any cap with `--l2-min-new-bests 1` — see §8.7.
+
+Launch both designs against a shared control with
+`env/wave_l2_designs.spec`.
+
+### Scripts added for the wave analysis
+
+| script | what it answers |
+|---|---|
+| `paired_report.py` | paired per-problem log-ratio vs a control, hacks filtered per sample |
+| `pair_contrast.py` | explicit A-vs-B contrasts incl. the identical-config null |
+| `robust_contrast.py` | median + sign test + top-3 movers (geomean is outlier-driven here) |
+| `collapse_check.py` | are the suspect problems bimodal? |
+| `lottery_adjusted.py` | **the one to read** — re-runs contrasts with lottery problems removed by an arm-agnostic rule |
+| `final_ranking.py` | one consolidated table across designs |
+| `cap_binding.py` | did the standing cap actually bind? |
+| `mechanism_report.py` | promotions, dedup drops, judge decisions, pre-seed survival |
+| `standing_diversity.py` | pairwise cosine over each arm's final standing set |
+| `show_configs.py` | per-arm gate config from `run_summary.json` (not from the spec) |
+| `test_redesign_preset.py` | preset precedence + cap sentinel semantics |
+
+**Read `lottery_adjusted.py` before quoting any arm-vs-arm number.** ~14 of the 50
+subset problems are bimodal and set the geomean; on the 2026-08-27 wave the entire
+apparent ranking was an artifact of them, and every adjusted CI contained 1.0 —
+including the identical-configuration null. Full write-up in `RESULTS.md`.
