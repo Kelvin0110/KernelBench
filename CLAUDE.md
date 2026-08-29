@@ -39,7 +39,9 @@ modules. This branch runs an **evolving agent** with a tiered memory:
 - **L2** — *(newer, off by default)* standing instructions: L1 skills with
   enough cross-task usage and new-best attribution are promoted to permanent
   rules injected into every coder system prompt (`--enable-l2`,
-  `evolving_common/governor/l2_promotion.py`)
+  `evolving_common/governor/l2_promotion.py`). The promotion gate has **two
+  designs**: the shipped one, and `--redesign-l2` (§8.13). The shipped gate is
+  still the default and is byte-unchanged, so the two are directly comparable.
 
 We are running a controlled experiment series measuring how **L0 context-management
 mode** and **L1 skill-governance** affect kernel quality.
@@ -50,7 +52,7 @@ Axes:
 |---|---|
 | L0 context management | `truncation` (default/baseline), `folding`, `markov_report`, `selective_retention`, `compress_trigger` |
 | L1 skill governance | `--skill-deletion`, `--skill-merging`, `--enable-skill-refinement` (7 non-empty combinations) |
-| L2 promotion | `--enable-l2` (+ `--l2-render`, `--l2-min-rate`, …) — a third axis, not yet part of the planned matrix |
+| L2 promotion | **two gate designs, not one knob:** `--enable-l2` runs the shipped gate; `--enable-l2 --redesign-l2` runs the redesigned one (hit-rate 0.60 + dedup 0.80, no standing cap). Both take `--l2-render`, `--l2-min-rate`, … — see §8.13. A third axis, not yet part of the planned matrix |
 
 Governance and L2 arms hold context at `truncation` so the axes stay separable.
 
@@ -1415,7 +1417,20 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    accumulated-set cap. They are spelled differently on purpose.
    **Still true:** nothing else about §8.10 changed — an L2 batch must still bring its
    own control on the same GPU, and n=1 remains a screen rather than a test.
-8. **L2 promotion has no dedup gate — measured, and it is the tier's main defect.**
+8. **L2 promotion had no dedup gate — BUILT and MEASURED 2026-08-29, see §8.12/§8.13.**
+   *Corrected:* this item's title ("has no dedup gate") and its closing prescription
+   ("add a similarity gate to the promotion pass in `l2_promotion.py`") are both
+   **done**. `--l2-dedup-similarity` exists, ships OFF, and is in the `--redesign-l2`
+   preset at 0.80. On the 11-arm wave it is **the only change with a reproducible
+   effect**: `l2_redesign` was the sole arm with zero standing-rule pairs at cosine
+   ≥0.80 (max 0.785), against 2–4 duplicate pairs on every other arm, up to 0.912.
+   The defect described below is real and reproduced on a second arm and model — it
+   is the *fix* that is no longer outstanding. Two further findings: an **LLM judge
+   does not substitute** for it (it scores candidates individually, and redundancy is
+   a set-level property — the judge arm still left 2 near-duplicate pairs), and
+   dedup did **not** move quality, which remains a null (§8.12). Original text follows.
+
+   **L2 promotion has no dedup gate — measured, and it is the tier's main defect.**
    The completed `l2` arm promoted **9 standing rules, 7 of which are the same idea**
    ("Fuse Compute Instead of Adding Trivial Kernels", "Avoid Trivial Custom Kernels in
    Hot Forward Paths", "Avoid Trivial Copy Kernels as Performance Boosts", …). Those 7
@@ -1439,9 +1454,14 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    16% of calls saw no L2 text at all. The defect itself stands. §8.6 carries the measured
    response curve for every floor, §8.7 a cap-ranking degeneracy, and §8.8 three quantities
    that cannot be recovered after a run.
-9. **L2 is unplanned scope.** `--enable-l2` is a third axis with its own knobs
-   (`--l2-render`, `--l2-min-tasks/-selections/-rate/-new-bests`, `--l2-max-entries`).
-   Decide whether L2 belongs in this paper's matrix before spending more arms on it.
+9. **L2 is unplanned scope — and it is now TWO designs, which doubles the cost of
+   admitting it.** `--enable-l2` is a third axis with its own knobs
+   (`--l2-render`, `--l2-min-tasks/-selections/-rate/-new-bests`, `--l2-max-entries`,
+   and since §8.13 `--redesign-l2`, `--l2-use-hit-rate`/`--l2-min-hit-rate`,
+   `--l2-standing-cap`, `--l2-dedup-similarity`, `--l2-judge`, `--l2-freeze`,
+   `--l2-preseed`). Decide whether L2 belongs in this paper's matrix before spending
+   more arms on it — and note that a fair L2 cell now needs *both* gate designs plus a
+   control, i.e. three arms, not two.
    *Corrected:* this item used to add "its floors are calibrated for `--no-skill-deletion`
    runs and `l2_promotion.py` warns they should be relaxed when deletion is on, so an
    L2 × governance cell needs re-tuning first". That warning was removed by submodule
@@ -1450,8 +1470,10 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    `l2_promotion.py:51-68` now argues explicitly that `min_rate` is *regime-independent*
    because promotions fire early, while every regime's visible catalog is still ~40-100
    entries. Defaults today: MIN_TASKS 3 / MIN_SELECTIONS 50 / MIN_RATE 0.70 /
-   MIN_NEW_BESTS 0 (disabled) / MAX_ENTRIES 0. An L2 × governance cell needs no
-   re-tuning on that ground; it is still unplanned scope.
+   MIN_NEW_BESTS 0 (disabled) / MAX_ENTRIES 0 / **STANDING_CAP -1 (no cap)** /
+   USE_HIT_RATE off / DEDUP_SIMILARITY 0 (off) / JUDGE off — i.e. every redesign knob
+   ships inert, so an arm without `--redesign-l2` is the shipped gate byte-for-byte.
+   An L2 × governance cell needs no re-tuning on that ground; it is still unplanned scope.
    §8 is the measured brief for this axis — read it before deciding whether L2 belongs
    in the matrix; §8.9 lists the candidate arms and the two code fixes that beat them.
 10. **Replicate noise is ~30%, and it bounds every conclusion — this is the binding
