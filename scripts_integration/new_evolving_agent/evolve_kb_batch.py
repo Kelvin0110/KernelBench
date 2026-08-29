@@ -32,6 +32,7 @@ from kernelbench.performance_stats import (
     min_non_outlier_runtime,
 )
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
+from evolving_common.llm_client import EndpointOutageError
 from kernelbench_integration import (
     KBGovernorConfig,
     cleanup_problem_build_artifacts,
@@ -45,6 +46,10 @@ from evolving_common.context_management import (
     DEFAULT_CONTEXT_MANAGEMENT,
     DEFAULT_EVOLVING_REPORT_MAX_TOKENS,
     DEFAULT_EVOLVING_REPORT_TIMEOUT_SEC,
+)
+from evolving_common.llm_client import (
+    NVIDIA_INF_MODEL_ALIASES,
+    NVIDIA_MODEL_ALIASES,
 )
 from evolving_common.governor.l2_promotion import (
     L2_REDESIGN_PRESET,
@@ -75,6 +80,31 @@ from evolving_common.memory_manager import (
     format_l1_entry_journal_block,
     resolve_l1_jsonl_path,
 )
+
+
+def _validate_model_spec(spec: str | None, *, flag: str, endpoint: str) -> None:
+    """Fail fast on a mistyped model alias, before a 40+ hour run burns hours.
+
+    A bare name (no "/") must be a known alias for the selected endpoint. Anything
+    containing "/" is a full vendor/name model id and is passed through untouched --
+    that passthrough is deliberate (``resolve_nvidia_model_id`` returns unknown specs
+    unchanged), so it cannot be rejected here. Without this check a typo such as
+    ``qwen3.6-27`` is only discovered when the first coder call 404s, well into the
+    run, and every iteration until then is recorded as a coder failure.
+    """
+    if spec is None:
+        return
+    s = spec.strip()
+    if not s or "/" in s:
+        return
+    table = NVIDIA_INF_MODEL_ALIASES if endpoint == "inference" else NVIDIA_MODEL_ALIASES
+    if s not in table:
+        known = ", ".join(sorted(table))
+        raise ValueError(
+            f"{flag}={spec!r} is not a known model alias for the {endpoint!r} "
+            f"endpoint. Known aliases: {known}. "
+            f"Pass a full 'vendor/name' model id to bypass the alias table."
+        )
 
 
 def _load_subset_rows(path: Path) -> list[dict[str, Any]]:
@@ -1537,6 +1567,18 @@ def main() -> int:
     # --model sets all four roles; individual flags take precedence over --model.
     if args.nvidia_endpoint is not None:
         os.environ["NVIDIA_ENDPOINT"] = args.nvidia_endpoint
+    # Reject a mistyped alias now rather than on the first LLM call.
+    _endpoint = (
+        args.nvidia_endpoint or os.getenv("NVIDIA_ENDPOINT") or "integrate"
+    ).strip().lower()
+    for _flag, _spec in (
+        ("--model", args.model),
+        ("--coder-model", args.coder_model),
+        ("--summarizer-model", args.summarizer_model),
+        ("--extractor-model", args.extractor_model),
+        ("--action-selector-model", args.action_selector_model),
+    ):
+        _validate_model_spec(_spec, flag=_flag, endpoint=_endpoint)
     if args.model is not None:
         os.environ["NVIDIA_CODER_MODEL"] = args.model
         os.environ["NVIDIA_SUMMARIZER_MODEL"] = args.model
@@ -1718,6 +1760,9 @@ def main() -> int:
     }
     eval_doc = _normalize_level_first_eval_doc(_read_json(eval_path, default={}))
     level_eval_docs: dict[int, dict[str, list]] = {}
+    # Set to (problem_key, subset_index, exc) if the endpoint went away for its
+    # whole outage budget; suppresses the run_summary.json write below.
+    outage_stop: tuple[str, int, EndpointOutageError] | None = None
 
     for idx, row in enumerate(rows, start=1):
         level = int(row["level"])
@@ -1797,6 +1842,15 @@ def main() -> int:
                 l1_allowed_entry_ids = sorted(causal_ids)
             cfg = KBGovernorConfig(
                 run_name=args.run_name,
+                # Size the L0 context budget from the model that will actually be
+                # called. This field previously kept its "gpt-oss-120b" class default
+                # because nothing ever assigned it, so governor.py's
+                # resolve_context_window(config.model_name, ...) returned 128000 for
+                # EVERY run regardless of --model -- including terra, whose real
+                # window is 1_050_000. The NVIDIA_CODER_MODEL env var is set from
+                # --model / --coder-model earlier in main(), and resolve_context_window
+                # tolerates both a short alias and a full "vendor/name" id.
+                model_name=os.getenv("NVIDIA_CODER_MODEL") or "gpt-oss-120b",
                 level=level,
                 problem_id=problem_id,
                 backend=backend,
@@ -1851,7 +1905,26 @@ def main() -> int:
                 l2_min_new_bests=int(args.l2_min_new_bests),
                 verbose=True,
             )
-            result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
+            try:
+                result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
+            except EndpointOutageError as exc:
+                # The endpoint stayed down for its whole budget. Stop here
+                # rather than marching through the remaining problems producing
+                # abandoned runs against a dead endpoint.
+                #
+                # This break MUST happen before the batch_timing.jsonl append
+                # below: resume_run.sh's `auto` mode is a raw `wc -l` of that
+                # file and resumes at lines+1, so recording a row for this
+                # problem would make the resume skip it permanently.
+                outage_stop = (key, idx, exc)
+                print(
+                    f"[batch] ENDPOINT OUTAGE after {exc.elapsed_sec / 60.0:.1f} min "
+                    f"({exc.attempts} attempts) -- stopping at {key} (index {idx}). "
+                    f"No run_summary.json is written, so this run stays resumable: "
+                    f"re-run resume_run.sh with `auto` once the endpoint recovers.",
+                    flush=True,
+                )
+                break
             entry = governor_result_to_dict(result)
             entry["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
 
@@ -2031,6 +2104,22 @@ def main() -> int:
         },
         "shared_l1_path": str(shared_l1_path),
     }
+    if outage_stop is not None:
+        # Deliberately NOT writing run_summary.json: its presence is what every
+        # downstream tool (wave_api_watch.py, aggregate_runs.py, resume_run.sh)
+        # reads as "this arm finished cleanly". Leaving it absent makes the arm
+        # look like a killed arm, which is a shape the resume path already
+        # handles, and keeps batch_timing.jsonl authoritative for `auto`.
+        stop_key, stop_idx, stop_exc = outage_stop
+        print(
+            f"[batch] STOPPED EARLY at {stop_key} (subset index {stop_idx}) after an "
+            f"endpoint outage of {stop_exc.elapsed_sec / 60.0:.1f} min. "
+            f"{problems_timed_this_session} problem(s) completed this session; "
+            f"run_summary.json intentionally NOT written so the run stays resumable.",
+            flush=True,
+        )
+        return 3
+
     _write_json(summary_path, summary)
 
     print(f"[batch] total wall time: {batch_session_wall_time_sec:.1f}s "

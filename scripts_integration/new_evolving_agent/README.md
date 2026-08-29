@@ -80,7 +80,7 @@ Uses `LEGACY_CODER_SYSTEM_PROMPT` (`BASE_EVOLVING_CODER_SYSTEM_PROMPT` with requ
 | `action_selector_recent_l0_full` | `15` | Full L0 attempts shown to action selector |
 | `action_coder_l0_full_recent` | `15` | Full L0 attempts in coder prompt |
 | `context_management` | `truncation` | `truncation`: latest N raw L0 rounds; `folding`: archived summaries + unfold; `markov_report`: goal + evolving report + latest L0 only; `selective_retention`: goal + milestone memory (full detail) + latest 5 full L0 rounds (see [RUN_WITH_UV_CONTEXT.md](RUN_WITH_UV_CONTEXT.md)) |
-| `evolving_report_max_tokens` | `1536` | Max tokens for `markov_report` evolving-report rewriter |
+| `evolving_report_max_tokens` | `65536` | Max tokens for `markov_report` evolving-report rewriter |
 | `evolving_report_timeout_sec` | `90.0` | Timeout (seconds) for evolving-report rewriter |
 | `enable_l0_unfold` | `true` | Coder preflight unfold passes (folding mode only) |
 | `l0_unfold_max_attempts` | `1` | Max preflight rounds per iteration |

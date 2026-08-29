@@ -155,33 +155,46 @@ def design_variant_label(record: dict[str, Any]) -> str:
         flags.append(f"merge@{similarity}" if similarity is not None else "merge")
     if _dig(record, "config.enable_skill_refinement"):
         flags.append("refine")
-    # L2 is a third axis. Omitting it renders an L2 arm and a plain truncation
-    # control as the same design, so every delta table compares an arm with
-    # itself (CLAUDE.md open item 7). Encode the knobs that change the standing
-    # set, since two L2 arms with different gates are different treatments.
+    # L2 standing-instruction tier. Until this was added an L2 arm and a plain
+    # truncation control BOTH rendered as design `truncation`, so every delta table
+    # silently compared an arm against itself-by-another-name (CLAUDE.md open item 7).
+    # Carry the knobs that distinguish the 8.9 probe arms from a default l2 cell,
+    # plus the 8.13 redesign knobs.
+    #
+    # NOTE the two different caps, which is exactly the confusion 8.11 documents:
+    #   /cap<N>       = l2_max_entries, a PER-PASS cap (measured: 4 admitted 19 rules)
+    #   /standcap<N>  = l2_standing_cap, the accumulated-set cap
+    # They are deliberately spelled differently so a label cannot conflate them.
     if _dig(record, "config.enable_l2"):
-        l2 = "l2"
-        if _dig(record, "config.redesign_l2"):
-            l2 += ":redesign"
         render = _dig(record, "config.l2_render")
-        if render and str(render) != "verbatim":
-            l2 += f":{render}"
+        label = "l2" if render in (None, "verbatim") else f"l2@{render}"
+        if _dig(record, "config.redesign_l2"):
+            label += "/redesign"
+        cap = _dig(record, "config.l2_max_entries")
+        if cap:  # 0 / None both mean unlimited
+            label += f"/cap{cap}"
+        min_tasks = _dig(record, "config.l2_min_tasks")
+        if min_tasks is not None and int(min_tasks) != 3:
+            label += f"/tasks{min_tasks}"
+        min_new_bests = _dig(record, "config.l2_min_new_bests")
+        if min_new_bests:  # 0 = floor disabled
+            label += f"/nb{min_new_bests}"
         if _dig(record, "config.l2_use_hit_rate"):
             hit = _dig(record, "config.l2_min_hit_rate")
-            l2 += f":hit{hit}" if hit is not None else ":hit"
-        cap = _dig(record, "config.l2_standing_cap")
-        # Any value <= 0 means NO CAP. A bare `if cap:` renders ":cap-1" for the
-        # default, which reads like a cap of -1 rather than the absence of one.
-        if cap is not None and int(cap) > 0:
-            l2 += f":cap{cap}"
+            label += f"/hit{hit}" if hit is not None else "/hit"
+        standing_cap = _dig(record, "config.l2_standing_cap")
+        # Any value <= 0 means NO CAP. A bare truthiness test renders "/standcap-1"
+        # for the default, reading like a cap of -1 rather than the absence of one.
+        if standing_cap is not None and int(standing_cap) > 0:
+            label += f"/standcap{standing_cap}"
         dedup = _dig(record, "config.l2_dedup_similarity")
         if dedup:
-            l2 += f":dedup{dedup}"
+            label += f"/dedup{dedup}"
         if _dig(record, "config.l2_judge"):
-            l2 += ":judge"
+            label += "/judge"
         if _dig(record, "config.l2_freeze"):
-            l2 += ":frozen"
-        flags.append(l2)
+            label += "/frozen"
+        flags.append(label)
     if not flags:
         return mode
     return f"{mode}+{'+'.join(flags)}"

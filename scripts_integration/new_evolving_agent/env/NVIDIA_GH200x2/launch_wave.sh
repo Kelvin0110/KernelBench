@@ -101,8 +101,14 @@ kb_resolve_hardware
 MAX_PROBLEMS="${MAX_PROBLEMS:-50}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-30}"
 
-if [ "$LAG_SEC" -le 60 ]; then
-  echo "FATAL: LAG_SEC=$LAG_SEC must be > 60 (run-name timestamp is minute-resolution)"; exit 1
+# LAG_SEC is gated on the real invariant -- DUPLICATE RUN NAMES -- not on the lag
+# alone. A run directory is "<run_name>_YYYY_MM_DD_HH_MM", i.e. MINUTE resolution, so
+# two arms that share a run name and launch inside the same minute land in ONE
+# directory and silently interleave their results. Distinct run names cannot collide
+# at any lag. The duplicate check itself lives after the spec is parsed (it needs
+# run_name_for_tag); this only range-checks the value.
+if [ "$LAG_SEC" -lt 1 ]; then
+  echo "FATAL: LAG_SEC=$LAG_SEC must be >= 1"; exit 1
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -193,6 +199,30 @@ run_name_for_tag() {
   if [ "$1" = "-" ] || [ -z "$1" ]; then echo "${RUN_PREFIX}_itr30_GH200"
   else echo "${RUN_PREFIX}_${1}_itr30_GH200"; fi
 }
+
+# Two arms that share a run name collide on one directory unless their minute stamps
+# differ, so duplicates are only safe when LAG_SEC pushes them into different minutes.
+# This is exactly the REPLICATE case: three arms of the same setting all render to the
+# same run name. Give replicates distinct tags (merge_sim08_r1 / _r2 / _r3) and any
+# LAG_SEC is safe; keep the tags identical and you need LAG_SEC > 60.
+_dupe_names=""
+for ((_i = 0; _i < TOTAL; _i++)); do
+  for ((_j = _i + 1; _j < TOTAL; _j++)); do
+    if [ "$(run_name_for_tag "${Q_TAG[$_i]}")" = "$(run_name_for_tag "${Q_TAG[$_j]}")" ]; then
+      _dupe_names="$_dupe_names $(run_name_for_tag "${Q_TAG[$_i]}")"
+    fi
+  done
+done
+if [ -n "$_dupe_names" ]; then
+  if [ "$LAG_SEC" -le 60 ]; then
+    echo "FATAL: spec produces duplicate run name(s):$_dupe_names"
+    echo "       With LAG_SEC=$LAG_SEC (<= 60) they would share one run directory."
+    echo "       Fix: give each replicate a distinct tag, or set LAG_SEC > 60."
+    exit 1
+  fi
+  echo "  WARNING: duplicate run name(s):$_dupe_names"
+  echo "           relying on LAG_SEC=$LAG_SEC > 60 to separate their minute stamps."
+fi
 
 # ---- preflight ------------------------------------------------------------
 echo "=== preflight ==="

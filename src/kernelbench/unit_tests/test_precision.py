@@ -21,7 +21,10 @@ import pytest
 # Add src directory to path for imports (consistent with other test files)
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from kernelbench.kernel_static_checker import check_precision_downgrade
+from kernelbench.kernel_static_checker import (
+    check_fp8_downgrade,
+    check_precision_downgrade,
+)
 
 
 # ============================================================================
@@ -381,6 +384,115 @@ def test_fp32_complex_code_with_downgrade():
     detected, message = check_precision_downgrade(code, precision="fp32")
     assert detected is True, "Should detect downgrade in complex code"
     assert "FP16" in message
+
+
+# ============================================================================
+# FP8 downgrades (E4M3 / E5M2)
+# ============================================================================
+# Regression corpus: a generated kernel cast BOTH operands of an 8192-wide GEMM
+# to float8_e4m3fn and ran it through torch._scaled_mm. It passed the 1e-4
+# correctness gate only because the following sigmoid saturates, which masks the
+# FP8 error. None of the FP32->FP16 patterns matched it.
+
+
+def test_fp8_torch_dtype():
+    """torch.float8_e4m3fn cast is an FP8 downgrade."""
+    code = "x_fp8 = x.to(dtype=torch.float8_e4m3fn)"
+    detected, message = check_fp8_downgrade(code, precision="fp32")
+    assert detected is True
+    assert "FP8" in message
+
+
+def test_fp8_scaled_mm():
+    """torch._scaled_mm is the FP8 tensor-core GEMM entry point."""
+    code = "out = torch._scaled_mm(a, b, scale_a=sa, scale_b=sb)"
+    detected, message = check_fp8_downgrade(code, precision="fp32")
+    assert detected is True
+    assert "FP8" in message
+
+
+def test_fp8_cuda_native_type():
+    """__nv_fp8 CUDA types are an FP8 downgrade."""
+    code = "__global__ void k(const __nv_fp8_e4m3* a, float* out) { }"
+    detected, message = check_fp8_downgrade(code, precision="fp32")
+    assert detected is True
+    assert "FP8" in message
+
+
+def test_fp8_is_a_downgrade_from_fp16_too():
+    """FP8 is narrower than FP16, so it is flagged when FP16 is the requirement."""
+    code = "x_fp8 = x.to(dtype=torch.float8_e4m3fn)"
+    detected, message = check_fp8_downgrade(code, precision="fp16")
+    assert detected is True
+    assert "FP8" in message
+
+
+# ============================================================================
+# FP16 storage / consumption (declaration, not conversion)
+# ============================================================================
+# Regression corpus: a kernel declared `const __half* __restrict__ lin` and did
+# __half2 loads without calling any conversion intrinsic the old patterns knew.
+
+
+def test_fp16_half_pointer_declaration():
+    """A __half* kernel parameter means the math runs at FP16."""
+    code = "__global__ void fused(const __half* __restrict__ lin, float* out) { }"
+    detected, message = check_precision_downgrade(code, precision="fp32")
+    assert detected is True
+    assert "FP16" in message
+
+
+def test_fp16_half2_vector_loads():
+    """half2 vector loads imply FP16 data."""
+    code = "const half2 h = *reinterpret_cast<const half2*>(base + i);"
+    detected, message = check_precision_downgrade(code, precision="fp32")
+    assert detected is True
+    assert "FP16" in message
+
+
+def test_fp16_at_half_data_ptr():
+    """data_ptr<at::Half>() hands the kernel FP16 storage."""
+    code = "auto p = reinterpret_cast<const __half*>(lin.data_ptr<at::Half>());"
+    detected, message = check_precision_downgrade(code, precision="fp32")
+    assert detected is True
+    assert "FP16" in message
+
+
+def test_fp32_kernel_with_float4_is_clean():
+    """A genuine FP32 kernel must not be flagged (guards the 264-kernel corpus)."""
+    code = (
+        "__global__ void k(const float* __restrict__ x, float* __restrict__ out) {\n"
+        "    const float4 v = *reinterpret_cast<const float4*>(x);\n"
+        "    out[0] = fmaf(v.x, v.y, v.z);\n"
+        "}"
+    )
+    detected, message = check_precision_downgrade(code, precision="fp32")
+    assert detected is False, "FP32 kernel falsely flagged: " + str(message)
+
+
+def test_fp8_mention_in_comment_is_stripped():
+    """Comments are stripped before matching."""
+    code = "# we deliberately avoid torch.float8_e4m3fn here\nreturn x"
+    detected, _ = check_fp8_downgrade(code, precision="fp32")
+    assert detected is False
+
+
+def test_fp8_is_a_strict_error_not_a_warning():
+    """FP8 must land in errors (STRICT), FP16 in warnings."""
+    from kernelbench.kernel_static_checker import validate_kernel_static
+
+    fp8 = (
+        "import torch\n"
+        "from torch.utils.cpp_extension import load_inline\n"
+        "_c = '__global__ void k(float* o){}'\n"
+        "m = load_inline(name='m', cpp_sources='', cuda_sources=_c, functions=[])\n"
+        "def forward(self, x):\n"
+        "    return torch._scaled_mm(x.to(dtype=torch.float8_e4m3fn), w)\n"
+    )
+    valid, errors, warnings = validate_kernel_static(fp8, backend="cuda", precision="fp32")
+    assert not valid
+    assert any("fp8_downgrade" in e for e in errors), errors
+    assert not any("fp8_downgrade" in w for w in warnings)
 
 
 # ============================================================================

@@ -21,11 +21,11 @@ CASES = [
             "l2_standing_cap": 6,
             "l2_dedup_similarity": 0.8,
         },
-        "truncation+l2:hit0.6:cap6:dedup0.8",
+        "truncation+l2/hit0.6/standcap6/dedup0.8",
     ),
     (
         {"context_management": "truncation", "enable_l2": True, "l2_render": "extract"},
-        "truncation+l2:extract",
+        "truncation+l2@extract",
     ),
     (
         {

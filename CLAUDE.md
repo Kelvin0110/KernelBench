@@ -121,6 +121,16 @@ someone runs `uv lock && uv sync`. Do that only when no run is in flight — it 
 
 Model IDs differ per endpoint: `gpt-oss-120b` → `openai/gpt-oss-120b` (integrate) vs
 `nvidia/openai/gpt-oss-120b` (inference). Use the aliases in `llm_client.py`, not raw IDs.
+`gpt-5.6-terra` and `qwen3.6-27b` are **inference-only** — neither is in the integrate table.
+
+**Per-model sampling lives in `MODEL_SAMPLING_PROFILES` (`llm_client.py`).** An entry pins the
+whole sampling config for one model and overrides the caller's per-role `temperature`;
+non-OpenAI knobs (`top_k`, `min_p`, `repetition_penalty`) go under `extra_body`. `qwen3.6-27b`
+is the only entry today (temp 0.6 / top_p 0.95 / top_k 20 / min_p 0.0 / presence_penalty 0.0 /
+repetition_penalty 1.0). **Verify a new entry behaviourally, never by acceptance** —
+inference-api returns 200 for parameters it does not understand, so a nonsense key still
+succeeds. The cheap test is a determinism contrast at `temperature=2.0`: `top_k=1` must repeat
+verbatim across calls while `top_k=0` must not.
 
 Embeddings choose their endpoint independently of chat via `NVIDIA_EMBED_ENDPOINT`
 (default `inference`; model default `nvidia/qwen/qwen3-embedding-0.6b`).
@@ -188,6 +198,33 @@ against a different baseline file. Record which baseline a run used.
   `merge_sim085` = similarity 0.85). The runner appends `_YYYY_MM_DD_HH_MM`.
 - **Log:** auto-derived, `<run_name>_<Mon>_<D>.log` in the repo root.
 - **Results:** `runs_evolving/gpt-oss-120b/<run_name>_<timestamp>/`
+
+**Two arms must never share a run name inside the same minute.** The timestamp the
+runner appends is `_YYYY_MM_DD_HH_MM` — **minute** resolution — so two arms with the
+same run name launched less than a minute apart resolve to **one directory** and
+silently interleave their results into each other's artifacts. There is no error;
+you find out at analysis time, if at all.
+
+This is a *replicate* hazard, not a matrix hazard. Nine cells with nine distinct tags
+can launch a second apart safely. Three replicates of one setting all render to the
+same `${RUN_PREFIX}_<tag>_itr30_GH200` and cannot.
+
+`launch_wave.sh` enforces exactly that invariant: it derives every run name from the
+spec up front and **FATALs on a duplicate when `LAG_SEC <= 60`**, and merely warns
+above 60 (where the minute stamps do separate them). So:
+
+- **Distinct tags → any `LAG_SEC`.** `LAG_SEC=20` for a 9-cell wave is fine and cuts
+  launch time from 24 min to 3.
+- **Replicates → give each one its own tag** (`merge_sim08_r1` / `_r2` / `_r3`) and
+  keep any lag, or leave the tags identical and accept `LAG_SEC > 60`. Distinct tags
+  are strictly better: they also keep the arms distinguishable in every downstream
+  analysis, which identical names do not.
+
+Note the lag is *also* what desynchronises arms. Per §3.4 arms launched together
+collide on the first ~9 problems (1.35× penalty) before drifting apart, and problems
+1–5 carry 74% of the benchmark's input-generation cost — so a short lag concentrates
+every arm in the expensive, mem-gated region at once. Lower `LAG_SEC` for naming
+reasons, but expect a slower first day.
 
 ### 3.3 Examples
 
@@ -922,6 +959,89 @@ prefix ran with the trims off under 9-arm contention while the suffix runs with 
 Contention only ever deflates speedup, so the prefix is systematically penalised relative to
 the suffix **inside one run**. Restart instead of resume when the prefix is small.
 
+### 3.7 Token budgets and the context window (both changed 2026-08-27)
+
+Two protocol seams landed on the same day. Both are **parent-side** (`config.py`,
+`governor.py`, `evolve_kb_batch.py`), so per §3.4 they reach **newly launched runs only** —
+arms already running keep the old behaviour for their whole life.
+
+**(a) Every LLM completion budget is now a uniform `65536`.** Previously they ranged from
+512 to 16384. `max_tokens` bounds *reasoning + answer together*, so on a verbose reasoning
+model a small budget is spent entirely on chain-of-thought and `content` comes back empty —
+at which point `_assistant_visible_text` substitutes `reasoning_content`, handing the agent
+a truncated CoT that looks like an answer. Measured across the full corpus of recorded
+calls: **gpt-oss 236 / 134,042 = 0.176%** (worst phases preflight 1.16%, action_selector
+0.31%, l0_round_summarizer 0.28%), **terra 0 / 34,263** — terra returns no reasoning text at
+all, so it cannot hit this.
+
+Old → new, and where each is set:
+
+| role | old | new | set in |
+|---|---|---|---|
+| coder | 16384 | 65536 | `config.py` |
+| preflight | **1024 hardcoded** | 65536 | `gen3_stages.py` `min(coder, 65536)` |
+| l0_round_summary | 512 | 65536 | `config.py` |
+| action_selector | 4096 | 65536 | `config.py` |
+| summarizer / extractor | 8192 | 65536 | `config.py` |
+| skill_refinement | 8192 | 65536 | `config.py` |
+| skill_diagnosis | **4096 hardcoded** | 65536 | `governor.py` `min(refinement, 65536)` |
+| evolving_report | 1536 | 65536 | `DEFAULT_EVOLVING_REPORT_MAX_TOKENS` |
+| milestone_judge / compress | 4096 | 65536 | `context_management.py` |
+| l1_skill_unit_test / skill_merge | 8192 | 65536 | `memory_manager.py` |
+| l2_distill | 1024 | 65536 | `config.py` |
+
+Three of those were **hardcoded clamps, not config fields** — raising the config alone would
+have left preflight at 1024 and skill_diagnosis at 4096, i.e. the two worst offenders
+untouched. Grep for `min(.*max_tokens` before assuming a budget is settable.
+
+**`DEFAULT_COMPRESS_OUTPUT_RESERVE_TOKENS` was deliberately left at 4096.** It reads like an
+output budget but feeds the *compaction threshold* — `usable = context - max(buffer, reserve)`.
+Raising it to 65536 would cut gpt-oss's usable context 108,000 → 62,464 and change when
+compaction fires. Verified `usable_context_tokens(128000) == 108000`, unchanged.
+
+Raising `max_tokens` is safe on every model here: gpt-oss and terra perform **no validation
+at all** (both accept `max_tokens=100_000_000`) and the prompt+output **sum is not enforced**
+(gpt-oss served a 100,071-token prompt with `max_tokens=65536`). Only qwen validates, at
+`max_model_len=262144`.
+
+**(b) The context window now follows `--model`. It never did before.** `governor.py` sized
+the L0 budget from `KBGovernorConfig.model_name`, a field **nothing ever assigned**, so it
+kept its `"gpt-oss-120b"` class default and *every* run — terra included — packed to
+`0.9 × 128000 = 115,200` tokens. The `gpt-5.6-terra: 1050000` registry row had therefore
+**never once been used**: terra ran on ~11% of its real window.
+
+Fixed in two places: `evolve_kb_batch.py` now assigns `model_name` from
+`NVIDIA_CODER_MODEL`, and `governor.py` resolves the window from
+`get_dual_llm_model_ids()` — the same env vars the LLM client itself reads, so it cannot
+disagree with the model being called, and it stays correct for any caller that forgets the
+field. (`runner.py` always did it this way.)
+
+| `--model` | window | L0 pack budget | was |
+|---|---|---|---|
+| gpt-oss-120b | 128,000 | 115,200 | unchanged |
+| gpt-5.6-terra | 1,050,000 | **945,000** | 115,200 (**8.2×**) |
+| qwen3.6-27b | 262,144 | **235,929** | 115,200 |
+
+Only **folding**, **selective_retention** and **compress_trigger** read the window
+(`gen3_stages.py` `_resolve_folding_context_window`, `governor.py` selective/compress blocks).
+`truncation` and `markov_report` never touch it, so 6 of 9 cells per model are unaffected.
+
+**Do not resume a folding/selective/compress arm across this change** — its prefix packed at
+115,200 and its suffix would pack at the real window. Restart instead.
+
+**Timeouts were checked and left alone**: every `*_timeout_sec` already defaults to 600 s,
+and every timeout CLI flag resolves to 600.0. Nothing was below 300. Docs claiming
+`--evolving-report-timeout-sec` defaults to `90` were stale and are corrected.
+
+**`--model` is now validated.** A bare alias must exist in the selected endpoint's table;
+anything containing `/` is treated as a full model id and passed through, which is the
+documented escape hatch. A typo like `qwen3.6-27` used to be discovered only when the first
+coder call 404s, hours into a run.
+
+**`run_summary.json` still does not record `model_name`**, so a finished run does not state
+which context window it used. It is derivable from the recorded `coder_model`, but that was
+a constant 128000 before this change and is not any more — record it if you need it.
+
 ---
 
 ## 4. Analysis
@@ -1049,10 +1169,83 @@ independent things break comparability and none is visible in the number:
   use `_2nd` medians. Over the 50-problem subset those differ >5% on **25 of 50**
   problems, geomean ratio **1.149×**, worst ~4×. Historical `best_geomean` figures —
   including the ones quoted in the open items below — are on the old scale;
-- inference-endpoint latency drift (open item 10).
+- inference-endpoint latency drift (open item 10);
+- **`evolving_report_max_tokens`, for markov arms only.** The docs and the `infer_api/`
+  scripts pass `--evolving-report-max-tokens 65536`, but `launch_wave.sh` / `launch_run.sh`
+  never did, so wave-launched markov arms silently took the old `1536` default. The cell is
+  split **4 / 3** across the two values (the 2026-08-07 pair is 9 minutes apart with
+  different budgets), and at 1536 the rewriter truncated on **2.33% of terra's calls and
+  0.5-1.1% of gpt-oss's**. Read `run_summary.json`, which records the value per run — never
+  infer it from today's default, which is now 65536 and makes post-2026-08-27 markov runs a
+  *third* group.
 
 Prefer the truncation arm *from the same wave* as the comparison baseline over any
 historical run.
+
+### How to test a cell once you have replicates (2026-08-28)
+
+Written from the 18-arm terra batch, the first wave in this series with n=2 in every
+cell. Three mistakes are easy to make here and I made two of them before catching them.
+
+**1. `max/min` across arms is a RANGE statistic — never compare it to the
+single-contrast threshold.** The ×1.50 / ×1.23 figures in open item 10 are for *one
+pre-specified* arm-vs-control contrast. The spread of N arms has a much wider null: at
+σ=0.076 over 18 arms the null range has median **1.698×** and 95th percentile 2.069×,
+so the terra wave's observed 1.631× sits at the **36th percentile of pure noise**. A
+wave whose spread "exceeds the floor" has shown nothing. Simulate the null for your own
+N and report the observed spread as a percentile of it.
+
+**2. A paired per-problem CI answers a different question than a cell test.** Pairing
+per problem (best clean sample of arm vs control on the same problem, mean of log
+ratios) treats **problems** as the replication unit, so it ignores run-to-run variance
+entirely and **overstates confidence about the cell**. In the terra wave it declared
+`r2_markov` significant at 0.673 [0.541, 0.837] while its own replicate `r3_markov` was
+0.835 [0.679, 1.026] — not significant. Use the paired CI to compare *two runs*; use the
+cell test below to compare *two settings*.
+
+**3. The cell test.** With n replicates per cell, take
+`d = mean over replicates of log(arm_geomean / same-replicate control_geomean)` and test
+it against the **pooled replicate log-SD** from every closed pair in the wave (`sd =
+sqrt(Σ|log r2/r3|² / 2k)` over k pairs, k df). That SD is a far better variance estimate
+than anything derivable from a single cell, and it is the same quantity open item 10
+calibrates. Report the t, the CI, and a Bonferroni line for the number of treatment
+cells. Note the pooled SD includes the tested cell's own pair, which is conservative for
+whichever cell happens to be the noisiest.
+
+None of the three shipped scripts does any of this: `compare_runs.py` matches on
+iteration with no per-problem or CI logic, `analyze_feature_evidence.py` rejects partial
+runs, and `aggregate_runs.py` reports per-run figures only.
+
+**Measured result of applying it (terra, gpt-5.6-terra, 50×30, `NVIDIA_GH200x2_2nd`
+baseline, n=2/cell, pooled log-SD 0.0759 on 8 pairs).** Only one cell separates from the
+control, and it is the same direction the gpt-oss wave saw:
+
+| cell | ratio | 95% CI | p | Bonferroni/7 (p<0.0071) |
+|---|---|---|---|---|
+| **markov_report** | **0.731** | **[0.614, 0.871]** | **0.0033** | **survives** |
+| folding | 0.929 | [0.780, 1.107] | 0.36 | — |
+| compress_trigger | 0.954 | [0.801, 1.137] | 0.56 | — |
+| deletion (+gate +uncapped catalog) | 0.958 | [0.804, 1.141] | 0.59 | — |
+| selective_retention | 0.969 | [0.813, 1.154] | 0.69 | — |
+| merge_sim08 | 1.033 | [0.867, 1.231] | 0.68 | — |
+| refinement | 1.039 | [0.872, 1.237] | 0.63 | — |
+
+`markov_report` costs ~27% of geomean and is the **only** L0 or L1 treatment in either
+wave with support beyond noise. Its `fast_p_best@1.0` also drops 0.880 → 0.740 while
+every other cell stays within 0.850–0.910. Corroborating, **not** independent: the
+gpt-oss wave put markov last as well (paired 0.812, McNemar p=0.057). That is agreement
+in *direction* across models — quoting the two magnitudes together would cross the
+model boundary this section forbids.
+
+**Single-arm table position is noise, demonstrated twice in one wave.** `r3_refinement`
+topped the 11-arm table and `r2_merge_sim08` posted the wave's highest single geomean
+(2.9712); both cells then closed as flat nulls (1.039 p=0.63 and 1.033 p=0.68). Rank
+nothing until the pair is closed.
+
+**`fast_p_best@1.0` and `best_geomean` routinely disagree, so report both.**
+`r2_merge_sim09` had the wave's best headline score (0.920, 46/50) while its paired
+geomean ratio was 0.913 — it clears 1.0× on more problems by smaller margins.
+`ANALYSIS_RULES.md:81` makes `fast_p_best@1.0` the headline.
 
 ---
 
@@ -1197,19 +1390,31 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    quoting them. The durable invariant is capped-at-50 versus uncapped.
    Until it is decoupled (give the cap its own flag, held fixed across arms), report
    governance results as "rule + catalog size", not as the rule.
-7. **L2 is invisible to the analysis scripts. — FIXED 2026-08-27, see §8.11.**
-   `aggregate_runs.py` now extracts the L2 config and `compare_runs.py`'s
-   `design_variant_label` renders the L2 knobs, so an L2 arm no longer collapses to
-   the same design string as its control. Original text follows.
-
-   **L2 is invisible to the analysis scripts.** `aggregate_runs.py`'s config extraction
-   has no `enable_l2` field, and `compare_runs.py`'s `design_variant_label` (`:147-159`)
-   reads only the context mode plus `skill_deletion`/`skill_merging`/`enable_skill_refinement`
-   — so an L2 arm and the truncation control both render as design `truncation` in the CSV
-   and every delta table. `run_summary.json` does carry the flag
-   (`evolve_kb_batch.py:1771`), so this is a small extraction fix, but it must land
-   **before** any report is generated from a wave containing an L2 arm.
-   This is a launch-blocker for any L2 wave — see §8.10.
+7. **L2 is invisible to the analysis scripts — FIXED 2026-08-28 (`81058ff`).**
+   *Was:* `aggregate_runs.py`'s config extraction had no `enable_l2` field, and
+   `compare_runs.py`'s `design_variant_label` read only the context mode plus
+   `skill_deletion`/`skill_merging`/`enable_skill_refinement` — so an L2 arm and the
+   truncation control both rendered as design `truncation` in the CSV and every delta
+   table, i.e. any L2 report silently compared an arm against itself-by-another-name.
+   `run_summary.json` had carried the flag since `evolve_kb_batch.py:1479` all along;
+   nothing read it.
+   `aggregate_runs.py` now extracts `enable_l2` plus `l2_render` / `l2_min_tasks` /
+   `l2_min_selections` / `l2_min_rate` / `l2_min_new_bests` / `l2_max_entries` /
+   `l2_standing_count`, and emits `enable_l2`, `l2_render`, `l2_standing_count` to the
+   CSV. `design_variant_label` gained an `l2` flag that also encodes the knobs
+   separating the §8.9 probe arms, so a future probe batch does not collapse either:
+   `truncation+l2` · `truncation+l2@extract` · `truncation+l2/cap4/nb1` ·
+   `truncation+l2/tasks4`. Verified against the one completed L2 run, which now
+   reports `enable_l2=True, l2_standing_count=9, l2_render=verbatim`.
+   **Extended 2026-08-29 (§8.13).** The label also carries the redesign knobs:
+   `/redesign` · `/hit<r>` · `/standcap<n>` · `/dedup<s>` · `/judge` · `/frozen`, and
+   `aggregate_runs.py` extracts `redesign_l2` / `l2_use_hit_rate` / `l2_min_hit_rate` /
+   `l2_standing_cap` / `l2_dedup_similarity` / `l2_judge` / `l2_freeze`. **Note the two
+   different caps**, which is exactly the confusion §8.11 documents: `/cap<n>` is
+   `l2_max_entries`, a PER-PASS cap, while `/standcap<n>` is `l2_standing_cap`, the
+   accumulated-set cap. They are spelled differently on purpose.
+   **Still true:** nothing else about §8.10 changed — an L2 batch must still bring its
+   own control on the same GPU, and n=1 remains a screen rather than a test.
 8. **L2 promotion has no dedup gate — measured, and it is the tier's main defect.**
    The completed `l2` arm promoted **9 standing rules, 7 of which are the same idea**
    ("Fuse Compute Instead of Adding Trivial Kernels", "Avoid Trivial Custom Kernels in
@@ -1270,6 +1475,30 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    arm-vs-arm winner claim** — only descriptive reporting with n stated. Spend arms on
    replicates of the one or two cells you intend to claim, launched on the *same GPU* as
    their control, and report a paired per-problem log-ratio CI.
+
+   **The 0.147 figure is gpt-oss-specific — terra is half as noisy (measured 2026-08-28).**
+   The 18-arm terra batch 1 closed **8 same-config replicate pairs** (truncation, compress,
+   deletion, folding, markov, merge_sim08, refinement, selective_r5), giving a pooled
+   replicate **log-SD of 0.0759** (95% CI 0.051–0.145) against gpt-oss's 0.147. The
+   single-contrast 95% threshold at n=1/cell is therefore **×1.23 for terra, not ×1.50**.
+   Re-measure per model before quoting either number; do not carry ×1.50 onto a model that
+   has its own pairs. Individual pair ratios ranged 1.032–1.188, so **one pair estimates
+   the SD very poorly** — the figure only stabilised past ~4 pairs.
+
+   **Per-LEVEL blocks are far noisier than the overall geomean, and this invalidates most
+   level-wise commentary.** Same 8 terra pairs, pooled log-SD by block:
+
+   | block | log-SD | single-contrast 95% needs |
+   |---|---|---|
+   | overall | 0.076 | ×1.23 |
+   | L1 (n=10) | 0.082 | ×1.25 |
+   | **L2 (n=15)** | **0.243** | **×1.96** |
+   | L3 (n=25) | 0.105 | ×1.34 |
+
+   `selective_r5`'s own two replicates differ on L2 by **1.81×** (4.90 vs 2.71) at identical
+   config. So an L2 difference under ~2× is noise. The gpt-oss wave's "L0 context management
+   bites on Level 2" reading (`CLAUDE.local.md`-era, n=1/cell) sits well inside that band and
+   should not be repeated without replicates.
 
    No script does that pairing today: `compare_runs.py` matches on iteration and has no
    per-problem or CI logic; `analyze_feature_evidence.py` pairs per problem but rejects
