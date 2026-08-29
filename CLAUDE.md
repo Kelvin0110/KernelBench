@@ -954,6 +954,40 @@ is historical, not `$HARDWARE`-keyed; pick or create one deliberately.
 
 Outputs land in that dir: `aggregate_runs.{json,csv}`, `comparison.md`.
 
+**~14 of the 50 subset problems are bimodal lotteries, and they dominate every
+geomean.** Measured on the 2026-08-27 L2 wave (11 arms, one model, one GPU): on
+these problems an arm either finds an algebraic collapse (7–23x) or does not (~1x),
+with nothing in between. The cleanest proof is treatment-free — two arms with
+**byte-identical configuration** landed on opposite sides of three of them:
+
+| problem | `q15_ctl_r1` | `q15_ctl_r2` |
+|---|---|---|
+| L2P42 | 1.59x | **22.72x** |
+| L2P51 | **7.17x** | 1.01x |
+| L2P97 | **7.36x** | 0.99x |
+
+Because they are also the *largest* speedups in the set, they set the geometric
+mean, so an arm's headline number mostly records how many jackpots it happened to
+hit. On that wave the effect was not subtle: raw arm geomeans spanned 1.058–1.696
+and every L2 arm looked far worse than its control; with the lottery problems
+removed the spread collapsed to 1.100–1.161 and **every paired CI contained 1.0,
+including the identical-configuration null**. Per-problem *medians* were ≈1.0 for
+every arm even before adjusting — the geomean gap was never a typical-problem
+effect.
+
+So: **identify them by a rule that never looks at arm identity** (e.g. max/min
+clean speedup >= 4x across all arms in the wave), report adjusted and unadjusted
+side by side, and never quote a raw 50-problem geomean as a comparative result.
+Selecting outliers by their effect on the statistic under test would be circular;
+selecting them by cross-arm spread is not. Project memory
+`collapse-problems-inflate-terra-geomean` named L2P13/42/51/56 from a different
+model and wave, which is independent corroboration.
+`new_evolving_agent_analysis/l2_redesign/lottery_adjusted.py` implements the rule.
+
+This is a *bigger* lever than replicates: adjusting took the paired CI from ~±40%
+to ~±6% on the same data. It does not repeal open item 10 — it makes the residual
+noise small enough to be worth fighting.
+
 **Filter hacks per sample, not per problem.** Each `evolving_runs.json` run record
 carries a top-level `best_speedup` / `best_is_hack` describing its *single best*
 iteration. Filtering on that field drops the whole problem when its best iteration was
@@ -963,6 +997,20 @@ way: `best_geomean` 1.579 (wrong) vs **1.389** (correct), `fast_p_best@1.0` 0.52
 **0.640**. Walk `records[].evaluation` and take the best sample with
 `correct and not is_hack`. `run_summary.json`'s `per_level_summary.correct` already
 counts problems with at least one clean sample, so it agrees with the per-sample method.
+
+**A non-empty `static_check_warnings` does NOT mean the sample is a hack.**
+`resolve_is_hack` (`kernelbench_integration/static_check.py:44`) fires only on
+STRICT static *errors* or `metadata.excessive_speedup`; the persisted field, built
+by `collect_static_check_warnings`, merges those errors with purely advisory
+warnings — `workload_shrink:`, `torch_computation_ops: Uses torch.matmul`,
+`pytorch_wrap: ...`. Those are recorded for audit and are explicitly documented as
+not setting the flag. Treating the field as a hack signal on the Aug-27 wave
+discarded **383 of 756 clean samples** and cut the control from 47 problems to 27
+while leaving its geomean almost unchanged (1.692 vs 1.696) — so the sanity check
+that catches it is the problem **count**, not the speedup. Always reconcile your
+per-sample walk against `aggregate_runs.py`'s `correct=N/50` before interpreting
+anything. CLAUDE.md's own advice to keep static-check hacks flagged applies to
+samples *already flagged*; it is not a licence to flag on the warning list.
 
 **Recompute `is_hack` at analysis time; do not trust the recorded flag.** The
 excessive-speedup threshold is a *default argument* in `src/kernelbench/eval.py`
@@ -1641,3 +1689,61 @@ loud** if embeddings are unavailable rather than silently promoting nothing.
 **Still true:** none of this shows L2 helps quality. It changes *which* rules get
 promoted and makes the count reproducible. §8's null stands until a fresh arm says
 otherwise, and at n=1 per cell no such arm can name a winner (open item 10).
+
+### 8.12 The 11-arm redesign wave — measured (2026-08-29)
+
+Eleven arms on one GPU, `gpt-oss-120b`, `NVIDIA_GH200x2_median`, all completed:
+7 x 50 problems plus 4 x 15 problems on the level-2 block (problems 11-25) as
+paired replicates. Health: `oom=0`, `proceeding UNLOCKED=0`, 1 mem-gate timeout in
+~1200 evals. Full write-up and reproduction scripts:
+`new_evolving_agent_analysis/l2_redesign/RESULTS.md`.
+
+**Quality: a null, and the raw numbers were a lottery artifact.** Raw arm geomeans
+spanned 1.058-1.696 and appeared to show the control beating every L2 variant. That
+was 14 bimodal problems (see the lottery warning in section 4). Adjusted, every arm
+sits in 0.971-1.057 with **every 95% CI containing 1.0**, and the
+identical-configuration null contrast (0.961 [0.885, 1.043]) sits inside the same
+band. Per-problem medians were ~1.0 for every arm even unadjusted. **No L2 variant
+is distinguishable from its control in either direction, to within about +/-6%.**
+
+**The shipped gate is still not reproducible.** Section 8.11 records 9 / 4 / 0 rules
+from identical-flag runs; this wave's `l2` arm ran the same shipped defaults and
+promoted **6** — a fourth distinct value.
+
+**Dedup is the one change with a measured, reproducible effect.** Final standing
+sets, embedded through the skill-merge path:
+
+| arm | rules | pairs >= 0.80 cosine | max |
+|---|---|---|---|
+| **`l2_redesign`** (dedup 0.80) | 6 | **0** | **0.785** |
+| `l2_judge` | 6 | 2 | 0.849 |
+| `l2` (shipped) | 6 | 3 | 0.816 |
+| `l2_preseed` | 5 | 3 | 0.911 |
+| `l2_hit` | 6 | 4 | 0.912 |
+
+Dedup fired 13 times in `l2_redesign`, and it is the only arm with no duplicate
+pair. The section 8.4 defect reproduces plainly elsewhere: `l2_hit` promoted both
+*"Avoid Hand-rolled Conv2d; Use cuDNN"* and *"Prefer cuDNN for Conv2d"* at 0.912.
+
+**An LLM judge does NOT replace dedup — this is the answer to "can an agent make
+the call instead of a rule".** The judge arm ran deliberately permissive floors
+(`min_tasks 2`, `min_selections 15`, `min_rate 0.05`) so selectivity would come from
+the judge rather than the gate. It accepted 6 rules with individually sensible
+rationales and still left 2 near-duplicate pairs (max 0.849). The reason is
+structural and will not be fixed by a better prompt: the judge scores each candidate
+on its own merits, so it cannot see that two separately-plausible rules say the same
+thing. **Redundancy is a set-level property; a per-item filter cannot detect it.**
+Keep `--l2-dedup-similarity` regardless of whether the judge is on.
+
+**Pre-seed freeze is exact** — `l2_preseed`, `q15_pre_r1`, `q15_pre_r2` all ended
+`preseeded=5 standing=5 promoted=0 demoted=0`. The `preseeded_from` exemption is
+load-bearing: without it a pre-seeded rule carries another run's `entry_id`, fails
+the liveness check on the first pass, and the tier empties silently.
+
+**Instrumentation defect, found and fixed here.** The pass-census key `dropped`
+emitted *every* candidate carrying a `reasons` entry, including promoted ones — the
+judge writes its acceptance rationale into the same field. Verified: `l2_judge`
+entries 1 and 7 appear under `dropped` at `global_iteration 60` and were promoted at
+that same boundary. Now emits `decisions[]` with an explicit `promoted` flag, and
+`dropped` is filtered to genuine rejections. **Artifacts written before this fix
+carry the misleading key** — cross-reference the `promote` events.
