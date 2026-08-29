@@ -32,6 +32,7 @@ from kernelbench.performance_stats import (
     min_non_outlier_runtime,
 )
 from kernelbench.prompt_constructor_toml import get_prompt_for_backend
+from evolving_common.llm_client import EndpointOutageError
 from kernelbench_integration import (
     KBGovernorConfig,
     cleanup_problem_build_artifacts,
@@ -1551,6 +1552,9 @@ def main() -> int:
     }
     eval_doc = _normalize_level_first_eval_doc(_read_json(eval_path, default={}))
     level_eval_docs: dict[int, dict[str, list]] = {}
+    # Set to (problem_key, subset_index, exc) if the endpoint went away for its
+    # whole outage budget; suppresses the run_summary.json write below.
+    outage_stop: tuple[str, int, EndpointOutageError] | None = None
 
     for idx, row in enumerate(rows, start=1):
         level = int(row["level"])
@@ -1686,7 +1690,26 @@ def main() -> int:
                 l2_min_new_bests=int(args.l2_min_new_bests),
                 verbose=True,
             )
-            result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
+            try:
+                result = safe_run_kb_governor(cfg, task_prompt=task_prompt)
+            except EndpointOutageError as exc:
+                # The endpoint stayed down for its whole budget. Stop here
+                # rather than marching through the remaining problems producing
+                # abandoned runs against a dead endpoint.
+                #
+                # This break MUST happen before the batch_timing.jsonl append
+                # below: resume_run.sh's `auto` mode is a raw `wc -l` of that
+                # file and resumes at lines+1, so recording a row for this
+                # problem would make the resume skip it permanently.
+                outage_stop = (key, idx, exc)
+                print(
+                    f"[batch] ENDPOINT OUTAGE after {exc.elapsed_sec / 60.0:.1f} min "
+                    f"({exc.attempts} attempts) -- stopping at {key} (index {idx}). "
+                    f"No run_summary.json is written, so this run stays resumable: "
+                    f"re-run resume_run.sh with `auto` once the endpoint recovers.",
+                    flush=True,
+                )
+                break
             entry = governor_result_to_dict(result)
             entry["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
 
@@ -1857,6 +1880,22 @@ def main() -> int:
         },
         "shared_l1_path": str(shared_l1_path),
     }
+    if outage_stop is not None:
+        # Deliberately NOT writing run_summary.json: its presence is what every
+        # downstream tool (wave_api_watch.py, aggregate_runs.py, resume_run.sh)
+        # reads as "this arm finished cleanly". Leaving it absent makes the arm
+        # look like a killed arm, which is a shape the resume path already
+        # handles, and keeps batch_timing.jsonl authoritative for `auto`.
+        stop_key, stop_idx, stop_exc = outage_stop
+        print(
+            f"[batch] STOPPED EARLY at {stop_key} (subset index {stop_idx}) after an "
+            f"endpoint outage of {stop_exc.elapsed_sec / 60.0:.1f} min. "
+            f"{problems_timed_this_session} problem(s) completed this session; "
+            f"run_summary.json intentionally NOT written so the run stays resumable.",
+            flush=True,
+        )
+        return 3
+
     _write_json(summary_path, summary)
 
     print(f"[batch] total wall time: {batch_session_wall_time_sec:.1f}s "
