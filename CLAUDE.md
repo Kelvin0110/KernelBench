@@ -922,6 +922,57 @@ A replayed problem never sees skills learned after it. Verified: replaying index
 267/344 entries, provenance 1..38, zero leakage. **For multiple resumes, run the earlier
 index first.**
 
+#### Where to restart a killed arm — `last_index + 1` is WRONG (2026-08-30)
+
+**`batch_timing.jsonl` records FAILED problems too**, with `status: "error"` and fewer
+than `--max-iterations` of work. So the last record is not necessarily a *finished*
+problem, and the obvious rule — resume at the last `subset_index` + 1 — silently skips a
+half-done problem and keeps its truncated best-of-N as though it were a full run.
+
+Measured on the 2026-08-30 budget halt, all five arms being resumed had a `status=error`
+last entry:
+
+| arm | last idx | status | iterations | naive rule | correct |
+|---|---|---|---|---|---|
+| r4_l2_rep1 | 30 | error | 21/30 | 31 | **30** |
+| r4_l2_rep2 | 29 | error | 25/30 | 30 | **29** |
+| r5_merge_sim07_a | 10 | error | 21/30 | 11 | **10** |
+| **r5_merge_sim07_b** | 10 | error | **9/30** | 11 | **10** |
+| r5_merge_sim09_a | 10 | error | 14/30 | 11 | **10** |
+
+`merge_sim07_b` would have kept a **best-of-9** scored as a best-of-30.
+
+**The rule:** read the last record. If `status != "ok"`, restart **at** that index so the
+problem is redone; only advance past it when it completed cleanly.
+
+```bash
+tail -1 <run>/batch_timing.jsonl | .venv/bin/python -c 'import sys,json
+r=json.loads(sys.stdin.read()); i=int(r.get("subset_index",0))
+print(i if str(r.get("status","")) != "ok" else i+1)'
+```
+
+**And it is not a line count either.** A resume *appends* replayed problems, so the file
+holds more lines than the run has problems — `r4_deletion` ended with 61 lines, 50
+distinct `subset_index` values and a last index of 25. `wc -l + 1` would have restarted it
+at 62, past the end of a 50-problem run.
+
+**`status=ok` is necessary, not sufficient.** A problem can complete all 30 iterations
+with most of them failing on the endpoint or the budget, leaving a weak best-of-30 that
+no status field reveals. Before scoring a run that overlaps an incident window, audit the
+per-problem failure rate and redo anything above ~20%:
+
+```python
+# per problem: iterations recorded, and how many carried an API/budget error
+n, bad = 0, 0
+for line in open(f"{run}/workspaces/{prob}/metrics.jsonl"):
+    m = (json.loads(line).get("metrics_iteration") or {})
+    if not m: continue
+    n += 1
+    if API_ERR_RE.search(str(m.get("error") or "")): bad += 1
+```
+
+`env/common/wave_supervisor.sh` implements both rules.
+
 #### Resuming a KILLED arm, and resuming a whole wave (2026-08-23)
 
 `resume_run.sh` could not resume any of the nine arms killed on 2026-08-23 -- four separate

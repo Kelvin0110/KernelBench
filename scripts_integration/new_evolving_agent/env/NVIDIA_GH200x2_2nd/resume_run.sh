@@ -132,11 +132,15 @@ MAX_ARMS_PER_GPU="${MAX_ARMS_PER_GPU:-12}"
 # Count arms on THIS gpu. /proc/<pid>/environ of other users' processes is
 # unreadable; without 2>/dev/null + `|| true` the EPERM trips `set -e` and the whole
 # script dies before launching -- which is exactly what silently ate 8 arms.
+# Count DISTINCT --run-name values, not processes: each arm is a parent (`uv run`)
+# plus a child (`python`), so counting processes DOUBLES every arm and a 6-arm GPU
+# reports 12, tripping MAX_ARMS_PER_GPU and silently refusing further resumes.
 existing=$( { for p in /proc/[0-9]*; do
   [ -r "$p/environ" ] || continue
   tr '\0' '\n' < "$p/environ" 2>/dev/null | grep -q "^CUDA_VISIBLE_DEVICES=${GPU}$" || continue
-  tr '\0' ' '  < "$p/cmdline" 2>/dev/null | grep -q 'evolve_kb_batch.py' && echo x
-done; } 2>/dev/null | wc -l || true )
+  tr '\0' '\n' < "$p/cmdline" 2>/dev/null | grep -q 'evolve_kb_batch.py' || continue
+  tr '\0' '\n' < "$p/cmdline" 2>/dev/null | grep -A1 -x -- '--run-name' | tail -1
+done; } 2>/dev/null | sort -u | grep -c . || true )
 existing=${existing:-0}
 [ "$existing" -ge "$MAX_ARMS_PER_GPU" ] && { echo "FATAL: GPU $GPU already has $existing arms (max $MAX_ARMS_PER_GPU)."; exit 1; }
 echo ">> GPU $GPU: ${free_mib} MiB free, $existing arm(s) already running"

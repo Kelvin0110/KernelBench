@@ -65,18 +65,33 @@ while :; do
       say "SKIP $run -- run dir does not exist yet (arm may still be starting)"
       continue
     fi
-    # RESUME POINT = last record's subset_index + 1, NOT the line count.
+    # RESUME POINT = REDO the last problem when it did not finish cleanly.
+    # batch_timing.jsonl records FAILED problems too, with status="error" and fewer
+    # than max-iterations of work. Measured on the 2026-08-30 budget halt: all 5 terra
+    # arms had a status=error last entry (21, 25, 21, 9 and 14 of 30 iterations), so
+    # "last index + 1" SKIPPED a half-done problem and would have kept e.g. a best-of-9
+    # scored as if it were a best-of-30. If the last record is not status=ok, restart AT
+    # that index so the problem is redone; only advance past it when it completed.
+    #
+    # Below, the line-count caveat that also applies:
+    # RESUME POINT is not the line count either.
     # A resume APPENDS replayed problems to batch_timing.jsonl, so after one resume the
     # file holds more lines than there are problems (r4_deletion: 61 lines, 50 distinct
     # indices, last index 25). Using wc -l would have restarted it at 62 -- past the end
     # of a 50-problem run -- instead of 26. Entries are appended in execution order, so
     # the LAST line is always the most recent pass.
-    n=$(tail -1 "${root}$run/batch_timing.jsonl" 2>/dev/null \
-        | "$REPO/.venv/bin/python" -c 'import sys,json;
-try: print(json.loads(sys.stdin.read() or "{}").get("subset_index",0) or 0)
-except Exception: print(0)' 2>/dev/null || echo 0)
-    n=${n:-0}
-    from=$((n+1))
+    from=$(tail -1 "${root}$run/batch_timing.jsonl" 2>/dev/null \
+        | "$REPO/.venv/bin/python" -c 'import sys,json
+try:
+    r=json.loads(sys.stdin.read() or "{}")
+    i=int(r.get("subset_index",0) or 0)
+    # redo the problem when it did not end cleanly; otherwise move to the next one
+    print(i if str(r.get("status","")) != "ok" else i+1)
+except Exception:
+    print(0)' 2>/dev/null || echo 0)
+    from=${from:-0}
+    [ "$from" -lt 1 ] && from=1
+    n=$((from-1))
     if [ "$from" -gt 50 ]; then say "SKIP $run -- last index $n, nothing left"; continue; fi
     say "RESTART $run (gpu$gpu) died at completed=$n -> resuming from $from  flags=[${flags:-none}]"
     case "$root" in *qwen*) mdl=qwen3.6-27b ;; *terra*) mdl=gpt-5.6-terra ;; *) mdl=gpt-oss-120b ;; esac
