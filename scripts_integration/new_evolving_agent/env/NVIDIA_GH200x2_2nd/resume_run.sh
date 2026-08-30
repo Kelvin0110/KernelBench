@@ -97,8 +97,50 @@ fi
 command -v nvcc  >/dev/null || { echo "FATAL: nvcc not on PATH (CUDA_HOME=$CUDA_HOME)"; exit 1; }
 command -v ninja >/dev/null || { echo "FATAL: ninja not on PATH -- add .venv/bin"; exit 1; }
 
-used="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$GPU")"
-[ "$used" -gt 1000 ] && { echo "FATAL: GPU $GPU busy (${used} MiB). Refusing."; exit 1; }
+# CLAUDE.md 3.6 defect 4, ported 2026-08-29. The old test was `used > 1000 MiB`, but a
+# single IDLE arm holds ~558 MiB, so arm 2 onward was refused and a multi-arm resume was
+# impossible -- 8 of 12 arms exited here, silently, before their launch line. Gate on FREE
+# memory instead, matching launch_wave.sh (MIN_FREE_MIB=20000, MAX_ARMS_PER_GPU).
+# EVAL-LOCK ENV -- MUST MATCH launch_wave.sh, ported 2026-08-29.
+# resume_run.sh set NONE of these, so every resumed arm silently ran with:
+#   KB_EVAL_MEM_GATE_FACTOR unset -> 0     = memory gate OFF
+#   KB_GPU_EVAL_LOCK_SLOTS  unset -> 1     = the historical mutex, not the 3-slot semaphore
+#   KB_EVAL_HOIST_INPUT_GEN unset -> False = gate inert even if the factor were set
+#   KB_GPU_RESERVE_GB       unset -> 42 GB PER ARM = 252 GB across 6 arms on a 143 GB card
+# Two hazards at once: the reserver fights itself for headroom, and with the gate off
+# nothing bounds concurrent device residents on the big-input problems -- the documented
+# OOM path, where an OOM is recorded compiled=True correct=False and the governor then
+# "debugs" a kernel that was never broken. It is ALSO a protocol seam: the resumed suffix
+# would run under different eval settings than its own prefix, inside one run.
+KB_GPU_RESERVE_GB="${KB_GPU_RESERVE_GB:-0}"
+KB_GPU_EVAL_LOCK_TIMEOUT_SEC="${KB_GPU_EVAL_LOCK_TIMEOUT_SEC:-5400}"
+KB_EVAL_SKIP_DEAD_REF_TIMING="${KB_EVAL_SKIP_DEAD_REF_TIMING:-1}"
+KB_EVAL_HOIST_INPUT_GEN="${KB_EVAL_HOIST_INPUT_GEN:-1}"
+KB_EVAL_UNLOCK_CORRECTNESS="${KB_EVAL_UNLOCK_CORRECTNESS:-0}"
+KB_GPU_EVAL_LOCK_SLOTS="${KB_GPU_EVAL_LOCK_SLOTS:-3}"
+KB_EVAL_MEM_GATE_FACTOR="${KB_EVAL_MEM_GATE_FACTOR:-7}"
+KB_EVAL_MEM_GATE_TIMEOUT_SEC="${KB_EVAL_MEM_GATE_TIMEOUT_SEC:-1800}"
+export KB_GPU_RESERVE_GB KB_GPU_EVAL_LOCK_TIMEOUT_SEC KB_EVAL_SKIP_DEAD_REF_TIMING \
+       KB_EVAL_HOIST_INPUT_GEN KB_EVAL_UNLOCK_CORRECTNESS KB_GPU_EVAL_LOCK_SLOTS \
+       KB_EVAL_MEM_GATE_FACTOR KB_EVAL_MEM_GATE_TIMEOUT_SEC
+export KB_EVAL_PHASE_LOG="${KB_EVAL_PHASE_LOG:-$REPO_ROOT/${RUN_NAME}_resume_phase.jsonl}"
+
+MIN_FREE_MIB="${MIN_FREE_MIB:-20000}"
+free_mib="$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i "$GPU")"
+[ "$free_mib" -lt "$MIN_FREE_MIB" ] && { echo "FATAL: GPU $GPU has only ${free_mib} MiB free (need $MIN_FREE_MIB). Refusing."; exit 1; }
+MAX_ARMS_PER_GPU="${MAX_ARMS_PER_GPU:-12}"
+# Count arms on THIS gpu. /proc/<pid>/environ of other users' processes is
+# unreadable; without 2>/dev/null + `|| true` the EPERM trips `set -e` and the whole
+# script dies before launching -- which is exactly what silently ate 8 arms.
+existing=$( { for p in /proc/[0-9]*; do
+  [ -r "$p/environ" ] || continue
+  tr '\0' '\n' < "$p/environ" 2>/dev/null | grep -q "^CUDA_VISIBLE_DEVICES=${GPU}$" || continue
+  tr '\0' ' '  < "$p/cmdline" 2>/dev/null | grep -q 'evolve_kb_batch.py' && echo x
+done; } 2>/dev/null | wc -l || true )
+existing=${existing:-0}
+[ "$existing" -ge "$MAX_ARMS_PER_GPU" ] && { echo "FATAL: GPU $GPU already has $existing arms (max $MAX_ARMS_PER_GPU)."; exit 1; }
+echo ">> GPU $GPU: ${free_mib} MiB free, $existing arm(s) already running"
+echo ">> eval env: RESERVE_GB=$KB_GPU_RESERVE_GB SLOTS=$KB_GPU_EVAL_LOCK_SLOTS MEM_GATE=$KB_EVAL_MEM_GATE_FACTOR HOIST=$KB_EVAL_HOIST_INPUT_GEN UNLOCK_CORR=$KB_EVAL_UNLOCK_CORRECTNESS"
 
 # Resuming rewrites results in-place and destructively purges L1. The run being
 # repaired cost ~68 GPU-hours, so snapshot the whole run dir first.
