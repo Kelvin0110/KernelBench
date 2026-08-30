@@ -37,7 +37,15 @@ alive(){
   done < <(ps -eo cmd= | grep -oP '(?<=--run-name )\S+' | sort -u)
   return 1
 }
-done50(){ [ "$(wc -l < "runs_evolving/gpt-5.6-terra/$1/batch_timing.jsonl" 2>/dev/null || echo 0)" -ge 50 ]; }
+# "finished" = the last recorded subset_index reached 50, not a line count (see above).
+done50(){
+  local last
+  last=$(tail -1 "runs_evolving/gpt-5.6-terra/$1/batch_timing.jsonl" 2>/dev/null \
+    | "$REPO/.venv/bin/python" -c 'import sys,json;
+try: print(json.loads(sys.stdin.read() or "{}").get("subset_index",0) or 0)
+except Exception: print(0)' 2>/dev/null || echo 0)
+  [ "${last:-0}" -ge 50 ]
+}
 
 say "SUPERVISOR START spec=$SPEC interval=${INTERVAL}s"
 while :; do
@@ -51,8 +59,19 @@ while :; do
       say "SKIP $run -- run dir does not exist yet (arm may still be starting)"
       continue
     fi
-    n=$(wc -l < "runs_evolving/gpt-5.6-terra/$run/batch_timing.jsonl" 2>/dev/null || echo 0)
+    # RESUME POINT = last record's subset_index + 1, NOT the line count.
+    # A resume APPENDS replayed problems to batch_timing.jsonl, so after one resume the
+    # file holds more lines than there are problems (r4_deletion: 61 lines, 50 distinct
+    # indices, last index 25). Using wc -l would have restarted it at 62 -- past the end
+    # of a 50-problem run -- instead of 26. Entries are appended in execution order, so
+    # the LAST line is always the most recent pass.
+    n=$(tail -1 "runs_evolving/gpt-5.6-terra/$run/batch_timing.jsonl" 2>/dev/null \
+        | "$REPO/.venv/bin/python" -c 'import sys,json;
+try: print(json.loads(sys.stdin.read() or "{}").get("subset_index",0) or 0)
+except Exception: print(0)' 2>/dev/null || echo 0)
+    n=${n:-0}
     from=$((n+1))
+    if [ "$from" -gt 50 ]; then say "SKIP $run -- last index $n, nothing left"; continue; fi
     say "RESTART $run (gpu$gpu) died at completed=$n -> resuming from $from  flags=[${flags:-none}]"
     RESULTS_ROOT=runs_evolving/gpt-5.6-terra/ MODEL=gpt-5.6-terra DO_BACKUP=0 \
       bash "$HW/resume_run.sh" "$gpu" "$run" "$ctx" "$from" ${flags:+-- $flags} >> "$LOG" 2>&1
