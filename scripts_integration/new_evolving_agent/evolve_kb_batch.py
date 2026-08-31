@@ -69,6 +69,7 @@ from evolving_common.governor.l2_promotion import (
     save_l2_standing,
 )
 from evolving_common.memory_manager import (
+    DEFAULT_ENABLE_L1_SKILL_UNIT_TESTS,
     DEFAULT_ENABLE_L1_SKILL_UNIT_TEST_GC,
     DEFAULT_L1_SKILL_CONSECUTIVE_UNUSED_DELETE_AFTER,
     DEFAULT_L1_SKILL_DELETE_ON_UNIT_TEST_FAIL,
@@ -739,6 +740,12 @@ def _check_resume_config_mismatch(
         "skill_merging",
         "skill_merge_similarity",
         "skill_merge_interval",
+        # A resume rebuilds the treatment from the CLI, and the mismatch check is
+        # the only thing that catches a resumed arm silently changing rule.
+        "skill_deletion_rules",
+        "l1_skill_delete_on_consecutive_unused",
+        "l1_skill_delete_on_unit_test_fail",
+        "enable_l1_skill_unit_tests",
         "enable_l1_skill_unit_test_gc",
         "enable_skill_refinement",
         "skill_refinement_max_rounds",
@@ -1017,6 +1024,38 @@ def _resolve_l2_preset(args: argparse.Namespace, parser: argparse.ArgumentParser
         )
 
 
+# --skill-deletion-rules -> (delete_on_consecutive_unused, delete_on_unit_test_fail)
+_SKILL_DELETION_RULE_PRESETS: dict[str, tuple[bool, bool]] = {
+    "both": (True, True),
+    "unused": (True, False),
+    "unit_test": (False, True),
+}
+
+
+def _resolve_skill_deletion_rules(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> None:
+    """Resolve --skill-deletion-rules. Precedence: explicit flag > preset > shipped.
+
+    The two booleans parse with ``default=None`` so "not passed" is distinguishable
+    from "passed the shipped default" -- without the sentinel, writing
+    ``--skill-deletion-rules unused --l1-skill-delete-on-unit-test-fail`` would be
+    silently overridden by the preset. Same pattern as _resolve_l2_preset; must run
+    BEFORE the validation block, which reads the resolved values.
+    """
+    rules = str(getattr(args, "skill_deletion_rules", "both") or "both")
+    if rules != "both" and not bool(args.skill_deletion):
+        # Fail loudly rather than implying --skill-deletion. Silently enabling
+        # governance would also uncap the extractor catalog (CLAUDE.md open item 6),
+        # producing an arm whose design cannot be read off its own flags.
+        parser.error(f"--skill-deletion-rules {rules} requires --skill-deletion")
+    preset_unused, preset_unit_test = _SKILL_DELETION_RULE_PRESETS[rules]
+    if args.l1_skill_delete_on_consecutive_unused is None:
+        args.l1_skill_delete_on_consecutive_unused = preset_unused
+    if args.l1_skill_delete_on_unit_test_fail is None:
+        args.l1_skill_delete_on_unit_test_fail = preset_unit_test
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run new evolving-agent KernelBench batch.")
     parser.add_argument(
@@ -1202,10 +1241,47 @@ def main() -> int:
         "Default: only validate when a skill is first promoted/appended.",
     )
     parser.add_argument(
+        "--skill-deletion-rules",
+        choices=("both", "unused", "unit_test"),
+        default="both",
+        help="Which of the two deletion rules --skill-deletion applies. "
+        "'both' (default) is the historical combined behaviour: a skill is "
+        "deleted when its consecutive-unused streak is reached OR when its "
+        "post-append unit test fails. 'unused' keeps only the streak rule; "
+        "'unit_test' keeps only the admission gate. This is a preset over "
+        "--l1-skill-delete-on-consecutive-unused / "
+        "--l1-skill-delete-on-unit-test-fail; either explicit flag wins. "
+        "Measured on completed arms, the unit-test rule accounts for 30-58%% of "
+        "all deletions, so the two are not interchangeable. Requires "
+        "--skill-deletion for any value other than 'both'.",
+    )
+    parser.add_argument(
+        "--l1-skill-delete-on-consecutive-unused",
+        action=argparse.BooleanOptionalAction,
+        default=None,  # sentinel; resolved by _resolve_skill_deletion_rules
+        help="Delete active skills whose consecutive-unused streak reaches "
+        "--l1-skill-consecutive-unused-delete-after (default: enabled). "
+        "Disabling keeps the usage ledger updating -- only the eviction stops.",
+    )
+    parser.add_argument(
         "--l1-skill-delete-on-unit-test-fail",
         action=argparse.BooleanOptionalAction,
-        default=DEFAULT_L1_SKILL_DELETE_ON_UNIT_TEST_FAIL,
-        help="Mark skills deleted when post-append unit tests fail.",
+        default=None,  # sentinel; resolved by _resolve_skill_deletion_rules
+        help="Mark skills deleted when post-append unit tests fail "
+        f"(default: {DEFAULT_L1_SKILL_DELETE_ON_UNIT_TEST_FAIL}). Disabling still "
+        "runs the test and records last_unit_test_passed; only the eviction stops, "
+        "so LLM-call volume is unchanged across the three --skill-deletion-rules "
+        "settings.",
+    )
+    parser.add_argument(
+        "--l1-skill-unit-tests",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_ENABLE_L1_SKILL_UNIT_TESTS,
+        help="Run the LLM-authored post-append unit tests at all "
+        "(default: enabled). --no-l1-skill-unit-tests skips generation and "
+        "execution entirely, which is cheaper than "
+        "--no-l1-skill-delete-on-unit-test-fail but also changes the arm's "
+        "LLM-call volume -- prefer the latter when isolating the deletion rule.",
     )
     parser.add_argument(
         "--l1-skill-unit-test-max-tokens",
@@ -1514,6 +1590,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     _resolve_l2_preset(args, parser)
+    _resolve_skill_deletion_rules(args, parser)
 
     if int(args.compress_hot_rounds) < 1:
         parser.error("--compress-hot-rounds must be >= 1")
@@ -1665,6 +1742,14 @@ def main() -> int:
                 "skill_merging": bool(args.skill_merging),
                 "skill_merge_similarity": float(args.skill_merge_similarity),
                 "skill_merge_interval": int(args.skill_merge_interval),
+                "skill_deletion_rules": str(args.skill_deletion_rules),
+                "l1_skill_delete_on_consecutive_unused": bool(
+                    args.l1_skill_delete_on_consecutive_unused
+                ),
+                "l1_skill_delete_on_unit_test_fail": bool(
+                    args.l1_skill_delete_on_unit_test_fail
+                ),
+                "enable_l1_skill_unit_tests": bool(args.l1_skill_unit_tests),
                 "enable_l1_skill_unit_test_gc": bool(args.enable_l1_skill_unit_test_gc),
                 "enable_skill_refinement": bool(args.enable_skill_refinement),
                 "skill_refinement_max_rounds": int(args.skill_refinement_max_rounds),
@@ -1875,7 +1960,11 @@ def main() -> int:
                     args.l1_skill_consecutive_unused_delete_after
                 ),
                 l1_skill_deletion_grace_iterations=int(args.l1_skill_deletion_grace_iterations),
+                enable_l1_skill_unit_tests=bool(args.l1_skill_unit_tests),
                 enable_l1_skill_unit_test_gc=bool(args.enable_l1_skill_unit_test_gc),
+                l1_skill_delete_on_consecutive_unused=bool(
+                    args.l1_skill_delete_on_consecutive_unused
+                ),
                 l1_skill_delete_on_unit_test_fail=bool(args.l1_skill_delete_on_unit_test_fail),
                 l1_skill_unit_test_max_tokens=int(args.l1_skill_unit_test_max_tokens),
                 l1_skill_unit_test_timeout_sec=float(args.l1_skill_unit_test_timeout_sec),
@@ -2050,6 +2139,12 @@ def main() -> int:
         "compress_token_ratio": float(args.compress_token_ratio),
         "compress_every_n_iters": int(args.compress_every_n_iters),
         "skill_deletion": bool(args.skill_deletion),
+        "skill_deletion_rules": str(args.skill_deletion_rules),
+        "l1_skill_delete_on_consecutive_unused": bool(
+            args.l1_skill_delete_on_consecutive_unused
+        ),
+        "l1_skill_delete_on_unit_test_fail": bool(args.l1_skill_delete_on_unit_test_fail),
+        "enable_l1_skill_unit_tests": bool(args.l1_skill_unit_tests),
         "enable_l1_skill_unit_test_gc": bool(args.enable_l1_skill_unit_test_gc),
         "skill_merging": bool(args.skill_merging),
         "skill_merge_similarity": float(args.skill_merge_similarity),
