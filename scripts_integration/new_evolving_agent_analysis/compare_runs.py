@@ -148,8 +148,30 @@ def design_variant_label(record: dict[str, Any]) -> str:
     """Stable short name for a context-management + governance configuration."""
     mode = str(_dig(record, "config.context_management") or "unknown")
     flags: list[str] = []
+    # --skill-deletion is TWO rules: a consecutive-unused streak GC and a post-append
+    # unit-test admission gate (30-58% of deletions on completed arms). Rendering all
+    # three sub-cells as a bare `deletion` would compare an arm against itself by
+    # another name -- the open item 7 failure the L2 block below already documents.
+    # Absent keys mean a pre-split run, which is `both` by construction.
     if _dig(record, "config.skill_deletion"):
-        flags.append("deletion")
+        rules = _dig(record, "config.skill_deletion_rules")
+        if rules is None:
+            on_unused = _dig(record, "config.l1_skill_delete_on_consecutive_unused")
+            on_unit_test = _dig(record, "config.l1_skill_delete_on_unit_test_fail")
+            rules = {
+                (True, False): "unused",
+                (False, True): "unit_test",
+                (False, False): "none",  # degenerate: deletion on, neither rule armed
+            }.get(
+                (on_unused is not False, on_unit_test is not False),
+                "both",
+            )
+        label = "deletion" if rules == "both" else f"deletion:{rules}"
+        # The tests can be off entirely, which is a different arm from one that runs
+        # them and ignores the verdict -- the LLM-call volume differs.
+        if _dig(record, "config.enable_l1_skill_unit_tests") is False:
+            label += "/noutests"
+        flags.append(label)
     if _dig(record, "config.skill_merging"):
         similarity = _dig(record, "config.skill_merge_similarity")
         flags.append(f"merge@{similarity}" if similarity is not None else "merge")

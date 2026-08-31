@@ -825,6 +825,21 @@ def build_run_record(
             "nvidia_endpoint": _as_str(summary.get("nvidia_endpoint")),
             "subset_csv": _as_str(summary.get("subset_csv")),
             "skill_deletion": _as_bool(summary.get("skill_deletion")),
+            # --skill-deletion bundles TWO rules -- a consecutive-unused streak GC and a
+            # post-append unit-test admission gate -- and the gate is 30-58% of deletions
+            # on completed arms. Without these keys the three sub-cells all render as
+            # design `deletion`, i.e. the same self-comparison trap open item 7 records
+            # for L2. Older summaries lack them: default to the historical combined rule.
+            "skill_deletion_rules": _as_str(summary.get("skill_deletion_rules") or "both"),
+            "l1_skill_delete_on_consecutive_unused": _as_bool(
+                summary.get("l1_skill_delete_on_consecutive_unused", True)
+            ),
+            "l1_skill_delete_on_unit_test_fail": _as_bool(
+                summary.get("l1_skill_delete_on_unit_test_fail", True)
+            ),
+            "enable_l1_skill_unit_tests": _as_bool(
+                summary.get("enable_l1_skill_unit_tests", True)
+            ),
             "skill_merging": _as_bool(summary.get("skill_merging")),
             "enable_skill_refinement": _as_bool(summary.get("enable_skill_refinement")),
             "enable_l1_skill_unit_test_gc": _as_bool(summary.get("enable_l1_skill_unit_test_gc")),
@@ -922,6 +937,7 @@ def flatten_record(record: dict[str, Any], thresholds: list[float]) -> dict[str,
         "model": config.get("model"),
         "nvidia_endpoint": config.get("nvidia_endpoint"),
         "skill_deletion": config.get("skill_deletion"),
+        "skill_deletion_rules": config.get("skill_deletion_rules"),
         "skill_merging": config.get("skill_merging"),
         "enable_skill_refinement": config.get("enable_skill_refinement"),
         "enable_l1_skill_unit_test_gc": config.get("enable_l1_skill_unit_test_gc"),
