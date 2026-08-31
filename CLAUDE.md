@@ -51,7 +51,7 @@ Axes:
 | axis | values |
 |---|---|
 | L0 context management | `truncation` (default/baseline), `folding`, `markov_report`, `selective_retention`, `compress_trigger` |
-| L1 skill governance | `--skill-deletion`, `--skill-merging`, `--enable-skill-refinement` (7 non-empty combinations) |
+| L1 skill governance | `--skill-deletion`, `--skill-merging`, `--enable-skill-refinement` (7 non-empty combinations). `--skill-deletion` is itself **two rules** — see `--skill-deletion-rules` in §3.8 |
 | L2 promotion | **two gate designs, not one knob:** `--enable-l2` runs the shipped gate; `--enable-l2 --redesign-l2` runs the redesigned one (hit-rate 0.60 + dedup 0.80, no standing cap). Both take `--l2-render`, `--l2-min-rate`, … — see §8.13. A third axis, not yet part of the planned matrix |
 
 Governance and L2 arms hold context at `truncation` so the axes stay separable.
@@ -1095,6 +1095,77 @@ coder call 404s, hours into a run.
 which context window it used. It is derivable from the recorded `coder_model`, but that was
 a constant 128000 before this change and is not any more — record it if you need it.
 
+### 3.8 `--skill-deletion-rules` — the deletion cell is now three cells (2026-08-31)
+
+`--skill-deletion` applies **two independent rules**, and open item 3 measures the
+second at 30–58% of all deletions on every arm on disk. They are now selectable:
+
+| flag | consecutive-unused streak GC | post-append unit-test gate |
+|---|---|---|
+| `--skill-deletion` (default, `--skill-deletion-rules both`) | on | on |
+| `--skill-deletion --skill-deletion-rules unused` | on | **off** |
+| `--skill-deletion --skill-deletion-rules unit_test` | **off** | on |
+
+Run tags per §3.2: `deletion` / `deletion_unused` / `deletion_unittest`.
+
+**`both` is byte-inert.** Proven by AST, not review: fold the new flags to their
+defaults and `run_gen3_coder_turn`'s tree is *identical* to the pre-change one, and
+`_run_post_append_unit_tests` differs only by `delete_on_fail=True`, which is the
+callee's own declared default. Runs launched without the flag are unaffected, and a
+pre-split `run_summary.json` — which has no `skill_deletion_rules` key — reads back as
+`both`, so historical arms keep their `truncation+deletion` design label.
+
+**Mechanism, and why the obvious flag was not enough.** The preset resolves two
+booleans, `--l1-skill-delete-on-consecutive-unused` and
+`--l1-skill-delete-on-unit-test-fail`, either of which **wins when passed explicitly**
+(`None` sentinels + `_resolve_skill_deletion_rules`, the `--redesign-l2` pattern).
+
+- The unit-test rule fires from `memory_manager._run_post_append_unit_tests`, reached
+  through `append_l1_jsonl`, which has **no config object**. So the flag travels as a
+  process-level override on `configure_l1_skill_governance`, exactly like
+  `skill_deletion` itself. Before that, `--no-l1-skill-delete-on-unit-test-fail`
+  reached only the per-iteration GC pass and silently did nothing (open item 3).
+- The streak rule is disabled by passing `delete_after=0` from `gen3_stages`, which
+  hits `evaluate_consecutive_unused_deletions`' existing `delete_after <= 0` early
+  return. **Gating the whole pass instead would be a bug:** `sync_active_skills` and
+  `record_selection_and_unused_streak` must keep running, because the extractor and
+  the L2 promotion gate both read that ledger. `tests/test_skill_deletion_rules.py`
+  pins this.
+
+**`unused` still runs the unit test — it only stops the eviction**, and
+`last_unit_test_passed` is still recorded. That is deliberate: it holds LLM-call
+volume fixed across the three sub-cells, so they differ by *rule* and not by cost.
+`--no-l1-skill-unit-tests` (new; the config field existed but had no CLI flag) skips
+generation and execution entirely — cheaper, but it moves the call budget too, so
+prefer it only when that is what you are measuring. It renders as `/noutests`.
+
+**All three sub-cells carry `--skill-deletion`, so the open-item-6 extractor-catalog
+uncapping is common to them and cancels within the decomposition.** It still confounds
+any of them against a non-governance control — report "rule + catalog size", per that
+item. And per open item 10, n=1 per sub-cell is a screen, not a test.
+
+```bash
+HW=scripts_integration/new_evolving_agent/env/<HARDWARE>
+cat > $HW/wave_deletion_rules.spec <<'SPEC'
+deletion            | truncation | --skill-deletion
+deletion_unused     | truncation | --skill-deletion --skill-deletion-rules unused
+deletion_unittest   | truncation | --skill-deletion --skill-deletion-rules unit_test
+SPEC
+```
+
+Health check specific to these arms — the reason histogram must match the cell:
+
+```bash
+.venv/bin/python -c "import json,collections,sys;\
+print(collections.Counter(json.loads(l)['reason'] for l in open(sys.argv[1])))" \
+  <run>/l1_skill_deletions.jsonl
+```
+
+A `unused` arm showing any `unit_test_fail`, or a `unit_test` arm showing any
+`consecutive_unused`, means the flag did not take — check `run_summary.json`'s
+`skill_deletion_rules`, which is recorded per run and is also in the resume
+mismatch check, so a resume cannot silently change rule.
+
 ---
 
 ## 4. Analysis
@@ -1401,9 +1472,22 @@ runs_evolving/archived/            # VOID (pre-nvcc-fix) -- present on some host
    (`:705`), and `DEFAULT_L1_SKILL_DELETE_ON_UNIT_TEST_FAIL = True` (`:55`). So turning
    on `--skill-deletion` also turns on an LLM-authored pytest admission gate that no
    other arm has. In the live deletion arm that gate is the *larger* term: 153 deletions
-   = **92 `unit_test_fail` + 61 `consecutive_unused`**. Pass
-   `--no-l1-skill-delete-on-unit-test-fail` to isolate the usage rule, or report the
-   cell as "deletion + unit-test admission gate".
+   = **92 `unit_test_fail` + 61 `consecutive_unused`**. It reproduces on every arm on
+   disk: oss `08-14` 326/241, oss `08-22` 291/232, terra `08-22` 100/218,
+   qwen `08-29` 30/10 — so the gate is **30–58% of all deletions**, never a minor term.
+   *Corrected 2026-08-31 — the escape hatch this item named did not work, and the cell
+   is now separable.* This item used to close "Pass `--no-l1-skill-delete-on-unit-test-fail`
+   to isolate the usage rule". **That flag was a no-op for the rule that fires.** It
+   reached only `run_l1_skill_deletion_pass(delete_on_unit_test_fail=…)` →
+   `evaluate_unit_test_gc`, i.e. the *per-iteration GC* pass this same item proves is
+   off; the post-append call `run_post_append_skill_validation(entry, l1_path,
+   run_context=…)` passed no `delete_on_fail` at all and took its hardcoded `True`.
+   Artifact proof it never fired: the live qwen deletion arm has 61 unit-test runs over
+   61 distinct `entry_id`s (max 1 each — so no GC pass ran) yet 30 `unit_test_fail`
+   deletions.
+   **Use `--skill-deletion-rules` instead** (§3.8). `unused` and `unit_test` each run
+   one rule; `both` is the default and is byte-identical to the historical behaviour.
+   Report a `both` arm as "deletion + unit-test admission gate", as before.
 4. **Rewrite `EXPERIMENT_REPORT.md`** — the current text is written against voided
    pre-nvcc-fix runs and its conclusions are reversed by the repaired data.
 5. **Governance matrix — 4 of 7 cells untouched, and that was already true before the
