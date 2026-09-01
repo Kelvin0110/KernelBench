@@ -549,7 +549,17 @@ def main():
                     d_bare = bare - b_bare
                     d_tmo = nto - b_nto
                     bare_share = (100.0 * d_bare / d_tmo) if d_tmo else 0.0
-                    if d_bare >= 3 and bare_share > 50.0:
+                    # SECOND FALSE POSITIVE, 2026-08-29 11:35Z: the >=3-and->50% guard is
+                    # still not enough. Once the wave leaves the big-input problems the mem
+                    # gate stops binding ENTIRELY -- measured this wave, every reservation
+                    # <=14.0GiB had max gate wait 0.00s across 3,315 evals, while only
+                    # >=28GiB ever waited. With no wait to publish, EVERY timeout is
+                    # legitimately bare and the share hits 100% with publishing perfectly
+                    # healthy. "No excluded wait" only implies a regression if a wait
+                    # actually occurred, so require observed queueing in the same window
+                    # before drawing the inference.
+                    gate_is_binding = bool(gwaits) and max(gwaits) > 60.0
+                    if d_bare >= 3 and bare_share > 50.0 and gate_is_binding:
                         emit("ALERT", "+%d of +%d eval timeouts (%.0f%%) carry NO excluded "
                              "wait since start. The mem-gate wait is no longer reaching "
                              "the parent via gpu_lock.report_external_wait, so queueing is "
