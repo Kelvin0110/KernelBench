@@ -74,6 +74,7 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 import time
 from collections import defaultdict
 
@@ -136,8 +137,14 @@ def sh(cmd: list[str]) -> str:
         return ""
 
 
-def live_arms(run_prefix: str) -> dict[str, str]:
-    """run_name -> CUDA_VISIBLE_DEVICES, for arms actually running right now."""
+def live_arms(run_prefixes: "str | list[str]") -> dict[str, str]:
+    """run_name -> CUDA_VISIBLE_DEVICES, for arms actually running right now.
+
+    Accepts one prefix or several; a run matches if it starts with ANY of them,
+    so a single watcher can cover several model groups at once.
+    """
+    if isinstance(run_prefixes, str):
+        run_prefixes = [run_prefixes]
     out: dict[str, str] = {}
     pids = sh(["pgrep", "-f", "evolve_kb_batch"]).split()
     for pid in pids:
@@ -146,7 +153,7 @@ def live_arms(run_prefix: str) -> dict[str, str]:
             if "--run-name" not in cmd:
                 continue
             name = cmd[cmd.index("--run-name") + 1]
-            if run_prefix and not name.startswith(run_prefix):
+            if run_prefixes and not any(name.startswith(p) for p in run_prefixes if p):
                 continue
             env = open(f"/proc/{pid}/environ", "rb").read().decode(errors="replace")
             gpu = "?"
@@ -254,6 +261,14 @@ def newest_activity_min(results_root: str, run_names: list[str]) -> dict[str, fl
         if newest:
             out[name] = (now - newest) / 60.0
     return out
+
+
+def _root_of(name: str, groups: list[tuple[str, str]]) -> str:
+    """The results root whose prefix this arm matches (first wins)."""
+    for root, pref in groups:
+        if not pref or name.startswith(pref):
+            return root
+    return groups[0][0] if groups else "."
 
 
 def _arm_dirs(results_root: str, name: str) -> list[str]:
@@ -390,8 +405,12 @@ def scan_fatal_pressure(results_root: str, run_names: list[str],
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--results-root", required=True)
+    ap.add_argument("--results-root", default="")
     ap.add_argument("--run-prefix", default="")
+    ap.add_argument("--watch", action="append", default=[], metavar="ROOT=PREFIX",
+                    help="watch a (results-root, run-prefix) pair; repeatable, so one "
+                         "watcher covers several model groups. Overrides "
+                         "--results-root/--run-prefix when given.")
     ap.add_argument("--expect-arms", type=int, default=0)
     ap.add_argument("--interval-sec", type=int, default=600)
     ap.add_argument("--stall-min", type=float, default=45.0,
@@ -408,10 +427,26 @@ def main() -> int:
                     help="ALARM if this %% of an arm's finished problems were abandoned")
     a = ap.parse_args()
 
+    # (results_root, run_prefix) pairs. Several groups let one watcher cover a
+    # host running more than one model at a time -- which is the normal case, and
+    # was previously three separate watchers writing three separate logs.
+    groups: list[tuple[str, str]] = []
+    for spec in a.watch:
+        root, _, prefix = spec.partition("=")
+        if not root:
+            ap.error(f"--watch needs ROOT=PREFIX, got {spec!r}")
+        groups.append((root, prefix))
+    if not groups:
+        if not a.results_root:
+            ap.error("need --results-root or at least one --watch ROOT=PREFIX")
+        groups.append((a.results_root, a.run_prefix))
+    all_prefixes = [p for _, p in groups]
+
     offsets: dict[str, int] = {}
     seen_arms: set[str] = set()
     cum: dict[str, int] = defaultdict(int)
     known_aborts: set[str] = set()
+    consecutive_errors = 0
 
     def say(msg: str) -> None:
         line = f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] {msg}"
@@ -419,8 +454,9 @@ def main() -> int:
             fh.write(line + "\n")
             fh.flush()
 
-    say(f"=== wave_api_watch start: root={a.results_root} prefix={a.run_prefix or '(any)'} "
-        f"expect={a.expect_arms} interval={a.interval_sec}s ===")
+    say("=== wave_api_watch start: " +
+        " | ".join(f"{r} ~ {p or '(any)'}" for r, p in groups) +
+        f" | expect={a.expect_arms} interval={a.interval_sec}s ===")
 
     while True:
         try:
@@ -428,15 +464,17 @@ def main() -> int:
                 # Post-hoc: the arms are gone from ps, so read the results root.
                 # Safe here precisely BECAUSE nothing is live -- the killed-arm
                 # glob trap in CLAUDE.md only bites while a wave is running.
-                try:
-                    arms = {re.sub(r"_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}$", "", d): "?"
-                            for d in os.listdir(a.results_root)
-                            if d.startswith(a.run_prefix) and
-                            os.path.isdir(os.path.join(a.results_root, d))}
-                except OSError:
-                    arms = {}
+                arms = {}
+                for _root, _pref in groups:
+                    try:
+                        arms.update({
+                            re.sub(r"_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}$", "", d): "?"
+                            for d in os.listdir(_root)
+                            if d.startswith(_pref) and os.path.isdir(os.path.join(_root, d))})
+                    except OSError:
+                        pass
             else:
-                arms = live_arms(a.run_prefix)
+                arms = live_arms(all_prefixes)
             names = sorted(arms)
             seen_arms.update(names)
 
@@ -455,12 +493,14 @@ def main() -> int:
             if seen_arms and not names and not a.once:
                 finished = 0
                 for n in seen_arms:
-                    try:
-                        finished += any(
-                            os.path.isfile(os.path.join(a.results_root, d, "run_summary.json"))
-                            for d in os.listdir(a.results_root) if d.startswith(n))
-                    except OSError:
-                        pass
+                    for _root, _ in groups:
+                        try:
+                            if any(os.path.isfile(os.path.join(_root, d, "run_summary.json"))
+                                   for d in os.listdir(_root) if d.startswith(n)):
+                                finished += 1
+                                break
+                        except OSError:
+                            pass
                 if finished == len(seen_arms):
                     say(f"ALL {finished} ARMS FINISHED (run_summary.json present). watcher exiting.")
                     return 0
@@ -470,11 +510,15 @@ def main() -> int:
             if missing:
                 still = []
                 for n in missing:
-                    try:
-                        done = any(os.path.isfile(os.path.join(a.results_root, d, "run_summary.json"))
-                                   for d in os.listdir(a.results_root) if d.startswith(n))
-                    except OSError:
-                        done = False
+                    done = False
+                    for _root, _ in groups:
+                        try:
+                            if any(os.path.isfile(os.path.join(_root, d, "run_summary.json"))
+                                   for d in os.listdir(_root) if d.startswith(n)):
+                                done = True
+                                break
+                        except OSError:
+                            pass
                     if not done:
                         still.append(n)
                 if still:
@@ -482,6 +526,16 @@ def main() -> int:
                                   f"{', '.join(still)} -- died, needs resume")
             if a.expect_arms and len(names) < a.expect_arms and not missing:
                 warns.append(f"only {len(names)}/{a.expect_arms} arms live (still launching?)")
+
+            # Scanned per group: each model group has its own results root, and an
+            # arm only ever lives under one of them.
+            def _by_group(fn, *extra):
+                out = {}
+                for _root, _pref in groups:
+                    sub = [n for n in names if not _pref or n.startswith(_pref)]
+                    if sub:
+                        out.update(fn(_root, sub, *extra))
+                return out
 
             # --- LLM/API incidents, delta since last poll ---------------------
             per_arm = scan_logs(names, offsets)
@@ -499,7 +553,7 @@ def main() -> int:
                     warns.append(f"{k}: {v} this poll (cum {cum[k]})")
 
             # --- empty content == silent CoT substitution ---------------------
-            cf = scan_content_field(a.results_root, names, offsets)
+            cf = _by_group(scan_content_field, offsets)
             for n, (tot, empt) in sorted(cf.items()):
                 if tot >= 20 and empt:
                     pct = 100.0 * empt / tot
@@ -507,7 +561,7 @@ def main() -> int:
                     (alarms if pct >= a.empty_pct_alarm else warns).append(msg)
 
             # --- CODER-side errors, from the artifacts (arm log cannot show these)
-            ie = scan_iteration_errors(a.results_root, names, offsets)
+            ie = _by_group(scan_iteration_errors, offsets)
             iter_tot: dict[str, int] = defaultdict(int)
             for n, c in ie.items():
                 for k, v in c.items():
@@ -527,7 +581,14 @@ def main() -> int:
                     warns.append(msg)
 
             # --- problems ABANDONED (the fatal outcome) -----------------------
-            new_ab, ab_tot = scan_aborts(a.results_root, names, known_aborts)
+            new_ab, ab_tot = [], {}
+            for _root, _pref in groups:
+                sub = [n for n in names if not _pref or n.startswith(_pref)]
+                if not sub:
+                    continue
+                _na, _at = scan_aborts(_root, sub, known_aborts)
+                new_ab += _na
+                ab_tot.update(_at)
             for n, prob, iters, err in new_ab[:6]:
                 warns.append(f"{n}: problem {prob} ABANDONED after {iters}/30 iters -- {err}")
             if len(new_ab) > 6:
@@ -537,7 +598,7 @@ def main() -> int:
                 if not tot:
                     continue
                 fin = 0
-                for d in _arm_dirs(a.results_root, n):
+                for d in _arm_dirs(_root_of(n, groups), n):
                     ws = os.path.join(d, "workspaces")
                     if os.path.isdir(ws):
                         fin += sum(os.path.isfile(os.path.join(ws, p, "run_finished.json"))
@@ -548,8 +609,8 @@ def main() -> int:
                     (alarms if pct >= a.abort_pct_alarm else warns).append(m)
 
             # --- early warning: live problems that have burned fatal lives ----
-            for n, (prob, burned) in sorted(scan_fatal_pressure(
-                    a.results_root, names, a.max_fatal).items()):
+            for n, (prob, burned) in sorted(_by_group(
+                    scan_fatal_pressure, a.max_fatal).items()):
                 if burned >= a.max_fatal - 1:
                     alarms.append(f"{n}: problem {prob} has burned {burned}/{a.max_fatal} "
                                   f"fatal lives -- one more error abandons it")
@@ -559,7 +620,7 @@ def main() -> int:
             # design -- the outage budget is hours, far past --stall-min. Report
             # it as a wait, not as a hang, or every outage looks like a crash.
             waiting_out = {n for n, c in per_arm.items() if c.get("outage_wait")}
-            for n, mins in sorted(newest_activity_min(a.results_root, names).items()):
+            for n, mins in sorted(_by_group(newest_activity_min).items()):
                 if a.once:
                     break
                 if n in waiting_out:
@@ -600,7 +661,22 @@ def main() -> int:
                     f"{sum(ab_tot.values())} abandoned problems ===")
                 return 2 if alarms else 0
         except Exception as exc:                      # never let the watcher die
-            say(f"  WARN  watcher error (continuing): {type(exc).__name__}: {exc}")
+            # A bug in here means the watcher is silently NOT WATCHING. It used to
+            # log one WARN and sleep, so a typo could disable monitoring for a whole
+            # wave and look like a healthy quiet log. Escalate on repeats and print
+            # the frame, so the failure is as loud as the failures it exists to find.
+            consecutive_errors += 1
+            tb = traceback.format_exc().strip().splitlines()
+            where = next((l.strip() for l in reversed(tb) if l.strip().startswith("File ")), "?")
+            level = "ALARM" if consecutive_errors > 1 else "WARN "
+            say(f"  {level} watcher error #{consecutive_errors} "
+                f"({type(exc).__name__}: {exc}) at {where}")
+            if consecutive_errors > 1:
+                say("  ALARM the watcher is NOT WATCHING -- this is a bug in "
+                    "wave_api_watch.py, not a wave problem. Fix it or the wave is "
+                    "running unmonitored.")
+        else:
+            consecutive_errors = 0
         time.sleep(a.interval_sec)
 
 
