@@ -1,0 +1,20 @@
+# gpt-oss-120b merge sweep -- BACKFILL QUEUE, consumed one line at a time by
+# env/common/wave_backfill.sh as live arms finish and slots open up.
+#
+# Round 1 launches the _a replicate of each threshold. This queue holds _b and _c,
+# taking every threshold to n=3 -- matching the terra b3 design.
+#
+# ORDER IS ROUND-ROBIN BY THRESHOLD, not grouped: if the queue never fully drains,
+# every threshold gets its 2nd replicate before any gets its 3rd. Grouping would
+# leave one threshold at n=1 and another at n=3.
+#
+# The daemon assigns each arm to whichever GPU currently has FEWER live arms, so
+# placement stays even without being pinned here.
+#
+# tag          | context-mode | extra flags
+merge_sim085_b | truncation   | --skill-merging --skill-merge-similarity 0.85
+merge_sim075_b | truncation   | --skill-merging --skill-merge-similarity 0.75
+merge_sim095_b | truncation   | --skill-merging --skill-merge-similarity 0.95
+merge_sim085_c | truncation   | --skill-merging --skill-merge-similarity 0.85
+merge_sim075_c | truncation   | --skill-merging --skill-merge-similarity 0.75
+merge_sim095_c | truncation   | --skill-merging --skill-merge-similarity 0.95
