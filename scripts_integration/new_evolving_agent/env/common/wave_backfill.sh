@@ -51,9 +51,23 @@ case "$RESULTS_ROOT" in */) ;; *) RESULTS_ROOT="$RESULTS_ROOT/" ;; esac
 touch "$STATE" "$LOG"
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG"; }
 
-# singleton -- two backfill daemons on one queue would double-launch
-exec 9>"$QUEUE.lock"
-flock -n 9 || { log "another wave_backfill is already holding $QUEUE.lock -- exiting"; exit 0; }
+# Singleton. NOT flock: `exec 9>lock` leaks the locked fd to EVERY child, so a
+# stray `sleep` -- or worse, a backfilled ARM, which lives ~50 h -- keeps the lock
+# held long after this daemon dies, and no replacement can ever start. Observed
+# 2026-09-01: an orphaned `sleep` held it and blocked two restarts. A pid file has
+# no inheritance semantics at all.
+PIDFILE="$QUEUE.pid"
+if [ -f "$PIDFILE" ]; then
+  _old="$(cat "$PIDFILE" 2>/dev/null || true)"
+  # guard against pid reuse: the pid must still BE a wave_backfill
+  if [ -n "${_old:-}" ] && kill -0 "$_old" 2>/dev/null \
+     && tr '\0' ' ' < "/proc/$_old/cmdline" 2>/dev/null | grep -q 'wave_backfill'; then
+    log "another wave_backfill (pid $_old) is running -- exiting"; exit 0
+  fi
+  log "stale pid file (pid ${_old:-?} gone) -- taking over"
+fi
+printf '%s\n' "$$" > "$PIDFILE"
+trap 'rm -f "$PIDFILE"' EXIT
 
 # distinct --run-name tokens whose CUDA_VISIBLE_DEVICES is $1
 arms_on_gpu() {
