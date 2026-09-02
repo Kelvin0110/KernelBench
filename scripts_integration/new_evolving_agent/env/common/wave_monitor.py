@@ -132,26 +132,70 @@ def _cmdline(pid):
         return []
 
 
-def alive(arm):
-    """True only if the pid exists AND is still THIS arm.
+_LIVE_CACHE = {"t": 0.0, "names": frozenset(), "pids": {}}
 
-    A bare os.kill(pid, 0) is not enough after a wave is killed and relaunched:
-    pids are recycled, so an unrelated process inheriting the number reads as a
-    healthy arm forever. Match the run name in the cmdline instead.
+
+def live_run_names(ttl=5.0):
+    """Every --run-name currently on the process table, cached for `ttl` seconds.
+
+    Scanned once per monitor cycle rather than once per arm: arm_state() calls
+    alive() for every arm and a /proc walk per arm is O(arms x processes).
     """
-    pid = arm["pid"]
-    if pid <= 0:
-        return False
-    argv = _cmdline(pid)
-    if argv:
-        return arm["run_name"] in argv
-    try:
-        os.kill(pid, 0)          # /proc unreadable -- fall back
+    now = time.time()
+    if now - _LIVE_CACHE["t"] < ttl:
+        return _LIVE_CACHE["names"]
+    names, pids = set(), {}
+    for d in glob.glob("/proc/[0-9]*"):
+        try:
+            pid = int(os.path.basename(d))
+        except ValueError:
+            continue
+        argv = _cmdline(pid)
+        if "--run-name" in argv:
+            i = argv.index("--run-name")
+            if i + 1 < len(argv) and argv[i + 1]:
+                names.add(argv[i + 1])
+                # keep the LOWEST pid: the long-lived parent, not an eval child
+                if argv[i + 1] not in pids or pid < pids[argv[i + 1]]:
+                    pids[argv[i + 1]] = pid
+    _LIVE_CACHE.update(t=now, names=frozenset(names), pids=pids)
+    return _LIVE_CACHE["names"]
+
+
+def live_pid_for(arm):
+    """pid actually running this arm, or -1. Resume-proof, like alive()."""
+    live_run_names()
+    pids = _LIVE_CACHE["pids"]
+    for key in (arm["name"], arm["run_name"]):
+        if key in pids:
+            return pids[key]
+    for n, pid in pids.items():
+        if arm["name"].startswith(n + "_"):
+            return pid
+    return -1
+
+
+def alive(arm):
+    """True if THIS arm is on the process table, under either name shape.
+
+    Matching on the manifest pid is not enough, for two independent reasons:
+      * pids are recycled, so a bare os.kill(pid, 0) reads an unrelated process as
+        a healthy arm forever;
+      * a RESUMED arm has a different pid than the manifest records, and carries
+        --run-name <dir INCLUDING the timestamp> because resume_run.sh is handed the
+        run dir -- whereas a launch_wave arm carries the base name and lets the
+        runner append _YYYY_MM_DD_HH_MM. Requiring the stripped name in the argv of
+        the manifest pid therefore reported every resumed arm as DEAD. Measured
+        2026-09-01: 6 live terra arms all read "PROCESS GONE", and the monitor
+        declared "WAVE STALLED" and exited.
+    So: match the run NAME against the live process table, accepting the dir name
+    and the stamp-stripped base name, exactly as wave_supervisor.sh's alive() does.
+    """
+    names = live_run_names()
+    if arm["name"] in names or arm["run_name"] in names:
         return True
-    except (ProcessLookupError, ValueError):
-        return False
-    except PermissionError:
-        return True
+    # live process carries the base name; this arm's dir carries base + stamp
+    return any(arm["name"].startswith(n + "_") for n in names)
 
 
 def arm_config(arm):
@@ -161,13 +205,32 @@ def arm_config(arm):
     recurring failure is a baseline that differs from the one assumed, and it is
     a silent metric error rather than a crash.
     """
-    argv = _cmdline(arm["pid"])
+    argv = _cmdline(live_pid_for(arm)) or _cmdline(arm["pid"])
     out = {}
     for flag in ("--hardware", "--results-root", "--model"):
         if flag in argv:
             i = argv.index(flag)
             if i + 1 < len(argv):
                 out[flag] = argv[i + 1]
+    if out:
+        return out
+    # No live process: the arm FINISHED (or died). Its config is still recorded in
+    # run_summary.json, which is written at run end. Without this fallback a finished
+    # arm reported "?" and the uniformity check below compared "?" against the real
+    # baseline and cried NOT UNIFORM -- three false ALERTs the moment the first arm
+    # completed on 2026-09-01, and it would have worsened as more arms finished until
+    # a GENUINE split baseline was indistinguishable from the noise.
+    try:
+        with open(os.path.join(arm["rundir"], "run_summary.json")) as fh:
+            summ = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    for flag, key in (("--hardware", "hardware_server"), ("--model", "coder_model")):
+        if summ.get(key):
+            out[flag] = summ[key]
+    parent = os.path.dirname(arm["rundir"].rstrip("/"))
+    if parent:
+        out["--results-root"] = os.path.relpath(parent, REPO) + "/"
     return out
 
 
@@ -442,12 +505,18 @@ def main():
     cfgs = {a["name"]: arm_config(a) for a in arms}
     for flag, label in (("--hardware", "baseline"), ("--results-root", "results-root"),
                         ("--model", "model")):
-        vals = {}
+        vals, unknown = {}, []
         for name, c in cfgs.items():
-            vals.setdefault(c.get(flag, "?"), []).append(name)
-        if len(vals) == 1:
-            emit("INFO", "%s: %s (uniform across %d arms)"
-                 % (label, next(iter(vals)), len(arms)))
+            v = c.get(flag)
+            if v is None:
+                unknown.append(name)          # unreadable != a different value
+                continue
+            vals.setdefault(v, []).append(name)
+        note = (" [%d unreadable]" % len(unknown)) if unknown else ""
+        if len(vals) <= 1:
+            emit("INFO", "%s: %s (uniform across %d arms)%s"
+                 % (label, next(iter(vals)) if vals else "unknown",
+                    len(arms) - len(unknown), note))
         else:
             emit("ALERT", "%s IS NOT UNIFORM -- %s. Arm-vs-arm comparison across "
                  "this wave is INVALID until resolved."
