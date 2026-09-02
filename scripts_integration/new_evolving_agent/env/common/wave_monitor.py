@@ -80,6 +80,9 @@ PROBLEM_RE = re.compile(r"^\[batch\] \((\d+)/(\d+)\)", re.M)
 # for real (r2_markov waited 1800s for 49 GiB and proceeded UNGATED). Keep in step
 # with eval.py: a stale value here silently mis-scores both the valve-hit count and
 # the headroom alarm.
+# A real publishing regression bills EVERY queued eval to the 600s work budget,
+# so it shows up as a RATE SPIKE. Healthy waves run ~0.6-0.8% (CLAUDE.md 3.4).
+TIMEOUT_RATE_ALERT_PCT = 3.0
 MEM_GATE_VALVE_SEC = 3600.0
 
 
@@ -628,17 +631,34 @@ def main():
                     # actually occurred, so require observed queueing in the same window
                     # before drawing the inference.
                     gate_is_binding = bool(gwaits) and max(gwaits) > 60.0
-                    if d_bare >= 3 and bare_share > 50.0 and gate_is_binding:
-                        emit("ALERT", "+%d of +%d eval timeouts (%.0f%%) carry NO excluded "
-                             "wait since start. The mem-gate wait is no longer reaching "
-                             "the parent via gpu_lock.report_external_wait, so queueing is "
-                             "being billed to the 600s work budget -- the 2026-08-25 fix "
-                             "has regressed." % (d_bare, d_tmo, bare_share))
+                    # THIRD FALSE POSITIVE, 2026-09-02 09:21Z. The conjunction above is
+                    # STILL invalid, and the flaw is structural rather than a bad constant:
+                    # the gate wait and the timeouts need not be the SAME evals. One arm
+                    # logged a single 361s gate wait that COMPLETED normally, while 4
+                    # unrelated slow evals on other arms timed out, and `gate_is_binding`
+                    # turned that coincidence into a regression claim. Verified at the time:
+                    # eval.py still calls _report/_commit and execution.py still extends the
+                    # deadline by wait_counter, i.e. nothing had regressed.
+                    # A SHARE can never carry this inference -- CLAUDE.md 3.4 is explicit
+                    # that bare timeouts cluster by PROBLEM and that one must use an
+                    # ABSOLUTE rate, never a share-of-timeouts at low counts. A genuine
+                    # publishing regression bills every queued eval to the work budget, so
+                    # it presents as a RATE SPIKE. Gate the ALERT on that and nothing else.
+                    if d_bare >= 3 and gate_is_binding and rate > TIMEOUT_RATE_ALERT_PCT:
+                        emit("ALERT", "eval-timeout rate %.1f%% is above the %.1f%% alert "
+                             "line while the mem gate is binding (max %ds wait) and +%d of "
+                             "+%d new timeouts are bare. SUSPECT the gate wait is no longer "
+                             "reaching the parent via gpu_lock.report_external_wait, so "
+                             "queueing is billed to the 600s work budget. VERIFY FIRST: "
+                             "eval.py's _report/_commit calls and execution.py's "
+                             "wait_counter deadline extension."
+                             % (rate, TIMEOUT_RATE_ALERT_PCT, max(gwaits), d_bare, d_tmo))
                     elif d_bare:
-                        emit("INFO", "+%d bare eval timeout(s) of +%d (%.0f%%) -- below the "
-                             "regression threshold (>=3 and >50%%). Evals that queued for "
-                             "nothing get no exclusion suffix, so a few bare timeouts are "
-                             "just slow kernels." % (d_bare, d_tmo, bare_share))
+                        emit("INFO", "+%d bare eval timeout(s) of +%d (%.0f%%); rate %.1f%% "
+                             "is below the %.1f%% alert line. Evals that queued for nothing "
+                             "get no exclusion suffix, so bare timeouts are just slow "
+                             "kernels." % (d_bare, d_tmo, bare_share, rate,
+                                           TIMEOUT_RATE_ALERT_PCT))
                     elif rate > 2.0 and d_ni > 200:
                         emit("INFO", "eval-timeout rate %.1f%% since start, but 0 of them "
                              "lack an excluded wait (max excluded %ds, so the deadline "
