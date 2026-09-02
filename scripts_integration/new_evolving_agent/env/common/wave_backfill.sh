@@ -31,6 +31,8 @@
 #   MAX_PER_GPU      default 12  -- passed through as MAX_ARMS_PER_GPU
 #   INTERVAL         default 300 seconds
 #   MODEL / RESULTS_ROOT / RUN_PREFIX / HW   -- passed to launch_wave.sh
+#   SUPERVISOR_SPEC  optional wave_supervisor.sh spec.tsv; each launched arm is
+#                    appended to it so the supervisor covers backfilled arms too
 set -uo pipefail
 
 REPO="${REPO:-/localhome/local-tianzheng/KernelBench}"
@@ -46,6 +48,37 @@ MODEL="${MODEL:-gpt-oss-120b}"
 RESULTS_ROOT="${RESULTS_ROOT:-runs_evolving/gpt-oss-120b/}"
 RUN_PREFIX="${RUN_PREFIX:-base_agent_gpt_oss_120b_r2}"
 GPUS="${GPUS:-0 1}"
+SUPERVISOR_SPEC="${SUPERVISOR_SPEC:-}"
+MONITOR_GLOB="${MONITOR_GLOB:-}"
+MONITOR_LOG="${MONITOR_LOG:-$REPO/wave_monitor.log}"
+
+# wave_monitor.py EXITS (return 1) the moment its manifest set changes, and every
+# backfill launch writes a new manifest -- so without this the monitor dies on the
+# first backfill and the rest of the wave runs unwatched. Observed 2026-09-01.
+# The /proc scan inspects argv[0..1] ONLY, so a `bash -c` whose TEXT mentions
+# wave_monitor.py is not matched. A `pgrep -f wave_monitor` would match this very
+# script's own command line -- that self-match already killed one tool session today.
+monitor_pids(){
+  local d a
+  for d in /proc/[0-9]*; do
+    a="$(tr '\0' '\n' < "$d/cmdline" 2>/dev/null | head -2 | tr '\n' ' ')"
+    case "$a" in *python*wave_monitor.py*) printf '%s\n' "${d#/proc/}" ;; esac
+  done
+}
+restart_monitor(){
+  [ -n "$MONITOR_GLOB" ] || return 0
+  local pid
+  for pid in $(monitor_pids); do
+    grep -q -- "$MONITOR_LOG" "/proc/$pid/cmdline" 2>/dev/null && kill "$pid" 2>/dev/null
+  done
+  sleep 3
+  ( cd "$REPO" && setsid nohup "$REPO/.venv/bin/python" \
+      scripts_integration/new_evolving_agent/env/common/wave_monitor.py \
+      --interval 300 --log "$MONITOR_LOG" --manifests "$MONITOR_GLOB" \
+      >/dev/null 2>&1 < /dev/null & )
+  sleep 3
+  log "MONITOR restarted for glob=$MONITOR_GLOB (pids: $(monitor_pids | tr '\n' ' '))"
+}
 case "$RESULTS_ROOT" in */) ;; *) RESULTS_ROOT="$RESULTS_ROOT/" ;; esac
 
 touch "$STATE" "$LOG"
@@ -95,7 +128,7 @@ launch_one() {  # $1 = gpu, $2 = spec line
     cd "$REPO" || exit 1
     MODEL="$MODEL" RESULTS_ROOT="$RESULTS_ROOT" RUN_PREFIX="$RUN_PREFIX" \
     MAX_ARMS_PER_GPU="$MAX_PER_GPU" LAG_SEC=20 \
-    MANIFEST="wave_backfill_gpu${gpu}_${tag}.manifest.tsv" \
+    MANIFEST="wave_gpu${gpu}_${RUN_PREFIX}_bf_${tag}.manifest.tsv" \
     bash "$HW/launch_wave.sh" "$gpu" "$spec"
   ) >> "$LOG" 2>&1
   rc=$?
@@ -105,6 +138,19 @@ launch_one() {  # $1 = gpu, $2 = spec line
   if run_dir_exists "$tag"; then
     printf '%s\n' "$tag" >> "$STATE"
     log "OK $tag launched on GPU $gpu (rc=$rc); run dir present"
+    # Hand the arm to wave_supervisor.sh, which re-reads its spec every tick, so a
+    # backfilled arm gets the same death-and-restart cover as a hand-launched one.
+    # NEVER write a comment or blank line here: the supervisor's exit condition is
+    # `total=$(wc -l < SPEC)`, which counts every line.
+    if [ -n "$SUPERVISOR_SPEC" ] && [ -f "$SUPERVISOR_SPEC" ]; then
+      local dir ctx flags
+      dir="$(basename "$(ls -1d "$REPO/$RESULTS_ROOT${RUN_PREFIX}_${tag}_itr30_GH200_2"* 2>/dev/null | sort | tail -1)")"
+      ctx="$(printf '%s' "$line" | cut -d'|' -f2 | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+      flags="$(printf '%s' "$line" | cut -d'|' -f3- | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+      printf '%s\t%s\t%s\t1\t%s\t%s\n' "$gpu" "$dir" "$ctx" "$flags" "$RESULTS_ROOT" >> "$SUPERVISOR_SPEC"
+      log "REGISTERED $dir -> $SUPERVISOR_SPEC (supervisor will restart it if it dies)"
+    fi
+    restart_monitor
     return 0
   fi
   log "FAILED $tag on GPU $gpu (rc=$rc); no run dir -- staying queued, retry next tick"
