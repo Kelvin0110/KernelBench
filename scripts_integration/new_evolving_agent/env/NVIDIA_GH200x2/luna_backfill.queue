@@ -1,0 +1,36 @@
+# gpt-5.6-luna backfill queue -- drained one arm at a time by wave_backfill.sh as
+# capacity frees up (TARGET_PER_GPU=9, i.e. top up while total < 18).
+#
+# Order is deliberate: matrix-completing cells first, then the merge sweep.
+#
+# NOT QUEUED, on instruction: no truncation/baseline control (luna already has one on
+# GPU 1) and no shipped-gate `l2` (luna keeps l2_redesign only).
+#
+# CAVEAT on selective_r5 -- it is expected to read as a NULL and that is not a bug.
+# selective_retention only drops rounds when prev_total_tokens >= pack_ratio * window
+# (selective_retention.py:333-337); at luna's 1,050,000-token window that is 945,000
+# tokens, against a largest-ever-observed L0 context of 121,055. So the arm exercises
+# the packing path but never the eviction, and is NOT comparable to the gpt-oss
+# selective cell where the budget can bind. Same class as luna's folding and compress
+# cells. Run it for matrix parity and to turn that inference into a measurement.
+#
+# The merge cells are all fully live: --skill-merging never reads the context window.
+# 0.7/0.75/0.8/0.85/0.9/0.95 give a six-point response curve for catalog size, which is
+# what open item 1 actually asks for. Report every merge arm as "rule + catalog size":
+# --skill-merging also uncaps the extractor candidate catalog (open item 6). That
+# confound is common to all six, so it cancels WITHIN the sweep but not against a control.
+#
+# deletion_unused / deletion_unittest split the deletion cell into its two rules
+# (CLAUDE.md 3.8), mirroring the n=3 decomposition already run on gpt-oss and terra.
+# luna's existing `deletion` arm is the `both` cell, so the three together decompose it.
+#
+# tag                | context-mode        | extra flags
+merge_sim08        | truncation          | --skill-merging --skill-merge-similarity 0.8
+selective_r5       | selective_retention |
+deletion_unused    | truncation          | --skill-deletion --skill-deletion-rules unused
+deletion_unittest  | truncation          | --skill-deletion --skill-deletion-rules unit_test
+merge_sim09        | truncation          | --skill-merging --skill-merge-similarity 0.9
+merge_sim07        | truncation          | --skill-merging --skill-merge-similarity 0.7
+merge_sim075       | truncation          | --skill-merging --skill-merge-similarity 0.75
+merge_sim085       | truncation          | --skill-merging --skill-merge-similarity 0.85
+merge_sim095       | truncation          | --skill-merging --skill-merge-similarity 0.95
