@@ -54,7 +54,17 @@ except Exception: print(0)' 2>/dev/null || echo 0)
 say "SUPERVISOR START spec=$SPEC interval=${INTERVAL}s"
 while :; do
   live=0; fin=0; restarted=0
-  while IFS=$'\t' read -r gpu run ctx start flags root; do
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    # Split on \x1f, NOT on a literal tab. Tab is an IFS-WHITESPACE character in bash,
+    # so `IFS=$'\t' read` collapses a RUN of tabs into one delimiter and an EMPTY field
+    # simply vanishes, shifting every later column left. Measured 2026-09-02: the four
+    # spec lines with an empty `flags` column -- the truncation CONTROL, markov, folding
+    # and selective_r5 -- had `root` swallowed into `flags`, so `root` fell back to the
+    # terra results-root, the gpt-oss run dir was not found there, and all four were
+    # SKIPPED on every tick for the supervisor's entire life. Had any of them died it
+    # would NOT have been restarted, which is the one job this script has. \x1f is not
+    # IFS whitespace, so empty fields survive; retabbing costs no subprocess.
+    IFS=$'\x1f' read -r gpu run ctx start flags root <<< "${_line//$'\t'/$'\x1f'}"
     [ -z "${run:-}" ] && continue
     root="${root:-runs_evolving/gpt-5.6-terra/}"
     case "$root" in */) ;; *) root="$root/" ;; esac
