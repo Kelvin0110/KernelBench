@@ -292,8 +292,20 @@ def main() -> int:
             str(arm["ctx"]), str(frm), "--",
             "--evaluation-timeout-sec", str(a.new_timeout), *arm["flags"],
         ]
+        # resume_run.sh deliberately defaults to the SINGLE-ARM eval profile
+        # (KB_GPU_EVAL_LOCK_SLOTS=1, KB_EVAL_MEM_GATE_FACTOR=0). Inheriting that inside a
+        # live multi-arm wave is a correctness bug, not a slowdown:
+        #   * slots=1 uses a DIFFERENT lock file from slots=N (gpu_lock.py:159-164 appends
+        #     .slotK), so the restarted arm would NOT interlock with the others on its GPU
+        #     -- its timing windows could overlap theirs, and contention deflates speedup.
+        #   * mem gate 0 removes device-memory admission control, which is what keeps three
+        #     ~49 GiB L1P34 residents off a 143 GiB card.
+        # All of these are ${VAR:-default} in resume_run.sh, so exporting them wins.
         env = dict(os.environ, RESULTS_ROOT=arm["root"] or "", MODEL=arm["model"] or "",
-                   DO_BACKUP="0", MAX_ARMS_PER_GPU="12")
+                   DO_BACKUP="0", MAX_ARMS_PER_GPU="12",
+                   KB_GPU_EVAL_LOCK_SLOTS="3", KB_EVAL_MEM_GATE_FACTOR="7",
+                   KB_EVAL_HOIST_INPUT_GEN="1", KB_EVAL_SKIP_DEAD_REF_TIMING="1",
+                   KB_EVAL_UNLOCK_CORRECTNESS="0", KB_GPU_RESERVE_GB="0")
         _say(f"    TRIGGER {pct:.1f}% >= {a.threshold_pct}%  -> stop and resume at {frm}")
         _say(f"      model={arm['model']} root={arm['root']} flags={arm['flags'] or ['none']}")
         if not a.apply:
