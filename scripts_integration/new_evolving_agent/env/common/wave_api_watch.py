@@ -137,6 +137,21 @@ def sh(cmd: list[str]) -> str:
         return ""
 
 
+_RUN_STAMP_RE = re.compile(r"_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}$")
+
+
+def _canon_run(name: str) -> str:
+    """Collapse the pre- and post-resume spellings of one arm to a single key.
+
+    launch_wave.sh passes --run-name WITHOUT a timestamp and the runner appends
+    _YYYY_MM_DD_HH_MM to build the directory. resume_run.sh is given the DIRECTORY,
+    so a resumed arm reports the timestamped name instead. Comparing the two forms
+    literally makes every resumed arm look permanently "vanished", which is worse
+    than noise: a standing false ALARM masks a real death.
+    """
+    return _RUN_STAMP_RE.sub("", (name or "").strip())
+
+
 def live_arms(run_prefixes: "str | list[str]") -> dict[str, str]:
     """run_name -> CUDA_VISIBLE_DEVICES, for arms actually running right now.
 
@@ -506,7 +521,9 @@ def main() -> int:
                     return 0
                 alarms.append(f"0 arms live but only {finished}/{len(seen_arms)} have run_summary.json "
                               f"-- arms DIED. Inspect logs, then resume_wave.sh.")
-            missing = [] if a.once else sorted(seen_arms - set(names))
+            _live_canon = {_canon_run(n) for n in names}
+            missing = [] if a.once else sorted(
+                n for n in seen_arms if _canon_run(n) not in _live_canon)
             if missing:
                 still = []
                 for n in missing:
