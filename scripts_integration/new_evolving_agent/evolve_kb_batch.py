@@ -1168,6 +1168,21 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--evaluation-timeout-sec",
+        type=int,
+        default=3600,
+        help=(
+            "Deadline (seconds) for ONE kernel evaluation subprocess "
+            "(default: 3600). This bounds WORK ONLY -- GPU-lock wait and "
+            "memory-gate wait are published by the child and discounted by "
+            "the parent, so queueing never consumes it. Raise it when the "
+            "HOST CPU is oversubscribed: KB_EVAL_HOIST_INPUT_GEN=1 runs "
+            "get_inputs() on the CPU, and on subset problems 1-5 that is "
+            "12-21s idle but minutes under load, which is charged in full. "
+            "Distinct from --coder-timeout-sec, which bounds LLM calls."
+        ),
+    )
+    parser.add_argument(
         "--coder-timeout-sec",
         type=float,
         default=600.0,
@@ -1972,6 +1987,7 @@ def main() -> int:
                 context_management=str(args.context_management),
                 evolving_report_max_tokens=int(args.evolving_report_max_tokens),
                 evolving_report_timeout_sec=float(args.evolving_report_timeout_sec),
+                evaluation_timeout_s=int(args.evaluation_timeout_sec),
                 coder_timeout_sec=float(args.coder_timeout_sec),
                 compress_hot_rounds=int(args.compress_hot_rounds),
                 compress_token_ratio=float(args.compress_token_ratio),
@@ -2134,6 +2150,7 @@ def main() -> int:
         "context_management": str(args.context_management),
         "evolving_report_max_tokens": int(args.evolving_report_max_tokens),
         "evolving_report_timeout_sec": float(args.evolving_report_timeout_sec),
+        "evaluation_timeout_s": int(args.evaluation_timeout_sec),
         "coder_timeout_sec": float(args.coder_timeout_sec),
         "compress_hot_rounds": int(args.compress_hot_rounds),
         "compress_token_ratio": float(args.compress_token_ratio),
