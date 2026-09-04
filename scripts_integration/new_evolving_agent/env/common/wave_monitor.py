@@ -303,8 +303,16 @@ def arm_state(arm, offsets):
                 rec = json.loads(line)
             except ValueError:
                 continue
-            for k, v in count_errors(str(rec.get("terminal_output") or ""), EVAL_PATTERNS).items():
-                st["errors"][k] = st["errors"].get(k, 0) + v
+            # Scan the WHOLE record, not just terminal_output. Measured 2026-09-02: a
+            # real CUDA OOM on merge_sim085_b/L3P17 carried the message in the record's
+            # "extra" field only, so a terminal_output-only scan UNDERCOUNTS the one
+            # failure mode that silently corrupts a run (an OOM is stored
+            # compiled=True correct=False, so the governor debugs a kernel that was
+            # never broken). Count each pattern at most ONCE per record: the question is
+            # "how many EVALS hit this", not how many times the string appears.
+            for k, pat in EVAL_PATTERNS:
+                if pat.search(line):
+                    st["errors"][k] = st["errors"].get(k, 0) + 1
     st["new_evals"] = evals
     return st
 
@@ -498,6 +506,7 @@ def main():
 
     offsets, prev, first, cycle, prev_api = {}, {}, True, 0, [None]
     base_gate = [None]
+    oom_alerted = [None]   # last OOM count we alerted on -- see the growth guard below
     stamps = manifest_stamps(args.manifests)
     emit("START", "watching %d arms from %d manifest(s), interval %ds"
          % (len(arms), len(stamps), args.interval))
@@ -673,11 +682,21 @@ def main():
                                  "3 x 49GiB residents on L1P34 is ~147GiB on a 143GiB "
                                  "card, i.e. the OOM path."
                                  % (max(gwaits), head, MEM_GATE_VALVE_SEC))
-                    if goom > b_oom:
-                        emit("ALERT", "+%d CUDA OOM since start -- recorded compiled=True "
-                             "correct=False, so the governor will debug kernels that were "
-                             "never broken. Lower KB_GPU_EVAL_LOCK_SLOTS or raise "
-                             "KB_EVAL_MEM_GATE_FACTOR." % (goom - b_oom))
+                    # Fire on GROWTH since the LAST alert, not on the cumulative total.
+                    # `goom > b_oom` re-fires every tick forever once a single OOM has
+                    # ever happened: observed 2026-09-02/03, the identical "+6 CUDA OOM"
+                    # alert fired hourly for three hours with ZERO new events, which is
+                    # exactly the alert-fatigue that hides the tick where it does grow.
+                    if oom_alerted[0] is None:
+                        oom_alerted[0] = b_oom
+                    if goom > oom_alerted[0]:
+                        emit("ALERT", "+%d NEW CUDA OOM (total %d since start) -- recorded "
+                             "compiled=True correct=False, so the governor will debug "
+                             "kernels that were never broken. Raise KB_EVAL_MEM_GATE_FACTOR "
+                             "(SLOTS and MEM_GATE_FRAC are usually inert here -- check the "
+                             "admit arithmetic first)."
+                             % (goom - oom_alerted[0], goom - b_oom))
+                        oom_alerted[0] = goom
                     if gcon > b_con:
                         emit("ALERT", "+%d evals injected mem-gate text into the coder "
                              "prompt since start. eval stdout AND stderr are spliced into "
