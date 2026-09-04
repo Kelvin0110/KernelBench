@@ -51,23 +51,53 @@ REPO = "/localhome/local-tianzheng/KernelBench"
 ENV_ROOT = f"{REPO}/scripts_integration/new_evolving_agent/env"
 
 
+def _launcher_hardware(d: str) -> str | None:
+    """The $HARDWARE a launcher folder actually resolves to -- NOT always its name.
+
+    env/hardware_env.sh derives $HARDWARE from the folder name, but a folder whose
+    same-named baseline carries no `median` must redirect, and this host's
+    env/NVIDIA_GH200x2/ does exactly that:
+        KB_DEFAULT_HARDWARE="${KB_DEFAULT_HARDWARE:-NVIDIA_GH200x2_median}"
+    So arms here pass --hardware NVIDIA_GH200x2_median while their launcher folder is
+    env/NVIDIA_GH200x2. Matching the folder NAME against --hardware therefore resolves
+    nothing on this host and every restart is skipped. Read the pin first, fall back to
+    the folder name (which is what the un-pinned NVIDIA_GH200x2_2nd folder relies on).
+    """
+    rs = f"{d}/resume_run.sh"
+    if not os.path.isfile(rs):
+        return None
+    try:
+        text = open(rs).read()
+    except OSError:
+        return None
+    m = re.search(r'KB_DEFAULT_HARDWARE="\$\{KB_DEFAULT_HARDWARE:-([^}"]+)\}"', text)
+    return m.group(1) if m else os.path.basename(d.rstrip("/"))
+
+
 def hw_dir(arm: dict) -> str | None:
     """Launcher folder for THIS arm's own --hardware. Never a hardcoded host.
 
     env/hardware_env.sh derives $HARDWARE from the directory name of the launcher you
-    invoke, so the folder IS the baseline. This was hardcoded to env/NVIDIA_GH200x2 --
-    the OTHER server -- whose resume_run.sh pins KB_DEFAULT_HARDWARE=NVIDIA_GH200x2_median.
-    Every arm on this host runs NVIDIA_GH200x2_2nd, so an auto-restart would have silently
-    rescored the arm onto a different baseline: the two disagree on 14 of 50 problems
-    (ratios 0.59-1.98), and because the speedup is fed back into the coder prompt it moves
-    the SEARCH, not just the score. That is the error that forced a wave kill+relaunch on
-    2026-08-25. Refuse to restart rather than guess.
+    invoke, so the folder IS the baseline. This was once hardcoded to env/NVIDIA_GH200x2,
+    which on the other server would have silently rescored an arm onto a different
+    timing baseline: the two disagree on 14 of 50 problems (ratios 0.59-1.98), and
+    because the speedup is fed back into the coder prompt it moves the SEARCH, not just
+    the score. That is the error that forced a wave kill+relaunch on 2026-08-25.
+
+    Resolve by what each folder RESOLVES to rather than what it is called, so this works
+    unchanged on a pinned host and an un-pinned one. Refuse to restart rather than guess:
+    a never-restarted arm is recoverable by hand, an arm restarted onto the wrong
+    baseline is not.
     """
     hw = arm.get("hardware")
     if not hw:
         return None
-    d = f"{ENV_ROOT}/{hw}"
-    return d if os.path.isdir(d) and os.path.isfile(f"{d}/resume_run.sh") else None
+    for d in sorted(glob.glob(f"{ENV_ROOT}/*")):
+        if os.path.isdir(d) and _launcher_hardware(d) == hw:
+            return d
+    return None
+
+
 STATE = f"{REPO}/.wave_timeout_supervisor_state.json"
 EVAL_TO = re.compile(r"evaluation timeout after", re.I)
 
