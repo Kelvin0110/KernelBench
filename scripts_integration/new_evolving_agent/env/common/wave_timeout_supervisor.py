@@ -48,7 +48,26 @@ import argparse, glob, json, os, re, signal, subprocess, sys, time
 from datetime import datetime, timezone
 
 REPO = "/localhome/local-tianzheng/KernelBench"
-HW = f"{REPO}/scripts_integration/new_evolving_agent/env/NVIDIA_GH200x2"
+ENV_ROOT = f"{REPO}/scripts_integration/new_evolving_agent/env"
+
+
+def hw_dir(arm: dict) -> str | None:
+    """Launcher folder for THIS arm's own --hardware. Never a hardcoded host.
+
+    env/hardware_env.sh derives $HARDWARE from the directory name of the launcher you
+    invoke, so the folder IS the baseline. This was hardcoded to env/NVIDIA_GH200x2 --
+    the OTHER server -- whose resume_run.sh pins KB_DEFAULT_HARDWARE=NVIDIA_GH200x2_median.
+    Every arm on this host runs NVIDIA_GH200x2_2nd, so an auto-restart would have silently
+    rescored the arm onto a different baseline: the two disagree on 14 of 50 problems
+    (ratios 0.59-1.98), and because the speedup is fed back into the coder prompt it moves
+    the SEARCH, not just the score. That is the error that forced a wave kill+relaunch on
+    2026-08-25. Refuse to restart rather than guess.
+    """
+    hw = arm.get("hardware")
+    if not hw:
+        return None
+    d = f"{ENV_ROOT}/{hw}"
+    return d if os.path.isdir(d) and os.path.isfile(f"{d}/resume_run.sh") else None
 STATE = f"{REPO}/.wave_timeout_supervisor_state.json"
 EVAL_TO = re.compile(r"evaluation timeout after", re.I)
 
@@ -115,6 +134,7 @@ def live_arms() -> dict[str, dict]:
                 pid=pid, run=rn, gpu=env.get("CUDA_VISIBLE_DEVICES"),
                 model=arg("--model"), root=arg("--results-root"),
                 ctx=arg("--context-management"), flags=flags,
+                hardware=arg("--hardware"),
                 already_raised=("--evaluation-timeout-sec" in cmd),
             )
             if rn not in out or pid < out[rn]["pid"]:
@@ -287,8 +307,12 @@ def main() -> int:
         frm = resume_index(d)
         if frm > 50:
             _say(f"    SKIP -- nothing left"); continue
+        hwd = hw_dir(arm)
+        if hwd is None:
+            _say(f"    SKIP -- cannot resolve launcher dir for --hardware="
+                 f"{arm.get('hardware')!r}; refusing to guess a baseline"); continue
         cmd = [
-            "bash", f"{HW}/resume_run.sh", str(arm["gpu"]), os.path.basename(d),
+            "bash", f"{hwd}/resume_run.sh", str(arm["gpu"]), os.path.basename(d),
             str(arm["ctx"]), str(frm), "--",
             "--evaluation-timeout-sec", str(a.new_timeout), *arm["flags"],
         ]
@@ -307,7 +331,8 @@ def main() -> int:
                    KB_EVAL_HOIST_INPUT_GEN="1", KB_EVAL_SKIP_DEAD_REF_TIMING="1",
                    KB_EVAL_UNLOCK_CORRECTNESS="0", KB_GPU_RESERVE_GB="0")
         _say(f"    TRIGGER {pct:.1f}% >= {a.threshold_pct}%  -> stop and resume at {frm}")
-        _say(f"      model={arm['model']} root={arm['root']} flags={arm['flags'] or ['none']}")
+        _say(f"      model={arm['model']} root={arm['root']} hardware={arm['hardware']} "
+             f"launcher={os.path.basename(hwd)} flags={arm['flags'] or ['none']}")
         if not a.apply:
             _say(f"      DRY-RUN, would run: {' '.join(cmd)}")
             continue
