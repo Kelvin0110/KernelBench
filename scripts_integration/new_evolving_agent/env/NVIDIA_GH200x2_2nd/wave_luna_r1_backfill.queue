@@ -1,0 +1,10 @@
+# gpt-5.6-luna round 1 -- BACKFILL QUEUE, consumed one arm at a time by
+# env/common/wave_backfill.sh as live arms finish and slots open.
+#
+# 11 cells were requested; only 10 slots were free (GPU0 6 + GPU1 4), so `refinement`
+# starts here. It is the right cell to defer: it trips NEITHER the unit-test admission
+# gate NOR the extractor-catalog uncapping, so it is the only governance cell that is
+# clean on both dimensions and therefore the least damaged by a late start.
+#
+# tag          | context-mode | extra flags
+refinement     | truncation   | --enable-skill-refinement
